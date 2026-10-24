@@ -32,7 +32,7 @@ Must work live, on two laptops, on event Wi-Fi:
 - [ ] Throw with zero accidental throws in a 2-minute handling test.
 - [ ] Both hands of the holder are sent to the other side and drawn on the model.
 - [ ] Part interactions (press, twist, slide, hinge) driven by the hand, synced over the call.
-- [ ] Session recording, a saved replay list, and a replay viewer with scrub and orbit.
+- [x] Session recording, a saved replay list, and a replay viewer with scrub and orbit (the 3D copy's hand and pose; part-state chapters not yet).
 - [ ] Convex backend: cached models, replays, and a live-updating replay list.
 - [ ] Recorded demo video for Devpost.
 
@@ -48,7 +48,8 @@ Done:
 - Several objects per screen (up to 4), both callers throwing at once, resize by pinch (phone), scroll or two hands (computer); e2e covers a computer and a phone-sized touch peer throwing simultaneously
 - Wilson's branch merged: voice agent (Cartesia STT, `src/voice/`), pinch/grip turning of the Call tab's 3D copy (`src/remote/grasp.ts`, `quat.ts`)
 - Claude vision scan into a primitive `ModelSpec` twin, and an action library (`twist press pull push slide lift flip tilt`) with procedural animation (`src/render/motion.ts`)
-- Helper hand wire format (`src/remote/handWire.ts`, 262 B/frame), not yet sent over the real call
+- Helper hand over the call (`src/remote/handWire.ts`, 262 B/frame on the `hand` channel), drawn on the friend's feed and the 3D copy
+- Tutorials (`src/replay/`): record the 3D copy, watch it at once, save it with a name to Convex, live list, player with scrub, speed and orbit
 - Unit tests and Playwright e2e (direct and relay)
 
 Next, in build order (each step demoable on its own):

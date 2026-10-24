@@ -24,6 +24,8 @@ import { DEFAULT_PLACEMENT, type Placement } from './remote/placement';
 import { LoopbackChannel, RemoteHandState, RtcHandChannel } from './remote/remoteHand';
 import { DemoPanel } from './render/DemoPanel';
 import { TwinBox } from './render/TwinBox';
+import type { Replay } from './replay/log';
+import { TakeDialog } from './replay/Tutorials';
 import { twinKindForLabel } from './render/motion';
 import { decodePose, decodeSay, decodeTwin, encodePose, encodeSay, encodeTwin, REST_POSE, type TwinInfo, type TwinPose } from './remote/twinWire';
 type Facing = 'user' | 'environment';
@@ -332,6 +334,7 @@ export default function App({communitySession}:{communitySession?:{id:string;tok
   const scanMine = () => { void scene.scan(video.current); };
   const scanFriend = () => { void scene.scan(call.friendVideo.current); };
   const closeTwin = () => { setTwin(null); setSelectedId(null); sendTwin(null); };
+  const [take,setTake] = useState<Replay|null>(null); // a recording that just stopped, waiting to be watched and saved
   // App re-renders every 250 ms for stats, which also ticks this clock.
   const elapsed = call.connectedAt ? Math.floor((Date.now()-call.connectedAt)/1000) : 0;
   const clock = `${String(Math.floor(elapsed/60)).padStart(2,'0')}:${String(elapsed%60).padStart(2,'0')}`;
@@ -364,7 +367,8 @@ export default function App({communitySession}:{communitySession?:{id:string;tok
     </div>
     {screen!=='calling' && <VoiceBar state={voice.state} engine={voice.engine} partial={voice.partial} error={voice.error} heard={heard} objects={scene.objects} focus={focusInfo} topic={topic}
       onToggle={() => voice.state==='listening' ? voice.stop() : voice.start()} onChoose={chooseObject} onAccept={voice.accept} onDecline={voice.decline}/>}
-    {twin && (screen==='home' || screen==='incall') && <TwinBox twin={twin} mirror={screen==='home'} hand={helperMode ? myHand : peerHand} drive={helperMode ? 'local' : 'remote'} remotePose={remotePose} onPose={sendPose} placement={placement} posFlip={screen==='home' ? false : placement.flipX} onClose={closeTwin}/>}
+    {twin && (screen==='home' || screen==='incall') && <TwinBox twin={twin} mirror={screen==='home'} hand={helperMode ? myHand : peerHand} drive={helperMode ? 'local' : 'remote'} remotePose={remotePose} onPose={sendPose} placement={placement} posFlip={screen==='home' ? false : placement.flipX} onClose={closeTwin} onRecorded={r => { if (r.durationMs >= 500) setTake(r); }}/>}
+    {take && <TakeDialog replay={take} onClose={() => setTake(null)}/>}
     {screen==='home' && <section className="home-panel" aria-label="Start a call">
       <PageHeading compact eyebrow="GHOST LIVE" title={<>A hand.<br/><span className="gradient-text">From anywhere.</span></>} description="Show someone what to do with your hands."/>
       <button className="primary" onClick={() => call.start()}><Icon name="video" size={20}/>New call</button>

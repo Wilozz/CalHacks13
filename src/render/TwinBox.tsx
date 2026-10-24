@@ -13,6 +13,7 @@ import { fingertipOnTwin, HOLD_FINGERS, placeHandOnTwin } from '../remote/twinPl
 import { REST_POSE, type TwinInfo, type TwinPose } from '../remote/twinWire';
 import { componentsOf } from '../remote/components';
 import { edgeGeometry, PartMesh } from './DemoScene';
+import { Recorder, type Replay } from '../replay/log';
 
 const CYAN = '#64f5ed';
 const HOLD_COLOR: Record<GraspKind, string> = { none: CYAN, pinch: '#fff36b', grip: '#ff9f43' };
@@ -34,7 +35,10 @@ interface SceneProps {
   mirror: boolean; twin: TwinInfo; hand: MutableRefObject<RemoteHandState>; placement: MutableRefObject<Placement>; posFlip: boolean;
   drive: 'local' | 'remote'; remotePose: MutableRefObject<TwinPose>; onPose: (p: TwinPose) => void;
   status: MutableRefObject<BoxStatus>; resetToken: number;
+  /** when set, every rendered frame's hand and pose go into it */
+  recorder?: MutableRefObject<Recorder | null>;
 }
+export const IDLE_STATUS: BoxStatus = { mode: 'none', kind: 'none', moved: false, turned: false, remote: false, angle: 0, target: '', partAngle: 0, partMoved: false, thumb: '', partLift: 0, partPos: '' };
 
 const shapeGeometry = (shape: string) => shape === 'box' ? new THREE.BoxGeometry(1, 1, 1) : shape === 'sphere' ? new THREE.SphereGeometry(0.5, 20, 20) : shape === 'cone' ? new THREE.ConeGeometry(0.5, 1, 24) : new THREE.CylinderGeometry(0.5, 0.5, 1, 24);
 // How close the helper's hand is to their camera (1 = reference distance); closer pulls a held object toward the viewer.
@@ -52,7 +56,7 @@ const view = () => ({ pos: new THREE.Vector3(), quat: new THREE.Quaternion(), wa
  * is selected first. Pinch (thumb + index) moves, and twisting spins; grip (thumb + index + middle) turns with your
  * whole hand. When the other person is the helper, this only displays the pose they send.
  */
-function TwinScene({ mirror, twin, hand, placement, posFlip, drive, remotePose, onPose, status, resetToken }: SceneProps) {
+export function TwinScene({ mirror, twin, hand, placement, posFlip, drive, remotePose, onPose, status, resetToken, recorder }: SceneProps) {
   const rig = useMemo(() => new TwinRig(twin.model), [twin.model]);
   const comps = rig.components;
   const grasp = useMemo(() => new GraspDetector(), []);
@@ -89,6 +93,7 @@ function TwinScene({ mirror, twin, hand, placement, posFlip, drive, remotePose, 
     let target: Target | null = null, hover: Target | null = null, kind: GraspKind = 'none';
     let handPts: P3[] | null = null;
     let closeness = 0;
+    let shown: TwinPose = REST_POSE;
 
     // Alone, the whole picture is mirrored (so left is left, like your selfie video), and that mirror already
     // flips the hand: flipping the shape too would draw your right hand as a left hand.
@@ -117,18 +122,20 @@ function TwinScene({ mirror, twin, hand, placement, posFlip, drive, remotePose, 
       if (frame && tip && from) handPts = place(frame, m.grabbing && m.anchor ? m.anchor : undefined, kind, from);
       // Tell the other screen where everything is, but not more than ~15 times a second.
       const cur: TwinPose = { offset: m.root.offset, rotation: m.root.rotation, grabbing: m.grabbing, kind: m.kind, anchor: m.anchor, parts: m.parts, target: m.target === null ? -2 : m.target === 'whole' ? -1 : m.target };
+      shown = cur;
       const sent = v.sent;
       const changed = cur.grabbing !== sent.grabbing || cur.kind !== sent.kind || cur.target !== sent.target || !same(cur.offset, sent.offset, 0.004) || qAngle(cur.rotation, sent.rotation) > 0.01
         || cur.parts.some((p, i) => !sent.parts[i] || !same(p.offset, sent.parts[i].offset, 0.004) || qAngle(p.rotation, sent.parts[i].rotation) > 0.01);
       if (changed && now - v.sentAt > 66) { v.sent = cur; v.sentAt = now; onPose(cur); }
     } else {
-      const rp = remotePose.current;
+      const rp = remotePose.current; shown = rp;
       root = { offset: rp.offset, rotation: rp.rotation };
       parts = comps.map((_, i) => rp.parts[i] ? { offset: rp.parts[i].offset, rotation: rp.parts[i].rotation } : { offset: [0, 0, 0] as P3, rotation: QI });
       target = rp.target === -2 ? null : rp.target === -1 ? 'whole' : rp.target < comps.length ? rp.target : null; kind = rp.kind;
       if (frame) handPts = place(frame, rp.grabbing && rp.anchor ? rp.anchor : undefined, rp.kind, grabPoint(frame, rp.kind));
     }
     const grabbing = target !== null;
+    recorder?.current?.frame(now, frame, shown);
 
     // Ease every piece toward its pose; the whole lifts a little while held.
     const k = 1 - Math.exp(-dt * 22), kq = 1 - Math.exp(-dt * 20);
@@ -227,13 +234,28 @@ function Lookat() {
  * `mirror` flips the picture like a selfie view: alone, you watch yourself in a mirror, so the copy and your hand
  * must move the way your mirrored video does (move left, the hand goes left).
  */
-export function TwinBox({ twin, hand, placement, posFlip, mirror = false, drive, remotePose, onPose, onClose }: {
+export function TwinBox({ twin, hand, placement, posFlip, mirror = false, drive, remotePose, onPose, onClose, onRecorded }: {
   twin: TwinInfo; hand: MutableRefObject<RemoteHandState>; placement: Placement; posFlip: boolean; mirror?: boolean;
   drive: 'local' | 'remote'; remotePose: MutableRefObject<TwinPose>; onPose: (p: TwinPose) => void; onClose: () => void;
+  /** a finished recording of what this box showed */
+  onRecorded?: (r: Replay) => void;
 }) {
   const pl = useRef(placement);
   useEffect(() => { pl.current = placement; }, [placement]);
-  const status = useRef<BoxStatus>({ mode: 'none', kind: 'none', moved: false, turned: false, remote: false, angle: 0, target: '', partAngle: 0, partMoved: false, thumb: '', partLift: 0, partPos: '' });
+  const status = useRef<BoxStatus>(IDLE_STATUS);
+  const recorder = useRef<Recorder | null>(null);
+  const [recSecs, setRecSecs] = useState<number | null>(null);
+  const recStart = useRef(0);
+  const stopRecording = () => { const r = recorder.current; if (!r) return; recorder.current = null; setRecSecs(null); onRecorded?.(r.finish(performance.now())); };
+  const startRecording = () => { recStart.current = performance.now(); recorder.current = new Recorder(recStart.current, { twin, mirror, posFlip, placement: pl.current }); setRecSecs(0); };
+  const stopRef = useRef(stopRecording); stopRef.current = stopRecording;
+  // A different object (or closing the box) ends the recording rather than losing it.
+  useEffect(() => () => stopRef.current(), [twin.objectId]);
+  useEffect(() => {
+    if (recSecs === null) return;
+    const id = window.setInterval(() => { if (recorder.current?.full) stopRef.current(); else setRecSecs(Math.floor((performance.now() - recStart.current) / 1000)); }, 250);
+    return () => clearInterval(id);
+  }, [recSecs === null]); // eslint-disable-line react-hooks/exhaustive-deps
   const [ui, setUi] = useState<BoxStatus>(status.current);
   const [resetToken, setResetToken] = useState(0);
   const [big, setBig] = useState(false);
@@ -255,11 +277,13 @@ export function TwinBox({ twin, hand, placement, posFlip, mirror = false, drive,
       <Lookat />
       <ambientLight intensity={1.2} />
       <directionalLight position={[2, 3, 4]} intensity={2} />
-      <TwinScene key={twin.objectId} mirror={mirror} twin={twin} hand={hand} placement={pl} posFlip={posFlip} drive={drive} remotePose={remotePose} onPose={onPose} status={status} resetToken={resetToken} />
+      <TwinScene key={twin.objectId} mirror={mirror} twin={twin} hand={hand} placement={pl} posFlip={posFlip} drive={drive} remotePose={remotePose} onPose={onPose} status={status} resetToken={resetToken} recorder={recorder} />
     </Canvas>
+    {recSecs !== null && <span className="twin-rec" role="status">● REC {Math.floor(recSecs / 60)}:{String(recSecs % 60).padStart(2, '0')}</span>}
     {holding && <span className={`twin-badge ${ui.kind}`}>{ui.kind === 'grip' ? 'GRIP' : 'PINCH'}</span>}
     <div className="twin-label"><span>{twin.label}</span><span className="twin-status">{text}</span></div>
     <div className="twin-tools">
+      {onRecorded && <button className={`twin-tool ${recSecs !== null ? 'recording' : ''}`} aria-label={recSecs !== null ? 'Stop recording' : 'Record a tutorial'} aria-pressed={recSecs !== null} title={recSecs !== null ? 'Stop recording' : 'Record a tutorial'} onClick={recSecs !== null ? stopRecording : startRecording}>{recSecs !== null ? '■' : '●'}</button>}
       <button className="twin-tool" aria-label={big ? 'Make it smaller' : 'Make it bigger'} aria-pressed={big} title={big ? 'Make it smaller' : 'Make it bigger'} onClick={() => setBig(b => !b)}>{big ? '⤡' : '⤢'}</button>
       {changed && drive === 'local' && <button className="twin-tool" aria-label="Put it back" title="Put it back" onClick={() => setResetToken(n => n + 1)}>↺</button>}
       <button className="twin-tool" aria-label="Close 3D view" onClick={onClose}>×</button>

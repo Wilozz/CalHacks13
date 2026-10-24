@@ -269,3 +269,28 @@ button:disabled{opacity:.4;cursor:default}
 /* The top nav bar is 72px tall and sits above the app, so on the home screen the Hand tools panel starts below it;
    otherwise the bar covers the panel's close button. (In a call the nav bar is hidden, so the panel is full height.) */
 .mac.home .sheet-backdrop{top:72px}
+/* Tutorials: recording badge, the replay player and the save dialog. */
+.twin-rec{position:absolute;left:50%;top:8px;transform:translateX(-50%);padding:3px 8px;border-radius:999px;background:var(--red);color:#fff;font-size:10px;font-weight:700;letter-spacing:1px;pointer-events:none;font-variant-numeric:tabular-nums}
+.twin-tool.recording{background:var(--red);color:#fff}
+.replay-player{display:grid;gap:10px}
+.replay-stage{position:relative;aspect-ratio:4/3;max-height:60dvh;border-radius:12px;overflow:hidden;background:#54575d;touch-action:none}
+.replay-stage canvas{display:block}
+.replay-stage.mirror canvas{transform:scaleX(-1)}
+.replay-hint{position:absolute;left:10px;bottom:8px;font-size:11px;color:rgba(255,255,255,.7);pointer-events:none}
+.replay-controls{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.replay-controls input[type=range]{flex:1;min-width:140px;accent-color:var(--green)}
+.replay-time{font-size:13px;font-variant-numeric:tabular-nums;color:var(--text-2)}
+.replay-speeds{display:flex;gap:4px}
+.replay-speeds button,.replay-controls .round.small{min-height:36px;min-width:36px;padding:0 10px;border:1px solid #b5b5b533;border-radius:18px;background:#262626;color:#eee;font-size:13px}
+.replay-speeds button[aria-pressed=true]{background:#eee;color:#111}
+.replay-modal>section{width:min(720px,100%);display:grid;gap:14px;color:var(--text)}
+.replay-modal h2{margin:0}
+.replay-meta{font-size:13px;color:var(--text-2)}
+.replay-actions{display:grid;gap:12px}
+.replay-actions label{display:grid;gap:6px;font-size:13px;color:var(--text-2)}
+.replay-actions input{width:100%;min-height:44px;padding:10px;border:1px solid #354f5e;border-radius:7px;background:#091217;color:var(--text);font-size:16px}
+.replay-actions button{min-height:44px;padding:0 16px;border-radius:8px;border:1px solid #b5b5b533;background:#262626;color:#eee;font-weight:600}
+.replay-actions button.primary{background:var(--green);color:#000;border:0}
+.replay-item{display:grid;gap:4px;width:100%;text-align:left;cursor:pointer;color:var(--text)}
+.replay-item.active{border-color:var(--green)}
+.replay-open h2{margin:0}

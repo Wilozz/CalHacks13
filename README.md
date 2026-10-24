@@ -169,6 +169,12 @@ Scan (Hand tools → AI scan) a camera view, or in a call your friend's view, an
 
 Pinch (thumb to index) with the fingertip on the 3D copy to grab it; while pinched it follows the hand, and letting go leaves it where it was dropped. The ↺ button puts it back. A ring on the fingertip closes as the fingers meet, the object is outlined when in reach and yellow while held, and a ghost outline plus dashed line show where it started. Logic: `src/remote/pinch.ts` (hysteresis, palm-relative so it ignores distance) and `src/remote/twinMove.ts`. The helper's screen computes the movement and sends the pose over the control channel; the recipient's screen only displays it. "Rip" and other interactions are not built yet.
 
+## Tutorials: record and replay (`src/replay/`, `convex/replays.ts`)
+
+Press **●** on the 3D copy to record and **■** to stop (5 minutes at most; closing the copy or switching objects also stops it). A recording is what the copy showed, never video: each hand frame in the call's wire format and the object's pose, about 30 times a second. When it stops, it plays straight away: play/pause, scrub, 0.5–2× speed, and drag to look from any angle. Name it and **Save tutorial** to keep it, or **Discard**.
+
+Saved tutorials are under **Tutorials**, a live Convex query, newest first, each with its own player and **Delete**. The log is uploaded to Convex file storage. Then the `replays.save` action checks its size (6 MB cap) and every field with the same decoders the call uses, and deletes an upload that fails the check. Tutorials belong to this browser through a random key in `localStorage`, not an account. Saving needs Convex (`npm run convex` locally; the Render build deploys it); without it you can still watch a recording until you close it.
+
 ## Throwing prototype (`src/throw/`)
 
 A demo of "Reach Through": a hologram you grab and flick through the screen to the person you're calling. Open the **Throwing prototype** tab (top right on the start screen, or `/#throw`).
