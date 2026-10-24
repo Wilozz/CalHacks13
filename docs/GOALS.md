@@ -26,13 +26,14 @@ Roles (the code uses these names):
 
 Must work live, on two laptops, on event Wi-Fi:
 
-- [ ] 3 cached objects with interactive parts. Proposed: phone (power button, screen turns on), pill bottle (push-and-twist cap), and one with a hinge or slider.
+- [ ] **Hero: two-piece lanyard.** The learner has two disconnected pieces; the helper shows how to join them (align, insert, click). See ARCHITECTURE "Assembly". This must be the most polished thing in the demo.
+- [ ] 1–2 backup cached objects with interactive parts (e.g. a phone power button, a pill bottle push-and-twist cap).
 - [ ] Grab, move, rotate and two-hand resize that feel effortless (see ARCHITECTURE "Interaction").
 - [ ] Throw with zero accidental throws in a 2-minute handling test.
 - [ ] Both hands of the holder are sent to the other side and drawn on the model.
 - [ ] Part interactions (press, twist, slide, hinge) driven by the hand, synced over the call.
 - [ ] Session recording, a saved replay list, and a replay viewer with scrub and orbit.
-- [ ] A backend that stores replays and serves the cached models.
+- [ ] Convex backend: cached models, replays, and a live-updating replay list.
 - [ ] Recorded demo video for Devpost.
 
 ## Status
@@ -51,12 +52,13 @@ Done:
 Next, in build order (each step demoable on its own):
 
 1. **Throw safety.** Today any fast sideways or upward flick throws, and losing tracking mid-hold releases with the last motion (`LOST_GRACE` in `TossScene.tsx`), which can fire a throw nobody meant. Fix these first.
-2. **Mesh objects.** Load cached GLB models next to `ModelSpec` primitives. Add an object profile with parts and affordances (ARCHITECTURE "Object profile").
-3. **Two hands.** Set `numHands: 2` in the worker and add two-hand resize and rotate.
+2. **Mesh objects.** Load cached GLB models next to `ModelSpec` primitives. Add an object profile with parts, pieces and connectors (ARCHITECTURE "Object profile" and "Assembly").
+3. **Two hands.** Set `numHands: 2` in the worker, assign hands to pieces by continuity, hold one piece in each hand, and add two-hand resize and rotate.
+3b. **Assembly.** Align assist, insert and snap for the lanyard. Unit-test the math first.
 4. **Hands over the call.** Connect `RtcHandChannel` in the call and draw the remote hands on the shared model.
 5. **Part interactions.** Hit-test fingertips against part hotspots and drive part state. Sync the state over `control`.
 6. **Recording and replay.** Record the event log, upload it on throw-back, and add a replay viewer.
-7. **Backend.** Host the model files, profiles and replays (see **Tracks**).
+7. **Convex.** Model files, profiles and replays (ARCHITECTURE "Backend: Convex").
 8. Polish: the scan "moment" (a scan effect, then the cached model appears), sound, captions.
 
 ## Tracks we're targeting
@@ -64,13 +66,13 @@ Next, in build order (each step demoable on its own):
 | Track | Why we fit | What we need to show |
 |---|---|---|
 | **Meta: Bringing People Closer Together with AI** (primary) | Remote help through a shared object, built on Meta's SAM 3 / SAM 3D | SAM pipeline visible in the pitch, the two-person loop |
-| **[MLH] Tiger Data** | Replays are time-series: hand frames and object poses at 30 Hz. A hypertable plus compression is a natural fit | Replays stored in and read from Tiger (Postgres) |
+| **Convex: Best use of Convex** | Backend for models, replays and the live replay list. A reactive query makes the replay appear as the object is thrown back | Replay shows up live; file storage for meshes and logs |
 | **[MLH] Vultr** | Host the app and signaling. A Vultr GPU can run SAM 3D for live, uncached scans | App deployed on Vultr. GPU scan is optional |
 | **Cartesia** | Helper's voice to captions or translated speech during the demo | Live captions in the call and saved into the replay |
 | **Cal Hacks overall / Most Technically Advanced / Most Creative** | Worker hand tracking, WebRTC data channels, 3D, AI part classification | A clean live demo |
 | **[MLH] GoDaddy domain** | Cheap win | Register a domain and point it at the deploy |
 
-Possible but not planned: Convex (an alternative to Tiger for the replay store; pick one), Elastic (search across saved replays by "how do I…"), Fetch.ai (agents). Prefer depth on a few tracks over a thin integration everywhere.
+Possible but not planned: Tiger Data (we chose Convex for storage), Elastic (search across saved replays by "how do I…"), Fetch.ai (agents). Prefer depth on a few tracks over a thin integration everywhere.
 
 ## Non-goals
 
@@ -92,6 +94,7 @@ Possible but not planned: Convex (an alternative to Tiger for the replay store; 
 ## Open questions
 
 - Replay ownership without accounts: is a random replay id plus a key kept in `localStorage` enough for the demo?
+- Which lanyard exactly (side-release buckle, hook clip into a ring, or a magnetic clasp)? It sets the connector frames and whether separating needs a `press`. Get the physical one and photograph both pieces for SAM 3D first.
 - Who decides part affordances: Claude per object (with a human check on the cached ones), or hand-written profiles for the 3 demo objects? Recommended: Claude-generated, then hand-checked and committed.
 - Does the learner watch the helper's demonstration in 3D only, or 3D overlaid on the helper's video?
 - One shared scene (both see the same object at once) or the current "only the holder has it" model? Currently the holder has it. That keeps conflicts away and makes the throw meaningful.

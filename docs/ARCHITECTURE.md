@@ -67,6 +67,45 @@ Plain serializable data, validated like `sanitizeModel` before use. It travels o
 - `action` reuses the existing action library (`twist press pull push slide lift flip tilt`), so the parser, `motion.ts` animations and offline verbs all keep working. A new part type (such as `hinge`) means extending `ActionType`, not starting a second vocabulary.
 - The classifier proposes. The checked-in profile is the source of truth for the demo, which is the same rule as `policy.ts`: the model never gets the last word.
 
+### Assembly: objects made of pieces (the lanyard demo)
+
+The hero demo: the learner has a lanyard in two pieces (for example, a strap ending in a buckle tongue, and a strap ending in the buckle socket). The helper shows how to join them. This is the case the whole system is built for, so it gets its own rules.
+
+**Model.** An object is a *kit* of rigid **pieces**. Each piece has its own mesh and its own pose, plus **connectors** that can mate with each other. A part (button, cap) moves *within* a piece; a piece moves freely, and connectors join pieces.
+
+```jsonc
+"pieces": [
+  { "id": "tongue", "mesh": "lanyard-01/tongue.glb",
+    "connectors": [{ "id": "t", "at": [0, -0.5, 0], "axis": [0, -1, 0], "up": [0, 0, 1], "mates": "socket.s" }] },
+  { "id": "socket", "mesh": "lanyard-01/socket.glb",
+    "connectors": [{ "id": "s", "at": [0, 0.5, 0], "axis": [0, 1, 0], "up": [0, 0, 1], "mates": "tongue.t",
+                     "insert": 0.35, "symmetric": false }] }
+],
+"joints": []                       // runtime state: [] = apart, [["tongue.t","socket.s"]] = joined
+```
+
+Each piece is scanned separately with SAM 3D (photograph the two pieces apart). The connector frames (`at`, `axis`, `up`) are written by hand in the profile, because a model guessing them wrong breaks the demo.
+
+**Mating: three stages, each forgiving.**
+
+1. **Approach** (connectors more than about 2 × `insert` apart): free movement. Nothing happens.
+2. **Align** (inside the assist radius): the moving piece's rotation is pulled smoothly (slerp, about 150 ms) toward the mating orientation. Its position is pulled onto the socket's axis line. The connector glows. The user only has to get close; the system lines up the last few degrees and centimetres.
+3. **Insert:** progress along the axis comes from the hands moving the two pieces together (projected onto the axis). Past `insert` depth it **snaps**: a click sound, a squash, and the joint is added to `joints`. From then on the joined pieces move as one rigid group, held by either hand.
+
+Separating uses the reverse motion (pull apart along the axis past a threshold), or a `press` part on the buckle (side-release) if the real lanyard works that way. That is the same parts system, so "press both tabs, then pull" is just a profile.
+
+**Why it will feel good, given hand-tracking limits:**
+
+- **Depth is the weak axis.** MediaPipe's monocular z is noisy, so when both pieces are held they share one working depth plane. Alignment and insertion use screen-plane position plus rotation only. The user never has to judge depth.
+- **Assign hands to pieces by continuity, not by MediaPipe's left/right label.** That label swaps when hands cross or come close. Match each new hand to the piece it held last frame by nearest palm position.
+- **Two hands near each other is where tracking drops.** On a dropout, freeze that piece (grip kept) for up to about 500 ms. Never drop it, and never throw it (same rule as throw safety).
+- **The assist radius is generous; the snap is not.** Joining needs alignment within tolerance *and* the insert motion. That way the demonstration shows the real motion (push in), not just "touch and it teleports".
+- Strap: rigid meshes are enough for the demo. A stretch goal is a short verlet rope (about 16 points) drawn as a `TubeGeometry` hanging from each piece, so the strap sways. About 30 lines, no physics engine.
+
+**Over the call and in the replay.** The holder is the authority for every piece's pose and for `joints`. `control` carries `joint` events (`join`/`split` with connector ids). The replay records per-piece poses and joint events, so the replay viewer can mark "joined at 0:42" as a chapter.
+
+**Tests to write first** (pure functions, no camera): connector world frame from piece pose; align assist (converges, never overshoots); insert progress projection; snap fires only within tolerance; hand-to-piece assignment when labels swap; dropout freezes rather than drops.
+
 ### Interaction (grab, transform, throw)
 
 Builds on `src/throw/TossScene.tsx` and `src/remote/pinch.ts`.
@@ -96,10 +135,21 @@ Builds on `src/throw/TossScene.tsx` and `src/remote/pinch.ts`.
 - The recorder runs on **both** sides and logs what is in the scene, never video: `{t, kind: 'hand'|'pose'|'part'|'toss'|'caption', data}`. At 2 hands × 30 Hz × 262 B that is about 16 KB/s, or about 2 MB for a 2-minute lesson before compression.
 - On throw-back the helper's log goes with it (or is uploaded and referenced by id). The learner merges both logs into one session timeline.
 - Replay viewer: the same R3F scene fed from the log instead of live input, with scrub, play/pause, speed, orbit, and part-state chapter markers.
-- Storage: one `replays` row (id, object id, created, duration) plus a time-series table of events (a Tiger Data hypertable, see GOALS **Tracks**). Served by a small HTTP API next to the signaling server. Replays are opt-in: the learner sees "saved", and can delete one.
+- Replays are opt-in: the learner sees "saved", and can delete one.
 
-### Planned server additions
+### Backend: Convex
 
-- `GET /objects/:id/*`: cached GLBs and profiles (or static files from `dist/`)
-- `POST /replays`, `GET /replays/:id`, `GET /replays?key=…`, `DELETE /replays/:id`, with a size cap and schema validation on upload
-- The database URL lives server-side only, like the TURN secrets.
+Convex holds everything persistent. Signaling and live media stay on `server/index.mjs` and WebRTC, because Convex is not a 30 Hz transport.
+
+| Convex | Holds |
+|---|---|
+| File storage | Cached `.glb` meshes and the replay event log (one binary blob per replay, made of `handWire` frames plus JSON events) |
+| `objects` table | `profile` (the JSON above), `meshFiles: Id<'_storage'>[]`, label, class |
+| `replays` table | `objectId`, `ownerKey`, `logFile: Id<'_storage'>`, `durationMs`, `chapters` (joint and part events with times), `createdAt` |
+
+- **The log goes in file storage, not in a document.** Convex documents are capped at 1 MiB and arrays at 8192 items, and a 2-minute log is about 2 MB. Upload: mutation `replays.generateUploadUrl`, then `POST` the blob, then mutation `replays.create({ storageId, … })`, which checks the size and fields.
+- `chapters` is small and stays in the document, so the replay list can show "joined buckle at 0:42" without downloading the log.
+- `replays.list({ ownerKey })` is a reactive query. A replay appears in the learner's list the moment the helper's throw-back finishes, with no polling. Show that in the Convex pitch.
+- No accounts: `ownerKey` is a random id in `localStorage`, checked in every query and mutation. That's enough for the demo, but not real auth.
+- Stretch: a Convex action calls Claude to propose a profile from a photo plus the SAM masks (the classifier in "Object pipeline"). It writes a draft, which a person reviews.
+- The Convex deploy key and the Anthropic key stay server-side. Only the public `VITE_CONVEX_URL` reaches the client.
