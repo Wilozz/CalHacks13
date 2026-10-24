@@ -58,14 +58,15 @@ export function poseAt(spec: ActionSpec, loopT: number, reverseThread = false): 
 }
 
 /** Tier 1: choose a procedural model from the label, falling back on the action. */
-export function twinKindFor(spec: ActionSpec, parentLabel = ''): TwinKind {
-  const text = `${spec.targetLabel} ${parentLabel}`.toLowerCase();
+export function twinKindForLabel(label: string, parentLabel = '', action?: ActionType): TwinKind {
+  const text = `${label} ${parentLabel}`.toLowerCase();
   if (/bottle|cap|lid|jar|tube|瓶/.test(text)) return 'bottle';
   if (/knob|dial|valve|handle|旋钮/.test(text)) return 'knob';
   if (/button|key|switch button|reset|按/.test(text)) return 'button';
   if (/switch|lever|toggle|开关/.test(text)) return 'switch';
-  return ({ twist: 'knob', press: 'button', flip: 'switch', tilt: 'bottle' } as Partial<Record<ActionType, TwinKind>>)[spec.actionType] ?? 'box';
+  return (action && ({ twist: 'knob', press: 'button', flip: 'switch', tilt: 'bottle' } as Partial<Record<ActionType, TwinKind>>)[action]) || 'box';
 }
+export const twinKindFor = (spec: ActionSpec, parentLabel = ''): TwinKind => twinKindForLabel(spec.targetLabel, parentLabel, spec.actionType);
 
 /**
  * Place the floating twin beside the anchor on the side with more room. Units are frame heights.

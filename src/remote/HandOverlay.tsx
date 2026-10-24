@@ -6,7 +6,7 @@ import { FrameCamera } from '../render/DemoScene';
 import { HandPlacer, type Placement } from './placement';
 import type { RemoteHandState } from './remoteHand';
 
-function Skeleton({ remote, placement, aspect }: { remote: MutableRefObject<RemoteHandState>; placement: MutableRefObject<Placement>; aspect: number }) {
+function Skeleton({ remote, placement, aspect, mirrored }: { remote: MutableRefObject<RemoteHandState>; placement: MutableRefObject<Placement>; aspect: number; mirrored: boolean }) {
   const group = useRef<THREE.Group>(null!);
   const joints = useRef<(THREE.Mesh | null)[]>([]);
   const bones = useRef<(THREE.Mesh | null)[]>([]);
@@ -16,7 +16,7 @@ function Skeleton({ remote, placement, aspect }: { remote: MutableRefObject<Remo
 
   useFrame(({ clock }, dt) => {
     const frame = remote.current.current(performance.now());
-    const pts = frame ? placer.current.place(frame, placement.current, aspect) : null;
+    const pts = frame ? placer.current.place(frame, placement.current, aspect, mirrored) : null;
     group.current.visible = !!pts;
     if (!pts) { s.current.fresh = false; placer.current.reset(); return; }
     // Smooth the jitter of monocular tracking, but snap on (re)acquisition so the hand never swoops in.
@@ -46,7 +46,7 @@ function Skeleton({ remote, placement, aspect }: { remote: MutableRefObject<Remo
  * which is fed by a real data channel or, in the solo demo, a loopback of the local hand.
  * In pinned mode, tap the view to choose where the fingertip should land.
  */
-export function HandOverlay({ remote, placement, aspect, onPin }: { remote: MutableRefObject<RemoteHandState>; placement: Placement; aspect: number; onPin: (p: { x: number; y: number }) => void }) {
+export function HandOverlay({ remote, placement, aspect, onPin, cover = false, mirrored = false }: { remote: MutableRefObject<RemoteHandState>; placement: Placement; aspect: number; onPin: (p: { x: number; y: number }) => void; cover?: boolean; mirrored?: boolean }) {
   const ref = useRef(placement);
   useEffect(() => { ref.current = placement; }, [placement]);
   const pinning = placement.mode === 'pinned';
@@ -55,11 +55,11 @@ export function HandOverlay({ remote, placement, aspect, onPin }: { remote: Muta
     const r = e.currentTarget.getBoundingClientRect();
     onPin({ x: Math.min(1, Math.max(0, (e.clientX - r.left) / r.width)), y: Math.min(1, Math.max(0, (e.clientY - r.top) / r.height)) });
   };
-  return <div className="demo-overlay hand-overlay" aria-hidden="true">
-    <div className={`demo-frame ${pinning ? 'pinning' : ''}`} style={{ aspectRatio: String(aspect) }} onPointerDown={tap}>
+  return <div className={`demo-overlay hand-overlay ${cover ? 'cover' : ''}`} aria-hidden="true">
+    <div className={`demo-frame ${pinning ? 'pinning' : ''}`} style={{ aspectRatio: String(aspect), ['--ar' as string]: aspect }} onPointerDown={tap}>
       <Canvas orthographic dpr={[1, 1.5]} gl={{ alpha: true, antialias: true }} onCreated={({ gl }) => gl.setClearColor(0x000000, 0)}>
         <FrameCamera aspect={aspect} />
-        <Skeleton remote={remote} placement={ref} aspect={aspect} />
+        <Skeleton remote={remote} placement={ref} aspect={aspect} mirrored={mirrored} />
       </Canvas>
       {pinning && placement.pin && <i className="pin-mark" style={{ left: `${placement.pin.x * 100}%`, top: `${placement.pin.y * 100}%` }} />}
     </div>

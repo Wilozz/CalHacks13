@@ -1,5 +1,4 @@
-import type { ActionType, SceneObject } from '../ai/types';
-import { ACTION_TYPES } from '../ai/actionLibrary';
+import type { SceneObject } from '../ai/types';
 
 /** Boxes over the camera view for what the AI saw. Click one, or point at it for about a second. */
 export function SceneOverlay({ objects, selectedId, hoverId, aspect, mirrored, onSelect }:
@@ -18,40 +17,26 @@ export function SceneOverlay({ objects, selectedId, hoverId, aspect, mirrored, o
   </div>;
 }
 
-export function ScenePanel({ objects, selectedId, onSelect, action, onAction, mode, onMode, onRecenter, cameraOn, scanning, error, auto, onAuto, onScan, lastMs }: {
-  objects: SceneObject[]; selectedId: string | null; onSelect: (id: string) => void;
-  action: ActionType | null; onAction: (a: ActionType) => void;
-  mode: 'live' | 'demo'; onMode: (m: 'live' | 'demo') => void; onRecenter: () => void;
-  cameraOn: boolean; scanning: boolean; error: string; auto: boolean; onAuto: (v: boolean) => void; onScan: () => void; lastMs: number | null;
+export function ScenePanel({ objects, selectedId, onSelect, cameraOn, inCall, scanning, error, auto, onAuto, onScan, onScanFriend, lastMs }: {
+  objects: SceneObject[]; selectedId: string | null; onSelect: (id: string | null) => void;
+  cameraOn: boolean; inCall: boolean; scanning: boolean; error: string; auto: boolean; onAuto: (v: boolean) => void;
+  onScan: () => void; onScanFriend: () => void; lastMs: number | null;
 }) {
-  const selected = objects.find(o => o.objectId === selectedId) ?? null;
-  const actions = selected ? (selected.affordances.length ? selected.affordances : [...ACTION_TYPES]) : [];
   return <section className="panel scene-panel" aria-label="AI scene understanding">
-    <div className="panel-heading"><span>AI SCENE → 3D TWIN</span><span className="cyan">{lastMs ? `LAST SCAN ${(lastMs / 1000).toFixed(1)}s` : 'CLAUDE VISION'}</span></div>
+    <div className="panel-heading"><span>OBJECT → 3D COPY</span><span className="cyan">{lastMs ? `LAST SCAN ${(lastMs / 1000).toFixed(1)}s` : 'CLAUDE VISION'}</span></div>
     <div className="scene-body">
       <div className="scene-row">
-        <button disabled={!cameraOn || scanning} onClick={onScan}>{scanning ? 'Scanning…' : 'Scan what the camera sees'}</button>
-        <label><input type="checkbox" checked={auto} disabled={!cameraOn} onChange={e => onAuto(e.target.checked)} /> Re-scan every 6 s</label>
+        <button disabled={!cameraOn || scanning} onClick={onScan}>{scanning ? 'Scanning…' : 'Scan my camera'}</button>
+        {inCall && <button className="secondary" disabled={scanning} onClick={onScanFriend}>Scan my friend's view</button>}
+        <label><input type="checkbox" checked={auto} disabled={!cameraOn} onChange={e => onAuto(e.target.checked)} /> Re-scan my camera every 6 s</label>
       </div>
-      {!cameraOn && <p className="scene-hint">Enable the camera, point it at a bottle, button, knob or drawer, then scan.</p>}
+      {!cameraOn && !inCall && <p className="scene-hint">Turn on the camera, point it at a bottle, button, knob or drawer, then scan.</p>}
       {error && <p className="scene-error-text" role="alert">{error}</p>}
-      {cameraOn && !objects.length && !error && !scanning && <p className="scene-hint">Nothing scanned yet. Each object found becomes a 3D twin you can control with your hand.</p>}
+      {!objects.length && !error && !scanning && (cameraOn || inCall) && <p className="scene-hint">Nothing scanned yet. Pick an object after scanning and a small 3D copy appears in the corner, with the helper's hand on it.</p>}
       {!!objects.length && <>
-        <p className="scene-hint">Click an object, or point at it with your index finger and hold for a moment.</p>
+        <p className="scene-hint">Choose the object to show. {inCall ? '' : 'You can also point at it with your index finger and hold for a moment.'}</p>
         <div className="scene-row" role="group" aria-label="Detected objects">
-          {objects.map(o => <button key={o.objectId} className={o.objectId === selectedId ? '' : 'secondary'} aria-pressed={o.objectId === selectedId} onClick={() => onSelect(o.objectId)}>{o.label}{o.model ? '' : ' (basic shape)'}</button>)}
-        </div>
-      </>}
-      {selected && <>
-        <div className="scene-row" role="group" aria-label="Action">
-          <span className="scene-key">ACTION</span>
-          {actions.map(a => <button key={a} className={a === action ? '' : 'secondary'} aria-pressed={a === action} onClick={() => onAction(a)}>{a}</button>)}
-        </div>
-        <div className="scene-row" role="group" aria-label="Control mode">
-          <span className="scene-key">TWIN</span>
-          <button className={mode === 'live' ? '' : 'secondary'} aria-pressed={mode === 'live'} onClick={() => onMode('live')}>Follows my hand</button>
-          <button className={mode === 'demo' ? '' : 'secondary'} aria-pressed={mode === 'demo'} onClick={() => onMode('demo')}>Play demo</button>
-          {mode === 'live' && <button className="secondary" onClick={onRecenter}>Recenter</button>}
+          {objects.map(o => <button key={o.objectId} className={o.objectId === selectedId ? '' : 'secondary'} aria-pressed={o.objectId === selectedId} onClick={() => onSelect(o.objectId === selectedId ? null : o.objectId)}>{o.label}{o.model ? '' : ' (basic shape)'}</button>)}
         </div>
       </>}
     </div>

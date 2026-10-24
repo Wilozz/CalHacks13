@@ -158,3 +158,28 @@ button:disabled{opacity:.4;cursor:default}
 .pin-mark::before{left:50%;top:-6px;bottom:-6px;width:1.5px}
 .pin-mark::after{top:50%;left:-6px;right:-6px;height:1.5px}
 @media(prefers-reduced-motion:reduce){*{scroll-behavior:auto}}
+
+/* Hand overlays that must line up with an object-fit: cover video (the containers set container-type: size). */
+.remote{container-type:size}
+.demo-overlay.cover .demo-frame{height:auto;max-width:none;position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:max(100cqw,calc(100cqh * var(--ar)))}
+.demo-overlay.cover{overflow:hidden}
+.hand-hint{position:absolute;left:50%;bottom:calc(env(safe-area-inset-bottom) + 100px);transform:translateX(-50%);margin:0;z-index:2;font-size:13px;color:#d4fffc;background:rgba(7,18,23,.82);border:1px solid #2a4a50;border-radius:999px;padding:8px 16px;white-space:nowrap}
+/* Friend is showing a hand: my camera (where their hand lands) becomes the big view, theirs the small tile. */
+.app.incall.guided .self{inset:0;right:0;bottom:0;width:auto;height:auto;border-radius:0;box-shadow:none;z-index:0}
+.app.incall.guided .remote{inset:auto;right:24px;bottom:24px;width:240px;height:180px;border-radius:14px;box-shadow:0 8px 24px rgba(0,0,0,.4);z-index:1}
+.phone.incall.guided .remote{right:16px;bottom:calc(env(safe-area-inset-bottom) + 118px);width:112px;height:168px;border-radius:16px}
+
+/* Small grey box with a 3D copy of the object and the helper's hand on it. Bottom right; above the self tile in a call. */
+.twin-box{position:absolute;z-index:3;right:24px;bottom:24px;width:240px;height:240px;border-radius:14px;overflow:hidden;background:#54575d;box-shadow:0 8px 24px rgba(0,0,0,.45)}
+.twin-box canvas{display:block}
+.mac.incall .twin-box{bottom:calc(24px + 180px + 14px)}
+.phone .twin-box{width:150px;height:150px;right:16px;bottom:calc(env(safe-area-inset-bottom) + 16px)}
+.phone.incall .twin-box{bottom:calc(env(safe-area-inset-bottom) + 118px + 168px + 12px)}
+.twin-label{position:absolute;left:0;right:0;bottom:0;display:flex;justify-content:space-between;gap:8px;padding:7px 10px;font-size:11px;color:#f1f3f5;background:linear-gradient(transparent,rgba(0,0,0,.45));pointer-events:none}
+.twin-status{color:#bff7f0;white-space:nowrap}
+.twin-close{position:absolute;top:6px;right:6px;width:28px;height:28px;min-height:0;padding:0;border-radius:50%;border:0;background:rgba(0,0,0,.4);color:#fff;font-size:18px;line-height:1;cursor:pointer}
+.twin-close:hover{background:rgba(0,0,0,.6);filter:none}
+.home .twin-box{bottom:96px}
+.twin-reset{position:absolute;top:6px;right:40px;width:28px;height:28px;min-height:0;padding:0;border-radius:50%;border:0;background:rgba(0,0,0,.4);color:#fff;font-size:16px;line-height:1;cursor:pointer}
+.twin-reset:hover{background:rgba(0,0,0,.6);filter:none}
+.twin-box[data-mode=grab]{outline:2px solid #fff36b;outline-offset:-2px}
