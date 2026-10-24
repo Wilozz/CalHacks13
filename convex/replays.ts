@@ -12,7 +12,7 @@ export const save=action({args:{storageId:v.id('_storage'),name:v.string(),owner
  const blob=await ctx.storage.get(storageId);
  const replay=blob&&blob.size<=MAX_REPLAY_BYTES?decodeReplay(await blob.text()):null;
  try{checkKey(ownerKey);if(!replay)throw new Error('Not a valid tutorial recording');}catch(e){await ctx.storage.delete(storageId);throw e;}
- return await ctx.runMutation(internal.replays.insert,{ownerKey,storageId,durationMs:replay.durationMs,label:replay.twin.label,name:name.trim().slice(0,80)||`${replay.twin.label} tutorial`});
+ return await ctx.runMutation(internal.replays.insert,{ownerKey,storageId,durationMs:replay.durationMs,label:replay.label,name:name.trim().slice(0,80)||`${replay.label} lesson`});
 }});
 export const insert=internalMutation({args:{ownerKey,storageId:v.id('_storage'),durationMs:v.number(),label:v.string(),name:v.string()},handler:async(ctx,{storageId,...rest})=>await ctx.db.insert('replays',{...rest,logFile:storageId})});
 export const list=query({args:{ownerKey},handler:async(ctx,{ownerKey})=>{

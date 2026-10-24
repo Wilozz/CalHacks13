@@ -19,7 +19,6 @@ import type { ScanFrame } from '../useSceneScan';
 import { edgeGeometry, PartMesh } from './DemoScene';
 import type { FittedMesh, MeshPiece } from './meshFit';
 import { useTwinMesh } from './useTwinMesh';
-import { LessonCapture, type FrameSink, type Replay } from '../replay/log';
 
 const CYAN = '#64f5ed';
 const HOLD_COLOR: Record<GraspKind, string> = { none: CYAN, pinch: '#fff36b', grip: '#ff9f43' };
@@ -50,8 +49,6 @@ interface SceneProps {
   status: MutableRefObject<BoxStatus>; resetToken: number;
   /** the SAM 3D mesh, cut into the same pieces as the model; null = draw the model's shapes */
   mesh: FittedMesh | null;
-  /** when set, every rendered frame's hand and pose go into it */
-  recorder?: MutableRefObject<FrameSink | null>;
 }
 
 const toLinear = (c: number) => { const v = c / 255; return v <= 0.04045 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4; };
@@ -93,7 +90,7 @@ const view = () => ({ pos: new THREE.Vector3(), quat: new THREE.Quaternion(), wa
  * A grab only starts when it is deliberate (see GrabGate), so waving a hand about does nothing.
  * When the other person is the helper, this only displays the pose they send.
  */
-export function TwinScene({ mirror, twin, hand, placement, posFlip, drive, remotePose, onPose, status, resetToken, mesh, recorder }: SceneProps) {
+export function TwinScene({ mirror, twin, hand, placement, posFlip, drive, remotePose, onPose, status, resetToken, mesh }: SceneProps) {
   const rig = useMemo(() => new TwinRig(twin.model), [twin.model]);
   const comps = rig.components;
   const grasps = useMemo(() => SLOTS.map(() => new GraspDetector()), []);
@@ -197,7 +194,6 @@ export function TwinScene({ mirror, twin, hand, placement, posFlip, drive, remot
     }
     const grabbing = holds.some(h => h.grabbing);
     const holdsWhole = holds.some(h => h.target === 'whole');
-    recorder?.current?.frame(now, frames[0], shown, frames[1]);
 
     // Ease every piece toward its pose; a held piece lifts a little.
     const k = 1 - Math.exp(-dt * 22), kq = 1 - Math.exp(-dt * 20);
@@ -325,29 +321,15 @@ function Lookat() {
  * `mirror` flips the picture like a selfie view: alone, you watch yourself in a mirror, so the copy and your hands
  * must move the way your mirrored video does (move left, the hand goes left).
  */
-export function TwinBox({ twin, hand, placement, posFlip, mirror = false, drive, remotePose, onPose, onClose, frame, onLesson }: {
+export function TwinBox({ twin, hand, placement, posFlip, mirror = false, drive, remotePose, onPose, onClose, frame }: {
   twin: TwinInfo; hand: MutableRefObject<RemoteHandState>; placement: Placement; posFlip: boolean; mirror?: boolean;
   drive: 'local' | 'remote'; remotePose: MutableRefObject<TwinPose>; onPose: (p: TwinPose) => void; onClose: () => void;
   /** the scanned picture this object was found in, if it is ours: lets this screen ask SAM 3D for a real model */
   frame?: ScanFrame | null;
-  /** a lesson this box showed, captured by itself (see LessonCapture) */
-  onLesson?: (r: Replay) => void;
 }) {
   const pl = useRef(placement);
   useEffect(() => { pl.current = placement; }, [placement]);
   const status = useRef<BoxStatus>(IDLE_STATUS);
-  // Lessons record themselves while the copy is open; the latest props are read when one starts.
-  const meta = useRef({ twin, mirror, posFlip }); meta.current = { twin, mirror, posFlip };
-  const lessonCb = useRef(onLesson); lessonCb.current = onLesson;
-  const capture = useRef<LessonCapture | null>(null);
-  const [capturing, setCapturing] = useState(false);
-  useEffect(() => {
-    const c = new LessonCapture(() => ({ ...meta.current, placement: pl.current }), r => lessonCb.current?.(r));
-    capture.current = c;
-    const id = window.setInterval(() => setCapturing(c.active), 250);
-    // A different object, or closing the box, ends the lesson rather than losing it.
-    return () => { clearInterval(id); c.end(performance.now()); if (capture.current === c) capture.current = null; };
-  }, [twin.objectId]);
   const [ui, setUi] = useState<BoxStatus>(status.current);
   const [resetToken, setResetToken] = useState(0);
   const [big, setBig] = useState(false);
@@ -384,9 +366,8 @@ export function TwinBox({ twin, hand, placement, posFlip, mirror = false, drive,
       <Lookat />
       <ambientLight intensity={1.2} />
       <directionalLight position={[2, 3, 4]} intensity={2} />
-      <TwinScene key={twin.objectId} mirror={mirror} twin={twin} hand={hand} placement={pl} posFlip={posFlip} drive={drive} remotePose={remotePose} onPose={onPose} status={status} resetToken={resetToken} mesh={showMesh ? sam.mesh : null} recorder={onLesson ? capture : undefined} />
+      <TwinScene key={twin.objectId} mirror={mirror} twin={twin} hand={hand} placement={pl} posFlip={posFlip} drive={drive} remotePose={remotePose} onPose={onPose} status={status} resetToken={resetToken} mesh={showMesh ? sam.mesh : null} />
     </Canvas>
-    {capturing && onLesson && <span className="twin-rec" role="status" title="Recording this lesson in 3D (no video). It stops by itself.">● LESSON</span>}
     {holding && <span className={`twin-badge ${ui.kind}`}>{both ? '2 HANDS' : ui.kind === 'grip' ? 'GRIP' : 'PINCH'}</span>}
     <div className="twin-label"><span>{twin.label}{making ? ` · ${making}` : showMesh ? ' · SAM 3D' : ''}</span><span className="twin-status">{text}</span></div>
     <div className="twin-tools">

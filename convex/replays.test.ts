@@ -4,20 +4,18 @@ import {convexTest} from 'convex-test';
 import presenceTest from '@convex-dev/presence/test';
 import schema from './schema';
 import {api} from './_generated/api';
-import {BUILTIN_MODELS,sanitizeModel} from '../src/ai/modelSpec';
-import {DEFAULT_PLACEMENT} from '../src/remote/placement';
+import {TOSS_OBJECTS} from '../src/throw/toss';
 import {encodeReplay,Recorder} from '../src/replay/log';
 const modules=import.meta.glob('./**/*.ts');
 const owner='a'.repeat(32),other='b'.repeat(32);
-const twin={objectId:'bottle_1',label:'bottle',model:sanitizeModel(BUILTIN_MODELS.bottle)!,bbox:[0.4,0.2,0.6,0.6] as [number,number,number,number],feedAspect:4/3};
-const log=encodeReplay(new Recorder(0,{twin,mirror:false,posFlip:false,placement:DEFAULT_PLACEMENT}).finish(2500));
+const log=encodeReplay(new Recorder(0,{...TOSS_OBJECTS.mug,aspect:4/3}).finish(2500));
 describe('replays',()=>{
  it('saves a valid log, lists it live for its owner only, and deletes it with its file',async()=>{
   const t=convexTest(schema,modules);presenceTest.register(t);
   const storageId=await t.run(ctx=>ctx.storage.store(new Blob([log])));
   const id=await t.action(api.replays.save,{storageId,name:'  How to open it  ',ownerKey:owner});
   const list=await t.query(api.replays.list,{ownerKey:owner});
-  expect(list.map(r=>[r.name,r.label,r.durationMs])).toEqual([['How to open it','bottle',2500]]);
+  expect(list.map(r=>[r.name,r.label,r.durationMs])).toEqual([['How to open it','Mug',2500]]);
   expect(await t.query(api.replays.list,{ownerKey:other})).toEqual([]);
   expect(await t.query(api.replays.get,{id,ownerKey:other})).toBeNull();
   expect((await t.query(api.replays.get,{id,ownerKey:owner}))?.url).toBeTruthy();

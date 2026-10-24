@@ -52,7 +52,7 @@ Unit tests sit next to the code (`*.test.ts`, `server/server.test.mjs`). New uni
 - `HandFrame` stays plain, serializable data (planned future transport boundary).
 - TURN secrets are server-side only. Never put them in a `VITE_` variable.
 - One signaling instance only: rooms are in-memory, capacity two, cleared on restart.
-- Call video and audio are never recorded or stored. A replay is the 3D event log only (hands, object pose, part states, captions). Lessons are captured and saved automatically (the owner asked for it), always deletable and renamable.
+- Call video and audio are never recorded or stored. A replay is the 3D event log only (hands, object pose, part states, captions). Lessons record from catching a thrown object to throwing it back and save automatically (the owner asked for it), with no recording indicator; always deletable and renamable.
 - No simulated hand motion or fake relays. Accounts exist only for Community (Convex Auth); manual calls stay anonymous. Uploaded replays and profiles are validated server-side (size cap, schema), like `sanitizeModel` on the client.
 
 ## Conventions
