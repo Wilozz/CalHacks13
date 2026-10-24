@@ -1,9 +1,9 @@
 # AGENTS.md
 
-GHOST is a browser hand-tracking prototype for CalHacks: webcam on the left, a live 21-joint 3D hand skeleton on the right (MediaPipe + React Three Fiber), plus a two-person WebRTC call joined by a six-character room code.
+GHOST is a CalHacks prototype for remote help with a physical object: the learner's object becomes a cached 3D model (SAM 3 / SAM 3D), they grab and throw it through a WebRTC call, the helper demonstrates on it with tracked hands, throws it back, and the learner keeps a 3D replay (no video). Built on MediaPipe hand tracking in a worker, React Three Fiber, and a two-person call joined by a six-character room code.
 
-- Goals and status: [docs/GOALS.md](docs/GOALS.md)
-- How it works: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
+- Goals, core loop, build order, tracks: [docs/GOALS.md](docs/GOALS.md)
+- How it works, plus the planned object/interaction/replay design: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
 - User-facing setup, phone testing, calling: [README.md](README.md)
 - Public server + TURN relay: [deploy/README.md](deploy/README.md)
 
@@ -46,12 +46,13 @@ Unit tests sit next to the code (`*.test.ts`, `server/server.test.mjs`). New uni
 
 ## Invariants (do not break)
 
-- Camera frames and hand landmarks never leave the browser. Call media goes only to the connected peer; landmarks are not transmitted.
+- Camera frames never leave the browser except as call media to the connected peer (and explicit single-frame AI scans). Hand landmarks go only to the peer over the call's data channel, and into a replay the learner saves.
 - At most one frame in flight to the worker; drop frames rather than queue. Always close transferred `ImageBitmap`s.
 - `HandFrame` stays plain, serializable data (planned future transport boundary).
 - TURN secrets are server-side only. Never put them in a `VITE_` variable.
 - One signaling instance only: rooms are in-memory, capacity two, cleared on restart.
-- No accounts, uploads, recordings, simulated hand motion, or fake relays.
+- Call video and audio are never recorded or stored. A replay is the 3D event log only (hands, object pose, part states, captions), stored only when the learner saves it, and deletable.
+- No accounts, simulated hand motion, or fake relays. Uploaded replays and profiles are validated server-side (size cap, schema), like `sanitizeModel` on the client.
 
 ## Conventions
 
