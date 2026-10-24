@@ -1,10 +1,10 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {transformHand,type HandFrame} from './coordinates';
+import {transformHand,cameraDepth,type HandFrame} from './coordinates';
 const frame:HandFrame={timestamp:1,inferenceMs:1,handedness:'Left',landmarks:Array.from({length:21},()=>({x:.5,y:.5,z:0})),worldLandmarks:Array.from({length:21},(_,i)=>({x:i*.01,y:i*.02,z:i*-.005}))};
 test('world geometry is wrist relative, mirrored, depth preserving, uniformly scaled',()=>{
  const points=transformHand(frame,4/3);
- assert.deepEqual(points[0],{x:0,y:-.1,z:-0});
+ assert.deepEqual(points[0],{x:0,y:-.1,z:0});
  assert.ok(Math.abs(points[1].x + .12)<1e-9);
  assert.ok(Math.abs(points[1].y + .34)<1e-9);
  assert.ok(Math.abs(points[1].z - .06)<1e-9);
@@ -33,4 +33,13 @@ test('rotation aspect changes screen anchor, not world finger proportions',()=>{
  const landscape=transformHand(offCenter,4/3);
  const distance=(points: ReturnType<typeof transformHand>)=>Math.hypot(points[8].x-points[5].x,points[8].y-points[5].y,points[8].z-points[5].z);
  assert.ok(Math.abs(distance(portrait)-distance(landscape))<1e-9);
+});
+test('apparent hand size moves the skeleton toward the camera, tilt does not',()=>{
+ const world=Array.from({length:21},(_,i)=>({x:(i%5)*.02,y:Math.floor(i/5)*.02,z:0}));
+ const at=(k:number,tilt=1):HandFrame=>({...frame,worldLandmarks:world.map(p=>({...p,y:p.y*tilt})),landmarks:world.map(p=>({x:.5+p.x*k/(4/3),y:.5+p.y*tilt*k,z:0}))});
+ const far=cameraDepth(at(1.2),4/3), near=cameraDepth(at(4.8),4/3);
+ assert.ok(near>far);
+ assert.ok(Math.abs(cameraDepth(at(2.4),4/3))<1e-9);
+ assert.ok(Math.abs(cameraDepth(at(2.4,.3),4/3))<1e-9);
+ assert.equal(transformHand(at(4.8),4/3)[0].z,near);
 });
