@@ -7,7 +7,7 @@
     "dev": "node scripts/dev.mjs",
     "build": "tsc -b && vite build",
     "preview": "vite preview --host 127.0.0.1",
-    "test": "node --import tsx --test src/*.test.ts src/ai/*.test.ts src/render/*.test.ts src/remote/*.test.ts src/throw/*.test.ts server/server.test.mjs",
+    "test": "node --import tsx --test src/*.test.ts src/ai/*.test.ts src/render/*.test.ts src/remote/*.test.ts src/throw/*.test.ts src/voice/*.test.ts server/server.test.mjs",
     "postinstall": "node scripts/prepare-assets.mjs",
     "predev": "node scripts/prepare-assets.mjs",
     "prebuild": "node scripts/prepare-assets.mjs",
