@@ -3,19 +3,28 @@ import { Canvas, useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
 import type { HandFrame } from '../coordinates';
 import { BONES } from '../coordinates';
+import { GrabGate } from '../remote/grabGate';
 import { GraspDetector, grabPoint, twistAngle, type GraspKind } from '../remote/grasp';
+import { OneEuro } from '../remote/oneEuro';
 import { pinchCloseness } from '../remote/pinch';
 import { depthScale, type P3, type Placement } from '../remote/placement';
 import { palmQuat, qAngle, QI, type Q } from '../remote/quat';
 import type { RemoteHandState } from '../remote/remoteHand';
-import { TwinRig, type Target } from '../remote/twinRig';
+import { TwinRig, type Hold, type Target } from '../remote/twinRig';
+import type { MoveInput } from '../remote/twinMove';
 import { fingertipOnTwin, HOLD_FINGERS, placeHandOnTwin } from '../remote/twinPlacement';
 import { REST_POSE, type TwinInfo, type TwinPose } from '../remote/twinWire';
 import { componentsOf } from '../remote/components';
+import type { ScanFrame } from '../useSceneScan';
 import { edgeGeometry, PartMesh } from './DemoScene';
+import type { FittedMesh, MeshPiece } from './meshFit';
+import { useTwinMesh } from './useTwinMesh';
 
 const CYAN = '#64f5ed';
 const HOLD_COLOR: Record<GraspKind, string> = { none: CYAN, pinch: '#fff36b', grip: '#ff9f43' };
+const SLOTS = [0, 1] as const;
+// The second hand is tinted so you can tell the two apart.
+const HAND_COLORS = [{ joint: '#9ffcf5', bone: '#22d3e6' }, { joint: '#e1d4ff', bone: '#a78bfa' }];
 
 type Mode = 'none' | 'waiting' | 'hover' | 'grab' | 'idle';
 export interface BoxStatus {
@@ -28,12 +37,33 @@ export interface BoxStatus {
   partLift: number;
   /** where the first component's centre is relative to where it started, x,y,z in hundredths */
   partPos: string;
+  /** hands in view, and what the second one is doing */
+  hands: number; kind2: GraspKind; target2: string;
+  /** how far the screwed-on piece in hand (or under a hand) is unscrewed, 0-100, or -1 */
+  unscrew: number;
 }
 
 interface SceneProps {
   mirror: boolean; twin: TwinInfo; hand: MutableRefObject<RemoteHandState>; placement: MutableRefObject<Placement>; posFlip: boolean;
   drive: 'local' | 'remote'; remotePose: MutableRefObject<TwinPose>; onPose: (p: TwinPose) => void;
   status: MutableRefObject<BoxStatus>; resetToken: number;
+  /** the SAM 3D mesh, cut into the same pieces as the model; null = draw the model's shapes */
+  mesh: FittedMesh | null;
+}
+
+const toLinear = (c: number) => { const v = c / 255; return v <= 0.04045 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4; };
+/** A piece of the SAM 3D mesh, in its scanned colours. Reports its material so it can glow when a hand is on it. */
+function MeshView({ piece, onMat }: { piece: MeshPiece; onMat: (m: THREE.MeshStandardMaterial | null) => void }) {
+  const geom = useMemo(() => {
+    const g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.BufferAttribute(piece.positions, 3));
+    g.setAttribute('color', new THREE.BufferAttribute(Float32Array.from(piece.colors, toLinear), 3)); // the scan's colours are sRGB
+    g.setIndex(new THREE.BufferAttribute(piece.indices, 1));
+    g.computeVertexNormals();
+    return g;
+  }, [piece]);
+  useEffect(() => () => geom.dispose(), [geom]);
+  return <mesh geometry={geom}><meshStandardMaterial ref={onMat} vertexColors side={THREE.DoubleSide} roughness={0.7} metalness={0.05} emissive="#fff36b" emissiveIntensity={0} /></mesh>;
 }
 
 const shapeGeometry = (shape: string) => shape === 'box' ? new THREE.BoxGeometry(1, 1, 1) : shape === 'sphere' ? new THREE.SphereGeometry(0.5, 20, 20) : shape === 'cone' ? new THREE.ConeGeometry(0.5, 1, 24) : new THREE.CylinderGeometry(0.5, 0.5, 1, 24);
@@ -42,33 +72,44 @@ const tipDepth = (frame: HandFrame | null, pl: Placement) => frame ? depthScale(
 const same = (a: number[], b: number[], e: number) => a.every((v, i) => Math.abs(v - b[i]) <= e);
 const toQ = (q: THREE.Quaternion): Q => [q.x, q.y, q.z, q.w];
 const MOVED = 0.05, TURNED = 0.08;
+// Two hands working close together hide each other from the tracker for a few frames: a hand that is holding something
+// and vanishes keeps its last real reading this long before the hold ends.
+const HOLD_GRACE_MS = 350;
+const IDLE: Hold = { target: null, hover: null, grabbing: false, kind: 'none', anchor: null };
 
 /** A smoothed position and orientation, so pieces glide to their pose instead of snapping. */
 const view = () => ({ pos: new THREE.Vector3(), quat: new THREE.Quaternion(), wantPos: new THREE.Vector3(), wantQuat: new THREE.Quaternion() });
 
 /**
- * The 3D copy and the helper's hand. The object is a whole plus separately movable pieces (the cap): pinch or grip
- * on the cap and only the cap moves or turns; do it anywhere else and the whole object does, cap included. Nothing
- * is selected first. Pinch (thumb + index) moves, and twisting spins; grip (thumb + index + middle) turns with your
- * whole hand. When the other person is the helper, this only displays the pose they send.
+ * The 3D copy and up to two hands. The object is a whole plus separately movable pieces (the cap): pinch or grip on the
+ * cap and only the cap moves or turns; do it anywhere else and the whole object does, cap included. Nothing is selected
+ * first, and each hand can hold a different piece (steady the bottle with one, twist the cap with the other). A fist
+ * goes for the body and fingertips for the piece; a cap has to be twisted loose before it can be pulled off.
+ * Pinch (thumb + index) moves, and twisting spins; grip (thumb + index + middle) turns with your whole hand.
+ * A grab only starts when it is deliberate (see GrabGate), so waving a hand about does nothing.
+ * When the other person is the helper, this only displays the pose they send.
  */
-function TwinScene({ mirror, twin, hand, placement, posFlip, drive, remotePose, onPose, status, resetToken }: SceneProps) {
+function TwinScene({ mirror, twin, hand, placement, posFlip, drive, remotePose, onPose, status, resetToken, mesh }: SceneProps) {
   const rig = useMemo(() => new TwinRig(twin.model), [twin.model]);
   const comps = rig.components;
-  const grasp = useMemo(() => new GraspDetector(), []);
+  const grasps = useMemo(() => SLOTS.map(() => new GraspDetector()), []);
+  const gates = useMemo(() => SLOTS.map(() => new GrabGate()), []);
+  const smooth = useMemo(() => SLOTS.map(() => ({ x: new OneEuro(1.4, 0.5), y: new OneEuro(1.4, 0.5) })), []);
   const rootGroup = useRef<THREE.Group>(null!);
   const compGroups = useRef<(THREE.Group | null)[]>([]);
-  const handGroup = useRef<THREE.Group>(null!);
-  const joints = useRef<(THREE.Mesh | null)[]>([]);
-  const bones = useRef<(THREE.Mesh | null)[]>([]);
-  const holdDots = useRef<(THREE.Mesh | null)[]>([]);
-  const ring = useRef<THREE.Mesh>(null!);
+  const hg = useRef(SLOTS.map(() => ({ group: null as THREE.Group | null, joints: [] as (THREE.Mesh | null)[], bones: [] as (THREE.Mesh | null)[], dots: [] as (THREE.Mesh | null)[], ring: null as THREE.Mesh | null })));
   const shadow = useRef<THREE.Mesh>(null!);
   const outlineMats = useRef<THREE.MeshBasicMaterial[]>([]);
+  const meshMats = useRef(new Map<number, THREE.MeshStandardMaterial>()); // -1: the body, else a component
+  const ghosts = useRef<(THREE.LineSegments | null)[]>([]);
   const trail = useMemo(() => new THREE.Line(new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(), new THREE.Vector3()]), new THREE.LineDashedMaterial({ color: '#ffffff', dashSize: 0.05, gapSize: 0.04, transparent: true, opacity: 0.7 })), []);
   const views = useMemo(() => ({ root: view(), parts: comps.map(() => view()) }), [comps]);
-  const s = useRef({ pos: Array.from({ length: 21 }, () => new THREE.Vector3()), a: new THREE.Vector3(), b: new THREE.Vector3(), up: new THREE.Vector3(0, 1, 0), fresh: false, sent: REST_POSE, sentAt: 0, firm: null as null | { tip: P3; twist: number; palm: Q | null; depth: number } });
-  const mats = useMemo(() => ({ joint: new THREE.MeshBasicMaterial({ color: '#9ffcf5', transparent: true }), bone: new THREE.MeshBasicMaterial({ color: '#22d3e6', transparent: true }), tip: new THREE.MeshBasicMaterial({ color: '#ffffff' }), ring: new THREE.MeshBasicMaterial({ color: CYAN, transparent: true, side: THREE.DoubleSide }) }), []);
+  const s = useRef({
+    pos: SLOTS.map(() => Array.from({ length: 21 }, () => new THREE.Vector3())), fresh: [false, false], a: new THREE.Vector3(), b: new THREE.Vector3(), up: new THREE.Vector3(0, 1, 0),
+    sent: REST_POSE, sentAt: 0, holding: [false, false], firm: [null, null] as (null | { tip: P3; twist: number; palm: Q | null; depth: number })[],
+    last: [null, null] as (MoveInput | null)[], lastAt: [0, 0],
+  });
+  const mats = useMemo(() => SLOTS.map(sl => ({ joint: new THREE.MeshBasicMaterial({ color: HAND_COLORS[sl].joint, transparent: true }), bone: new THREE.MeshBasicMaterial({ color: HAND_COLORS[sl].bone, transparent: true }), tip: new THREE.MeshBasicMaterial({ color: '#ffffff' }), ring: new THREE.MeshBasicMaterial({ color: CYAN, transparent: true, side: THREE.DoubleSide }) })), []);
   const geoms = useMemo(() => twin.model.parts.map(p => shapeGeometry(p.shape)), [twin.model]);
   const owner = useMemo(() => twin.model.parts.map((_, i) => comps.findIndex(c => c.parts.includes(i))), [twin.model, comps]); // -1: part of the body
   const bottom = useMemo(() => Math.min(...twin.model.parts.map(p => p.position[1] - p.size[1] / 2)), [twin.model]);
@@ -77,80 +118,109 @@ function TwinScene({ mirror, twin, hand, placement, posFlip, drive, remotePose, 
   useEffect(() => {
     rig.reset(); const v = s.current; views.root.pos.set(0, 0, 0); views.root.quat.identity();
     views.parts.forEach((p, i) => { p.pos.set(...comps[i].center); p.quat.identity(); });
+    gates.forEach(g => g.reset());
     onPose(REST_POSE); v.sent = REST_POSE;
   }, [resetToken, rig]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useFrame(({ clock }, dt) => {
-    const now = performance.now();
-    const frame = hand.current.current(now);
+    const now = performance.now(), tSec = now / 1000;
     const v = s.current;
     let root = { offset: [0, 0, 0] as P3, rotation: QI as Q };
     let parts = comps.map(() => ({ offset: [0, 0, 0] as P3, rotation: QI as Q }));
-    let target: Target | null = null, hover: Target | null = null, kind: GraspKind = 'none';
-    let handPts: P3[] | null = null;
-    let closeness = 0;
+    let holds: [Hold, Hold] = [IDLE, IDLE];
+    const frames: (HandFrame | null)[] = SLOTS.map(sl => hand.current.current(now, sl));
+    const handPts: (P3[] | null)[] = [null, null];
+    const closeness = [0, 0];
 
     // Alone, the whole picture is mirrored (so left is left, like your selfie video), and that mirror already
     // flips the hand: flipping the shape too would draw your right hand as a left hand.
     const shapePl = mirror ? { ...placement.current, flipX: false } : placement.current;
-    const place = (frameNow: HandFrame, at: P3 | undefined, k: GraspKind, from: { x: number; y: number }) =>
-      placeHandOnTwin(frameNow, shapePl, twin.model, twin.bbox, twin.feedAspect, posFlip, at, k, from)?.points ?? null;
+    const place = (f: HandFrame, at: P3 | undefined, from: { x: number; y: number }) =>
+      placeHandOnTwin(f, shapePl, twin.model, twin.bbox, twin.feedAspect, posFlip, at, 'none', from)?.points ?? null;
 
     if (drive === 'local') {
-      kind = grasp.update(frame);
-      const from = frame ? grabPoint(frame, kind) : undefined;
-      const tip = frame && from ? fingertipOnTwin(frame, placement.current, twin.model, twin.bbox, twin.feedAspect, posFlip, from) : null;
-      closeness = pinchCloseness(grasp.ratios?.pinch ?? null);
-      let twist = 0, palm: Q | null = null;
-      if (frame && tip && from) {
-        const base = place(frame, undefined, kind, from);          // the hand's shape, to read how the fingers are turned
+      const inputs: [MoveInput | null, MoveInput | null] = [null, null];
+      const froms: ({ x: number; y: number } | undefined)[] = [undefined, undefined];
+      SLOTS.forEach(sl => {
+        const frame = frames[sl];
+        if (!frame && v.holding[sl] && v.last[sl] && now - v.lastAt[sl] < HOLD_GRACE_MS) { inputs[sl] = v.last[sl]; return; }
+        const raw = grasps[sl].update(frame);
+        const from = frame ? grabPoint(frame, raw) : undefined; froms[sl] = from;
+        const tip = frame && from ? fingertipOnTwin(frame, placement.current, twin.model, twin.bbox, twin.feedAspect, posFlip, from) : null;
+        closeness[sl] = pinchCloseness(grasps[sl].ratios?.pinch ?? null);
+        if (!frame || !tip || !from) { v.firm[sl] = null; v.last[sl] = null; gates[sl].reset(); smooth[sl].x.reset(); smooth[sl].y.reset(); return; }
+        // Steady the fingertip a little (heavier when still, lighter when moving fast).
+        const tipS: P3 = [smooth[sl].x.filter(tip.target[0], tSec), smooth[sl].y.filter(tip.target[1], tSec), tip.target[2]];
+        let twist = 0, palm: Q | null = null;
+        const base = place(frame, undefined, from);            // the hand's shape, to read how the fingers are turned
         if (base) { twist = twistAngle(base); palm = palmQuat(base); }
-      }
-      // While the fingers are opening (before the release is confirmed) hold the last firm reading, so letting go can
-      // never drag the object along with the fingers' last movement.
-      const opening = kind !== 'none' && (grasp.ratios?.pinch ?? 0) > 0.38;
-      let reading = frame && tip ? { tip: tip.target, twist, palm, depth: tipDepth(frame, placement.current) } : null;
-      if (reading && opening && v.firm) reading = v.firm; else if (reading && !opening) v.firm = reading;
-      if (!frame) v.firm = null;
-      const m = rig.update(reading ? { ...reading, kind } : null);
-      root = m.root; parts = m.parts; target = m.target; hover = m.hover;
-      if (frame && tip && from) handPts = place(frame, m.grabbing && m.anchor ? m.anchor : undefined, kind, from);
+        // A grab is only deliberate if the hand was open, over a part, and closing slowly: waving does nothing.
+        const kind = gates[sl].filter({ now, kind: raw, tip: { x: tipS[0], y: tipS[1] }, hovering: rig.hoverAt(tipS, sl, raw) !== null, grabbing: v.holding[sl] });
+        // While the fingers are opening (before the release is confirmed) hold the last firm reading, so letting go can
+        // never drag the object along with the fingers' last movement.
+        const opening = kind !== 'none' && (grasps[sl].ratios?.pinch ?? 0) > 0.38;
+        let reading = { tip: tipS, twist, palm, depth: tipDepth(frame, placement.current) };
+        if (opening && v.firm[sl]) reading = v.firm[sl]!; else if (!opening) v.firm[sl] = reading;
+        inputs[sl] = { ...reading, kind }; v.last[sl] = inputs[sl]; v.lastAt[sl] = now;
+      });
+      const m = rig.step(inputs);
+      v.holding = [m.holds[0].grabbing, m.holds[1].grabbing];
+      root = m.root; parts = m.parts; holds = m.holds;
+      SLOTS.forEach(sl => { const f = frames[sl], fr = froms[sl]; if (f && fr) handPts[sl] = place(f, m.holds[sl].grabbing && m.holds[sl].anchor ? m.holds[sl].anchor! : undefined, fr); });
       // Tell the other screen where everything is, but not more than ~15 times a second.
-      const cur: TwinPose = { offset: m.root.offset, rotation: m.root.rotation, grabbing: m.grabbing, kind: m.kind, anchor: m.anchor, parts: m.parts, target: m.target === null ? -2 : m.target === 'whole' ? -1 : m.target };
+      const cur: TwinPose = {
+        offset: m.root.offset, rotation: m.root.rotation, grabbing: m.holds[0].grabbing, kind: m.holds[0].kind, anchor: m.holds[0].anchor, parts: m.parts,
+        target: m.holds[0].target === null ? -2 : m.holds[0].target === 'whole' ? -1 : m.holds[0].target,
+        second: { target: m.holds[1].target === null ? -2 : m.holds[1].target === 'whole' ? -1 : m.holds[1].target, kind: m.holds[1].kind, anchor: m.holds[1].anchor },
+      };
       const sent = v.sent;
       const changed = cur.grabbing !== sent.grabbing || cur.kind !== sent.kind || cur.target !== sent.target || !same(cur.offset, sent.offset, 0.004) || qAngle(cur.rotation, sent.rotation) > 0.01
-        || cur.parts.some((p, i) => !sent.parts[i] || !same(p.offset, sent.parts[i].offset, 0.004) || qAngle(p.rotation, sent.parts[i].rotation) > 0.01);
+        || cur.parts.some((p, i) => !sent.parts[i] || !same(p.offset, sent.parts[i].offset, 0.004) || qAngle(p.rotation, sent.parts[i].rotation) > 0.01)
+        || cur.second!.target !== (sent.second?.target ?? -2) || cur.second!.kind !== (sent.second?.kind ?? 'none');
       if (changed && now - v.sentAt > 66) { v.sent = cur; v.sentAt = now; onPose(cur); }
     } else {
       const rp = remotePose.current;
       root = { offset: rp.offset, rotation: rp.rotation };
       parts = comps.map((_, i) => rp.parts[i] ? { offset: rp.parts[i].offset, rotation: rp.parts[i].rotation } : { offset: [0, 0, 0] as P3, rotation: QI });
-      target = rp.target === -2 ? null : rp.target === -1 ? 'whole' : rp.target < comps.length ? rp.target : null; kind = rp.kind;
-      if (frame) handPts = place(frame, rp.grabbing && rp.anchor ? rp.anchor : undefined, rp.kind, grabPoint(frame, rp.kind));
+      const asTarget = (t: number): Target | null => (t === -2 ? null : t === -1 ? 'whole' : t < comps.length ? t : null);
+      holds = [
+        { target: asTarget(rp.target), hover: null, grabbing: rp.grabbing, kind: rp.kind, anchor: rp.anchor },
+        rp.second ? { target: asTarget(rp.second.target), hover: null, grabbing: rp.second.target !== -2, kind: rp.second.kind, anchor: rp.second.anchor } : IDLE,
+      ];
+      SLOTS.forEach(sl => { const f = frames[sl]; if (f) handPts[sl] = place(f, holds[sl].grabbing && holds[sl].anchor ? holds[sl].anchor! : undefined, grabPoint(f, holds[sl].kind)); });
     }
-    const grabbing = target !== null;
+    const grabbing = holds.some(h => h.grabbing);
+    const holdsWhole = holds.some(h => h.target === 'whole');
 
-    // Ease every piece toward its pose; the whole lifts a little while held.
+    // Ease every piece toward its pose; a held piece lifts a little.
     const k = 1 - Math.exp(-dt * 22), kq = 1 - Math.exp(-dt * 20);
-    const lift = grabbing ? 0.06 : 0;
-    views.root.wantPos.set(root.offset[0], root.offset[1], root.offset[2] + (target === 'whole' ? lift : 0));
+    const lift = 0.06;
+    views.root.wantPos.set(root.offset[0], root.offset[1], root.offset[2] + (holdsWhole ? lift : 0));
     views.root.wantQuat.set(...root.rotation);
     views.root.pos.lerp(views.root.wantPos, k); views.root.quat.slerp(views.root.wantQuat, kq);
     rootGroup.current.position.copy(views.root.pos); rootGroup.current.quaternion.copy(views.root.quat);
     comps.forEach((c, i) => {
       const w = views.parts[i], p = parts[i], g = compGroups.current[i]; if (!g) return;
-      w.wantPos.set(c.center[0] + p.offset[0], c.center[1] + p.offset[1], c.center[2] + p.offset[2] + (target === i ? lift : 0));
+      w.wantPos.set(c.center[0] + p.offset[0], c.center[1] + p.offset[1], c.center[2] + p.offset[2] + (holds.some(h => h.target === i) ? lift : 0));
       w.wantQuat.set(...p.rotation);
       w.pos.lerp(w.wantPos, k); w.quat.slerp(w.wantQuat, kq);
       g.position.copy(w.pos); g.quaternion.copy(w.quat);
     });
 
-    // Outline whatever you are over or holding: the cap alone, or every part when it is the whole.
-    const active = target ?? hover;
+    // Outline whatever either hand is over or holding: the cap alone, or every part when it is the whole.
+    const active = holds.map(h => h.target ?? h.hover);
     outlineMats.current.forEach((m, i) => {
-      const on = active !== null && (active === 'whole' || owner[i] === active);
+      const on = active.some(a => a !== null && (a === 'whole' || owner[i] === a));
+      const heldGrip = holds.some(h => h.grabbing && h.kind === 'grip' && (h.target === 'whole' || owner[i] === h.target));
       m.opacity = !on ? 0 : grabbing ? 0.95 : 0.7 + 0.2 * Math.sin(clock.elapsedTime * 6);
-      m.color.set(grabbing && kind === 'grip' ? '#ff9f43' : '#fff36b');
+      m.color.set(heldGrip ? '#ff9f43' : '#fff36b');
+    });
+    // The mesh glows instead: an outline of a scanned shape would just be a second copy of it.
+    meshMats.current.forEach((m, who) => {
+      const on = active.some(a => a !== null && (a === 'whole' || a === who));
+      const heldGrip = holds.some(h => h.grabbing && h.kind === 'grip' && (h.target === 'whole' || h.target === who));
+      m.emissiveIntensity = !on ? 0 : grabbing ? 0.16 : 0.1 + 0.05 * Math.sin(clock.elapsedTime * 6);
+      m.emissive.set(heldGrip ? '#ff9f43' : '#fff36b');
     });
     shadow.current.position.set(views.root.pos.x, bottom - 0.04, views.root.pos.z);
     shadow.current.scale.setScalar(1 + Math.max(0, views.root.pos.y) * 0.3);
@@ -160,33 +230,52 @@ function TwinScene({ mirror, twin, hand, placement, posFlip, drive, remotePose, 
     const tp = trail.geometry.getAttribute('position') as THREE.BufferAttribute;
     tp.setXYZ(0, 0, 0, 0); tp.setXYZ(1, views.root.pos.x, views.root.pos.y, views.root.pos.z); tp.needsUpdate = true; trail.computeLineDistances();
     trail.visible = rootMoved;
+    // The white "where it started" outline is for moving the whole object. For a lifted cap it only looked like the bottle still had one.
+    ghosts.current.forEach((g, i) => { if (g) g.visible = owner[i] < 0 && rootMoved && !mesh; }); // box outlines around a scanned mesh would only confuse
 
-    // Hand: the fingers that hold light up, and a ring closes around where they meet.
-    handGroup.current.visible = !!handPts;
-    if (handPts) {
-      const alpha = v.fresh ? 1 - Math.exp(-dt * 24) : 1; v.fresh = true;
-      handPts.forEach((p, i) => { v.pos[i].lerp(v.a.set(p[0], p[1], p[2]), alpha); joints.current[i]?.position.copy(v.pos[i]); });
+    // Hands: the fingers that hold light up, and a ring closes around where they meet.
+    SLOTS.forEach(sl => {
+      const h = hg.current[sl], pts = handPts[sl], pos = v.pos[sl], hold = holds[sl];
+      if (!h.group) return;
+      h.group.visible = !!pts;
+      if (!pts) { v.fresh[sl] = false; return; }
+      const alpha = v.fresh[sl] ? 1 - Math.exp(-dt * 24) : 1; v.fresh[sl] = true;
+      pts.forEach((p, i) => { pos[i].lerp(v.a.set(p[0], p[1], p[2]), alpha); h.joints[i]?.position.copy(pos[i]); });
       BONES.forEach(([i, j], n) => {
-        const m = bones.current[n]; if (!m) return;
-        v.a.copy(v.pos[i]); v.b.copy(v.pos[j]).sub(v.a);
+        const m = h.bones[n]; if (!m) return;
+        v.a.copy(pos[i]); v.b.copy(pos[j]).sub(v.a);
         m.position.copy(v.a).addScaledVector(v.b, 0.5); m.scale.set(1, v.b.length(), 1); m.quaternion.setFromUnitVectors(v.up, v.b.normalize());
       });
-      const holding = HOLD_FINGERS[kind];
-      [4, 8, 12].forEach((f, i) => { const d = holdDots.current[i]; if (d) { d.position.copy(v.pos[f]); d.visible = kind !== 'none' ? holding.includes(f) : f === 8; } });
-      v.b.set(0, 0, 0); holding.forEach(f => v.b.add(v.pos[f])); v.b.multiplyScalar(1 / holding.length);
-      ring.current.position.copy(v.b);
-      const r = 0.07 + 0.16 * (1 - closeness) + (kind === 'grip' ? 0.03 : 0);
-      ring.current.scale.set(r, r, r);
-      ring.current.visible = drive === 'local' ? (hover !== null || grabbing || closeness > 0.2) : grabbing;
-      mats.ring.opacity = grabbing ? 1 : 0.8; mats.ring.color.set(grabbing ? HOLD_COLOR[kind] : CYAN);
-      mats.joint.opacity = mats.bone.opacity = 0.95;
-    } else v.fresh = false;
+      const rawKind = drive === 'local' ? grasps[sl].kind : hold.kind;
+      const holding = HOLD_FINGERS[rawKind];
+      [4, 8, 12].forEach((f, i) => { const d = h.dots[i]; if (d) { d.position.copy(pos[f]); d.visible = rawKind !== 'none' ? holding.includes(f) : f === 8; } });
+      if (h.ring) {
+        v.b.set(0, 0, 0); holding.forEach(f => v.b.add(pos[f])); v.b.multiplyScalar(1 / holding.length);
+        h.ring.position.copy(v.b);
+        const r = 0.07 + 0.16 * (1 - closeness[sl]) + (rawKind === 'grip' ? 0.03 : 0);
+        h.ring.scale.set(r, r, r);
+        h.ring.visible = drive === 'local' ? (hold.hover !== null || hold.grabbing || closeness[sl] > 0.2) : hold.grabbing;
+        mats[sl].ring.opacity = hold.grabbing ? 1 : 0.8; mats[sl].ring.color.set(hold.grabbing ? HOLD_COLOR[hold.kind] : CYAN);
+      }
+      mats[sl].joint.opacity = mats[sl].bone.opacity = 0.95;
+    });
 
-    const mode: Mode = !frame ? 'waiting' : grabbing ? 'grab' : hover !== null ? 'hover' : 'idle';
-    status.current = { mode, kind, moved: rootMoved, turned: rootTurn > TURNED, remote: drive === 'remote', angle: Math.round((rootTurn * 180) / Math.PI / 5) * 5, target: nameOf(active), partAngle: Math.round((partTurn * 180) / Math.PI / 5) * 5, partMoved,
+    // Status for the label (and for tests): the busiest hand leads.
+    const lead = holds.find(h => h.grabbing) ?? holds.find(h => h.hover !== null) ?? holds[0];
+    const present = frames.filter(Boolean).length;
+    const mode: Mode = present === 0 ? 'waiting' : lead.grabbing ? 'grab' : lead.hover !== null ? 'hover' : 'idle';
+    const thumbPts = v.pos[0];
+    const onPiece = holds.map(h => h.target ?? h.hover).find((t): t is number => typeof t === 'number');
+    const loose = drive === 'local' && onPiece !== undefined ? rig.loosened()[onPiece] : null;
+    status.current = {
+      mode, kind: lead.grabbing ? lead.kind : 'none', moved: rootMoved, turned: rootTurn > TURNED, remote: drive === 'remote', angle: Math.round((rootTurn * 180) / Math.PI / 5) * 5,
+      target: nameOf(lead.target ?? lead.hover), partAngle: Math.round((partTurn * 180) / Math.PI / 5) * 5, partMoved,
       partPos: views.parts[0] ? [0, 1, 2].map(i => Math.round(([views.parts[0].pos.x, views.parts[0].pos.y, views.parts[0].pos.z][i] - comps[0].center[i]) * 100)).join(',') : '',
       partLift: Math.round(Math.max(0, ...views.parts.map((p, i) => p.pos.y - comps[i].center[1])) * 20) * 5,
-      thumb: handPts ? ((v.pos[4].x - v.pos[8].x) * (mirror ? -1 : 1) > 0 ? 'right' : 'left') : '' };
+      thumb: handPts[0] ? ((thumbPts[4].x - thumbPts[8].x) * (mirror ? -1 : 1) > 0 ? 'right' : 'left') : '',
+      hands: present, kind2: holds[1].grabbing ? holds[1].kind : 'none', target2: nameOf(holds[1].target ?? holds[1].hover),
+      unscrew: loose === null || loose === undefined ? -1 : Math.round(loose * 20) * 5,
+    };
   });
 
   const partMesh = (i: number, offset?: P3) => <PartMesh key={i} part={twin.model.parts[i]} offset={offset} solid />;
@@ -199,20 +288,22 @@ function TwinScene({ mirror, twin, hand, placement, posFlip, drive, remotePose, 
   return <>
     <mesh ref={shadow} rotation={[-Math.PI / 2, 0, 0]}><circleGeometry args={[0.38, 32]} /><meshBasicMaterial color="#000" transparent opacity={0.28} depthWrite={false} /></mesh>
     {/* Where everything started, as outlines, with a dashed line to where the whole is now. */}
-    {twin.model.parts.map((p, i) => <lineSegments key={`o${i}`} geometry={edgeGeometry[p.shape]} position={p.position} scale={p.size}><lineBasicMaterial color="#ffffff" transparent opacity={0.4} /></lineSegments>)}
+    {twin.model.parts.map((p, i) => <lineSegments key={`o${i}`} ref={el => { ghosts.current[i] = el; }} geometry={edgeGeometry[p.shape]} position={p.position} scale={p.size}><lineBasicMaterial color="#ffffff" transparent opacity={0.4} /></lineSegments>)}
     <primitive object={trail} />
     <group ref={rootGroup}>
-      {twin.model.parts.map((_, i) => owner[i] < 0 ? <group key={i}>{partMesh(i)}{outline(i)}</group> : null)}
+      {mesh ? <MeshView piece={mesh.body} onMat={m => { if (m) meshMats.current.set(-1, m); else meshMats.current.delete(-1); }} />
+        : twin.model.parts.map((_, i) => owner[i] < 0 ? <group key={i}>{partMesh(i)}{outline(i)}</group> : null)}
       {comps.map((c, ci) => <group key={`c${ci}`} ref={el => { compGroups.current[ci] = el; }} position={c.center}>
-        {c.parts.map(i => <group key={i}>{partMesh(i, c.center)}{outline(i, c.center)}</group>)}
+        {mesh?.pieces[ci] ? <MeshView piece={mesh.pieces[ci]!} onMat={m => { if (m) meshMats.current.set(ci, m); else meshMats.current.delete(ci); }} />
+          : c.parts.map(i => <group key={i}>{partMesh(i, c.center)}{outline(i, c.center)}</group>)}
       </group>)}
     </group>
-    <group ref={handGroup} visible={false}>
-      {Array.from({ length: 21 }, (_, i) => <mesh key={i} ref={el => { joints.current[i] = el; }} material={mats.joint}><sphereGeometry args={[0.026, 10, 10]} /></mesh>)}
-      {BONES.map((_, i) => <mesh key={i} ref={el => { bones.current[i] = el; }} material={mats.bone}><cylinderGeometry args={[0.014, 0.014, 1, 8]} /></mesh>)}
-      {[0, 1, 2].map(i => <mesh key={`d${i}`} ref={el => { holdDots.current[i] = el; }} material={mats.tip}><sphereGeometry args={[0.042, 14, 14]} /></mesh>)}
-      <mesh ref={ring} material={mats.ring} visible={false}><torusGeometry args={[1, 0.07, 8, 40]} /></mesh>
-    </group>
+    {SLOTS.map(sl => <group key={`hand${sl}`} ref={el => { hg.current[sl].group = el; }} visible={false}>
+      {Array.from({ length: 21 }, (_, i) => <mesh key={i} ref={el => { hg.current[sl].joints[i] = el; }} material={mats[sl].joint}><sphereGeometry args={[0.026, 10, 10]} /></mesh>)}
+      {BONES.map((_, i) => <mesh key={i} ref={el => { hg.current[sl].bones[i] = el; }} material={mats[sl].bone}><cylinderGeometry args={[0.014, 0.014, 1, 8]} /></mesh>)}
+      {[0, 1, 2].map(i => <mesh key={`d${i}`} ref={el => { hg.current[sl].dots[i] = el; }} material={mats[sl].tip}><sphereGeometry args={[0.042, 14, 14]} /></mesh>)}
+      <mesh ref={el => { hg.current[sl].ring = el; }} material={mats[sl].ring} visible={false}><torusGeometry args={[1, 0.07, 8, 40]} /></mesh>
+    </group>)}
   </>;
 }
 
@@ -222,21 +313,31 @@ function Lookat() {
 }
 
 /**
- * Small grey box with a 3D copy of the object the helper is pointing at, and the helper's hand on it.
- * The view is fixed (no spinning) so the hand's position on the object stays meaningful.
- * `mirror` flips the picture like a selfie view: alone, you watch yourself in a mirror, so the copy and your hand
+ * Small grey box with a 3D copy of the object the helper is pointing at, and the helper's hands on it.
+ * The view is fixed (no spinning) so a hand's position on the object stays meaningful.
+ * `mirror` flips the picture like a selfie view: alone, you watch yourself in a mirror, so the copy and your hands
  * must move the way your mirrored video does (move left, the hand goes left).
  */
-export function TwinBox({ twin, hand, placement, posFlip, mirror = false, drive, remotePose, onPose, onClose }: {
+export function TwinBox({ twin, hand, placement, posFlip, mirror = false, drive, remotePose, onPose, onClose, frame }: {
   twin: TwinInfo; hand: MutableRefObject<RemoteHandState>; placement: Placement; posFlip: boolean; mirror?: boolean;
   drive: 'local' | 'remote'; remotePose: MutableRefObject<TwinPose>; onPose: (p: TwinPose) => void; onClose: () => void;
+  /** the scanned picture this object was found in, if it is ours: lets this screen ask SAM 3D for a real model */
+  frame?: ScanFrame | null;
 }) {
   const pl = useRef(placement);
   useEffect(() => { pl.current = placement; }, [placement]);
-  const status = useRef<BoxStatus>({ mode: 'none', kind: 'none', moved: false, turned: false, remote: false, angle: 0, target: '', partAngle: 0, partMoved: false, thumb: '', partLift: 0, partPos: '' });
+  const status = useRef<BoxStatus>({ mode: 'none', kind: 'none', moved: false, turned: false, remote: false, angle: 0, target: '', partAngle: 0, partMoved: false, thumb: '', partLift: 0, partPos: '', hands: 0, kind2: 'none', target2: '', unscrew: -1 });
   const [ui, setUi] = useState<BoxStatus>(status.current);
   const [resetToken, setResetToken] = useState(0);
   const [big, setBig] = useState(false);
+  const sam = useTwinMesh(twin.label, twin.model);
+  const [shapes, setShapes] = useState(false); // show Claude's shapes even though a mesh is ready (to compare)
+  const showMesh = !!sam.mesh && !shapes;
+  const [now, setNow] = useState(Date.now());
+  useEffect(() => { if (sam.phase !== 'running') return; const id = window.setInterval(() => setNow(Date.now()), 500); return () => clearInterval(id); }, [sam.phase]);
+  const making = sam.phase === 'running' ? `making 3D · ${Math.max(0, Math.round((now - (sam.startedAt ?? now)) / 1000))}s` : '';
+  const canMake = !!frame && drive === 'local' && sam.phase !== 'off' && sam.phase !== 'running';
+  const make = () => { if (frame) { setShapes(false); sam.generate(frame, twin.bbox); } };
   useEffect(() => {
     const id = window.setInterval(() => setUi(prev => { const n = status.current; return (Object.keys(n) as (keyof BoxStatus)[]).every(k => prev[k] === n[k]) ? prev : { ...n }; }), 150);
     return () => clearInterval(id);
@@ -246,20 +347,29 @@ export function TwinBox({ twin, hand, placement, posFlip, mirror = false, drive,
   const partNames = useMemo(() => componentsOf(twin.model).map(c => c.name), [twin.model]);
   // Short on purpose: the small box is only ~30 characters wide.
   const what = ui.target === 'whole' ? 'the whole' : `the ${ui.target}`;
+  const both = holding && ui.kind2 !== 'none';
+  // A screwed-on piece in hand: say how far it is unscrewed, since pulling does nothing until it is loose.
+  const screwing = ui.unscrew >= 0 && ui.unscrew < 100 && (holding || ui.mode === 'hover');
+  const piece = partNames.find(n => n === ui.target || n === ui.target2) ?? 'cap';
   const text = ui.remote
-    ? (holding ? `friend holds ${what}` : changed && ui.mode !== 'waiting' ? 'moved by your friend' : ui.mode === 'waiting' ? 'waiting for hand' : 'friend is pointing')
+    ? (both ? 'friend uses both hands' : holding ? `friend holds ${what}` : changed && ui.mode !== 'waiting' ? 'moved by your friend' : ui.mode === 'waiting' ? 'waiting for hand' : 'friend is pointing')
+    : screwing ? (holding ? `twist to unscrew · ${ui.unscrew}%` : `pinch the ${piece} and twist`)
+    : holding && ui.unscrew === 100 && ui.partLift < 30 ? `${piece} is loose · pull it off`
+    : both ? `both hands: ${what} + ${ui.target2 === 'whole' ? 'the whole' : `the ${ui.target2}`}`
     : holding ? `${ui.kind === 'grip' ? 'gripping' : 'pinching'} ${what}`
     : ui.mode === 'hover' ? `pinch ${what}` : ui.mode === 'idle' && changed ? 'moved · pinch to move again' : ui.mode === 'waiting' ? 'waiting for hand' : partNames.length ? `pinch the ${partNames[0]} or the whole` : 'point at it, then pinch';
-  return <aside className={`twin-box ${mirror ? 'mirror' : ''} ${big ? 'big' : ''}`} aria-label={`3D copy of ${twin.label}`} data-mode={ui.mode} data-kind={ui.kind} data-moved={ui.moved ? '1' : '0'} data-turned={ui.turned ? '1' : '0'} data-angle={ui.angle} data-target={ui.target} data-part-angle={ui.partAngle} data-part-moved={ui.partMoved ? '1' : '0'} data-big={big ? '1' : '0'} data-thumb={ui.thumb} data-part-lift={ui.partLift} data-part-pos={ui.partPos}>
+  return <aside className={`twin-box ${mirror ? 'mirror' : ''} ${big ? 'big' : ''}`} aria-label={`3D copy of ${twin.label}`} data-mode={ui.mode} data-kind={ui.kind} data-moved={ui.moved ? '1' : '0'} data-turned={ui.turned ? '1' : '0'} data-angle={ui.angle} data-target={ui.target} data-part-angle={ui.partAngle} data-part-moved={ui.partMoved ? '1' : '0'} data-big={big ? '1' : '0'} data-thumb={ui.thumb} data-part-lift={ui.partLift} data-part-pos={ui.partPos} data-hands={ui.hands} data-kind2={ui.kind2} data-target2={ui.target2} data-unscrew={ui.unscrew}>
     <Canvas dpr={[1, 2]} camera={{ position: [0.5, 0.4, 3.4], fov: 40 }} gl={{ antialias: true, alpha: true }} onCreated={({ gl }) => gl.setClearColor(0x000000, 0)}>
       <Lookat />
       <ambientLight intensity={1.2} />
       <directionalLight position={[2, 3, 4]} intensity={2} />
-      <TwinScene key={twin.objectId} mirror={mirror} twin={twin} hand={hand} placement={pl} posFlip={posFlip} drive={drive} remotePose={remotePose} onPose={onPose} status={status} resetToken={resetToken} />
+      <TwinScene key={twin.objectId} mirror={mirror} twin={twin} hand={hand} placement={pl} posFlip={posFlip} drive={drive} remotePose={remotePose} onPose={onPose} status={status} resetToken={resetToken} mesh={showMesh ? sam.mesh : null} />
     </Canvas>
-    {holding && <span className={`twin-badge ${ui.kind}`}>{ui.kind === 'grip' ? 'GRIP' : 'PINCH'}</span>}
-    <div className="twin-label"><span>{twin.label}</span><span className="twin-status">{text}</span></div>
+    {holding && <span className={`twin-badge ${ui.kind}`}>{both ? '2 HANDS' : ui.kind === 'grip' ? 'GRIP' : 'PINCH'}</span>}
+    <div className="twin-label"><span>{twin.label}{making ? ` · ${making}` : showMesh ? ' · SAM 3D' : ''}</span><span className="twin-status">{text}</span></div>
     <div className="twin-tools">
+      {sam.mesh && <button className="twin-tool" aria-pressed={showMesh} aria-label={showMesh ? 'Show the simple shapes' : 'Show the SAM 3D model'} title={showMesh ? `SAM 3D model (cached${sam.ms ? `, made in ${Math.round(sam.ms / 1000)}s` : ''}). Click for the simple shapes.` : 'Show the SAM 3D model'} onClick={() => setShapes(v => !v)}>{showMesh ? '◆' : '◇'}</button>}
+      {(canMake && (!sam.mesh || big)) && <button className="twin-tool" aria-label={sam.mesh ? 'Remake the 3D model' : 'Make a 3D model'} title={`${sam.mesh ? 'Remake' : 'Make'} a real 3D model with SAM 3D. Sends the scanned camera picture to fal.ai.${sam.error ? ` Last try failed: ${sam.error}` : ''}`} onClick={make}>{sam.mesh ? '⟳' : '3D'}</button>}
       <button className="twin-tool" aria-label={big ? 'Make it smaller' : 'Make it bigger'} aria-pressed={big} title={big ? 'Make it smaller' : 'Make it bigger'} onClick={() => setBig(b => !b)}>{big ? '⤡' : '⤢'}</button>
       {changed && drive === 'local' && <button className="twin-tool" aria-label="Put it back" title="Put it back" onClick={() => setResetToken(n => n + 1)}>↺</button>}
       <button className="twin-tool" aria-label="Close 3D view" onClick={onClose}>×</button>

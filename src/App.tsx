@@ -22,10 +22,12 @@ import { HandOverlay } from './remote/HandOverlay';
 import { HandAdvanced, HandQuickControls } from './remote/HandOverlayPanel';
 import { DEFAULT_PLACEMENT, type Placement } from './remote/placement';
 import { LoopbackChannel, RemoteHandState, RtcHandChannel } from './remote/remoteHand';
+import { HandSlots } from './remote/handSlots';
 import { DemoPanel } from './render/DemoPanel';
 import { TwinBox } from './render/TwinBox';
 import { twinKindForLabel } from './render/motion';
 import { decodePose, decodeSay, decodeTwin, encodePose, encodeSay, encodeTwin, REST_POSE, type TwinInfo, type TwinPose } from './remote/twinWire';
+const SLOTS = [0, 1] as const;
 type Facing = 'user' | 'environment';
 type Phase = 'idle' | 'loading' | 'running' | 'error';
 export default function App({communitySession}:{communitySession?:{id:string;token:string}}) {
@@ -53,6 +55,8 @@ export default function App({communitySession}:{communitySession?:{id:string;tok
   const call = useCall(() => video.current?.srcObject instanceof MediaStream ? video.current.srcObject : null);
   useEffect(()=>{if(communitySession)call.start(undefined,communitySession);},[communitySession]);
   const handOnRef = useRef(true);
+  const slots = useRef(new HandSlots());       // keeps each of the two hands in its own slot
+  const slotSent = useRef([false, false]);     // whether a hand in that slot is currently being sent
   // In a call: my hand goes to the friend over the data channel, and theirs arrives in peerHand.
   const peerHand = useRef(new RemoteHandState());
   const rtc = useRef<RtcHandChannel|null>(null);
@@ -101,7 +105,7 @@ export default function App({communitySession}:{communitySession?:{id:string;tok
       const {frame,receivedAt,renderFps} = live.current;
       // Whose hand is pointing: mine when I am showing it, otherwise the friend's, as it arrives.
       const nowPt = performance.now();
-      const pf = (!inCallRef.current || helperRef.current) ? (live.current.frame && nowPt-receivedAt<350 ? live.current.frame : null) : peerHand.current.current(nowPt);
+      const pf = (!inCallRef.current || helperRef.current) ? (live.current.frame && nowPt-receivedAt<350 ? live.current.frame : null) : (peerHand.current.current(nowPt, 0) ?? peerHand.current.current(nowPt, 1));
       let hover: string|null = null;
       if (pf && isPointingPose(pf.landmarks)) {
         // In a call the fingertip is mapped into the other camera's frame; alone it shares the camera's frame.
@@ -111,7 +115,7 @@ export default function App({communitySession}:{communitySession?:{id:string;tok
       agent.current?.point(hover); agent.current?.tick();
       setHoverId(hover);
       const nowMs = performance.now();
-      if (peerHand.current.current(nowMs)) lastPeerHand.current = nowMs;
+      if (peerHand.current.current(nowMs, 0) || peerHand.current.current(nowMs, 1)) lastPeerHand.current = nowMs;
       setGuided(nowMs - lastPeerHand.current < 2500 && lastPeerHand.current > 0);
       setStats({fps:Math.round(renderFps),latency:frame ? Math.round(receivedAt-frame.timestamp):0,inference:Math.round(frame?.inferenceMs ?? 0),tracked:!!frame?.landmarks.length && performance.now()-receivedAt<350,hand:frame?.handedness ?? '',world:!!frame?.worldLandmarks.length});
     },250);
@@ -132,7 +136,7 @@ export default function App({communitySession}:{communitySession?:{id:string;tok
     };
   }, []);
   function stop() {
-    generation.current++; cleanup.current(); live.current.frame=null; myHand.current.reset(); rtc.current?.send(null);
+    generation.current++; cleanup.current(); live.current.frame=null; live.current.hands=[null,null]; slots.current.reset(); myHand.current.reset(); rtc.current?.send(null,0); rtc.current?.send(null,1);
     setPhase('idle'); setMessage('');
   }
   async function start(requestedFacing: Facing = facing) {
@@ -201,10 +205,13 @@ export default function App({communitySession}:{communitySession?:{id:string;tok
         if(data.type==='result') {
           busy=false;
           if(Math.abs(data.aspect-live.current.aspect)>.01) return;
-          const frame=data.frame as HandFrame;
+          // Up to two hands, each held in its own slot so they never swap. `frame` stays the main hand for everything single-handed.
+          const found = ((data.frames as HandFrame[] | undefined) ?? [data.frame as HandFrame]).filter(f => f.landmarks.length === 21);
+          const both = slots.current.update(found, performance.now());
+          const frame = (both[0] ?? both[1] ?? data.frame) as HandFrame;
           if(document.hidden) return;
-          live.current.frame=frame; live.current.receivedAt=performance.now();
-          if(handOnRef.current) { const h = frame.landmarks.length ? frame : null; loop.current?.send(h); rtc.current?.send(h); }
+          live.current.frame=frame; live.current.hands=both; live.current.receivedAt=performance.now();
+          if(handOnRef.current) SLOTS.forEach(sl => { const h = both[sl]; if (h || slotSent.current[sl]) { loop.current?.send(h, sl); rtc.current?.send(h, sl); slotSent.current[sl] = !!h; } });
           const canvas=overlay.current, ctx=canvas.getContext('2d');
           ctx?.clearRect(0,0,canvas.width,canvas.height);
           if(ctx && debug.current && frame.landmarks.length) {
@@ -241,7 +248,7 @@ export default function App({communitySession}:{communitySession?:{id:string;tok
         }).catch(fail);
       }
       modelTimeout=window.setTimeout(()=>fail(new Error('Model loading timed out. Check that model downloads are allowed by your network.')),45000);
-      worker.postMessage({type:'init'});
+      worker.postMessage({type:'init', numHands:2});
     } catch(error) { fail(error); }
   }
   const active=phase==='running';
@@ -364,7 +371,7 @@ export default function App({communitySession}:{communitySession?:{id:string;tok
     </div>
     {screen!=='calling' && <VoiceBar state={voice.state} engine={voice.engine} partial={voice.partial} error={voice.error} heard={heard} objects={scene.objects} focus={focusInfo} topic={topic}
       onToggle={() => voice.state==='listening' ? voice.stop() : voice.start()} onChoose={chooseObject} onAccept={voice.accept} onDecline={voice.decline}/>}
-    {twin && (screen==='home' || screen==='incall') && <TwinBox twin={twin} mirror={screen==='home'} hand={helperMode ? myHand : peerHand} drive={helperMode ? 'local' : 'remote'} remotePose={remotePose} onPose={sendPose} placement={placement} posFlip={screen==='home' ? false : placement.flipX} onClose={closeTwin}/>}
+    {twin && (screen==='home' || screen==='incall') && <TwinBox twin={twin} mirror={screen==='home'} hand={helperMode ? myHand : peerHand} drive={helperMode ? 'local' : 'remote'} remotePose={remotePose} onPose={sendPose} placement={placement} posFlip={screen==='home' ? false : placement.flipX} onClose={closeTwin} frame={helperMode && scene.objects.some(o => o.objectId===twin.objectId) ? scene.frame.current : null}/>}
     {screen==='home' && <section className="home-panel" aria-label="Start a call">
       <PageHeading compact eyebrow="GHOST LIVE" title={<>A hand.<br/><span className="gradient-text">From anywhere.</span></>} description="Show someone what to do with your hands."/>
       <button className="primary" onClick={() => call.start()}><Icon name="video" size={20}/>New call</button>

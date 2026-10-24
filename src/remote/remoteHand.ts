@@ -4,7 +4,7 @@ import { decodeHand, encodeHand } from './handWire';
 /** Anything that can carry hand frames to the other caller. */
 export interface HandChannel {
   /** null means "no hand in view": the peer hides the overlay immediately instead of waiting to go stale. */
-  send(hand: HandFrame | null): void;
+  send(hand: HandFrame | null, slot?: 0 | 1): void;
   onMessage(cb: (buf: ArrayBuffer) => void): void;
   close(): void;
 }
@@ -13,8 +13,9 @@ const newer = (a: number, b: number) => { const d = (a - b + 65536) % 65536; ret
 
 /** Receiver side: ignores out-of-order packets, reports staleness, counts loss. */
 export class RemoteHandState {
-  private frame: HandFrame | null = null;
+  private frames: [HandFrame | null, HandFrame | null] = [null, null]; // one per hand: slot 0 and slot 1
   private lastSeq: number | null = null;
+  private receivedAts: [number, number] = [0, 0];
   private receivedAt = 0;
   private bytes = 0;
   private window: { t: number; bytes: number }[] = [];
@@ -30,16 +31,17 @@ export class RemoteHandState {
       this.lost += (msg.seq - this.lastSeq - 1 + 65536) % 65536;
     }
     this.lastSeq = msg.seq;
-    this.frame = msg.hand; this.receivedAt = now; this.received++;
+    this.frames[msg.slot] = msg.hand; this.receivedAts[msg.slot] = now; this.receivedAt = now; this.received++;
     this.bytes += buf.byteLength;
     this.window.push({ t: now, bytes: buf.byteLength });
     while (this.window.length && now - this.window[0].t > 1000) this.window.shift();
     return true;
   }
 
-  /** The latest hand, or null if none, cleared by the sender, or older than staleMs. */
-  current(now: number): HandFrame | null {
-    return this.frame && now - this.receivedAt <= this.staleMs ? this.frame : null;
+  /** The latest hand in a slot (0 = the sender's first hand, 1 = the second), or null if none, cleared by the sender, or older than staleMs. */
+  current(now: number, slot: 0 | 1 = 0): HandFrame | null {
+    const f = this.frames[slot];
+    return f && now - this.receivedAts[slot] <= this.staleMs ? f : null;
   }
   ageMs(now: number) { return this.received ? now - this.receivedAt : null; }
   /** Messages and bytes in the last second. */
@@ -47,7 +49,7 @@ export class RemoteHandState {
     const w = this.window.filter(x => now - x.t <= 1000);
     return { msgsPerSec: w.length, kbps: (w.reduce((a, x) => a + x.bytes, 0) * 8) / 1000 };
   }
-  reset() { this.frame = null; this.lastSeq = null; this.window = []; }
+  reset() { this.frames = [null, null]; this.lastSeq = null; this.window = []; }
 }
 
 /**
@@ -61,8 +63,8 @@ export class LoopbackChannel implements HandChannel {
   private timers = new Set<ReturnType<typeof setTimeout>>();
   constructor(private readonly rand: () => number = Math.random, private readonly now: () => number = () => performance.now()) {}
   onMessage(cb: (buf: ArrayBuffer) => void) { this.cb = cb; }
-  send(hand: HandFrame | null) {
-    const buf = encodeHand(this.seq++ & 0xffff, this.now(), hand);
+  send(hand: HandFrame | null, slot: 0 | 1 = 0) {
+    const buf = encodeHand(this.seq++ & 0xffff, this.now(), hand, slot);
     if (this.rand() * 100 < this.lossPct) return;
     const delay = this.latencyMs + this.rand() * this.jitterMs;
     if (delay <= 0) { this.cb?.(buf); return; }
@@ -77,10 +79,10 @@ export class RtcHandChannel implements HandChannel {
   private seq = 0;
   constructor(private readonly dc: RTCDataChannel, private readonly now: () => number = () => performance.now()) { dc.binaryType = 'arraybuffer'; }
   onMessage(cb: (buf: ArrayBuffer) => void) { this.dc.onmessage = e => { if (e.data instanceof ArrayBuffer) cb(e.data); }; }
-  send(hand: HandFrame | null) {
+  send(hand: HandFrame | null, slot: 0 | 1 = 0) {
     // Drop rather than queue: a late hand is worse than a missing one.
     if (this.dc.readyState !== 'open' || this.dc.bufferedAmount > 16_384) return;
-    this.dc.send(encodeHand(this.seq++ & 0xffff, this.now(), hand));
+    this.dc.send(encodeHand(this.seq++ & 0xffff, this.now(), hand, slot));
   }
   close() { this.dc.onmessage = null; }
 }

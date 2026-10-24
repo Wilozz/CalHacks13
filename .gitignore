@@ -10,3 +10,4 @@ public/vendor/
 test-results/
 playwright-report/
 .convex/
+.cache/

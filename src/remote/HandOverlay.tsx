@@ -6,7 +6,7 @@ import { FrameCamera } from '../render/DemoScene';
 import { HandPlacer, type Placement } from './placement';
 import type { RemoteHandState } from './remoteHand';
 
-function Skeleton({ remote, placement, aspect, mirrored }: { remote: MutableRefObject<RemoteHandState>; placement: MutableRefObject<Placement>; aspect: number; mirrored: boolean }) {
+function Skeleton({ remote, placement, aspect, mirrored, slot = 0 }: { remote: MutableRefObject<RemoteHandState>; placement: MutableRefObject<Placement>; aspect: number; mirrored: boolean; slot?: 0 | 1 }) {
   const group = useRef<THREE.Group>(null!);
   const joints = useRef<(THREE.Mesh | null)[]>([]);
   const bones = useRef<(THREE.Mesh | null)[]>([]);
@@ -15,7 +15,7 @@ function Skeleton({ remote, placement, aspect, mirrored }: { remote: MutableRefO
   const s = useRef({ pos: Array.from({ length: 21 }, () => new THREE.Vector3()), a: new THREE.Vector3(), b: new THREE.Vector3(), up: new THREE.Vector3(0, 1, 0), fresh: false });
 
   useFrame(({ clock }, dt) => {
-    const frame = remote.current.current(performance.now());
+    const frame = remote.current.current(performance.now(), slot);
     const pts = frame ? placer.current.place(frame, placement.current, aspect, mirrored) : null;
     group.current.visible = !!pts;
     if (!pts) { s.current.fresh = false; placer.current.reset(); return; }
@@ -60,6 +60,7 @@ export function HandOverlay({ remote, placement, aspect, onPin, cover = false, m
       <Canvas orthographic dpr={[1, 1.5]} gl={{ alpha: true, antialias: true }} onCreated={({ gl }) => gl.setClearColor(0x000000, 0)}>
         <FrameCamera aspect={aspect} />
         <Skeleton remote={remote} placement={ref} aspect={aspect} mirrored={mirrored} />
+        <Skeleton remote={remote} placement={ref} aspect={aspect} mirrored={mirrored} slot={1} />
       </Canvas>
       {pinning && placement.pin && <i className="pin-mark" style={{ left: `${placement.pin.x * 100}%`, top: `${placement.pin.y * 100}%` }} />}
     </div>

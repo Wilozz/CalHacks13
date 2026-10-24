@@ -16,6 +16,16 @@ const related = (child: SceneObject, parent: SceneObject) => {
 
 // The part's name is its head noun: "bottle cap" -> cap, "lid on the book" -> lid (stop at the preposition).
 const PREPOSITIONS = new Set(['on', 'in', 'of', 'with', 'for', 'at', 'from', 'to']);
+/** Fraction of box `a` that lies inside box `b` (both as centre + size). */
+const insideFrac = (a: ModelPart, b: { c: V3; s: V3 }) => {
+  let inter = 1, vol = 1;
+  for (let i = 0; i < 3; i++) {
+    const lo = Math.max(a.position[i] - a.size[i] / 2, b.c[i] - b.s[i] / 2), hi = Math.min(a.position[i] + a.size[i] / 2, b.c[i] + b.s[i] / 2);
+    inter *= Math.max(0, hi - lo); vol *= a.size[i];
+  }
+  return vol > 0 ? inter / vol : 0;
+};
+
 const headWord = (label: string) => {
   const toks = tokenize(label).filter(w => !STOP.has(w));
   const cut = toks.findIndex(w => PREPOSITIONS.has(w));
@@ -58,7 +68,16 @@ export function foldParts(objects: SceneObject[]): SceneObject[] {
         position: [center[0] + (p.position[0] - cc[0]) * fx, center[1] + (p.position[1] - cc[1]) * fy, center[2] + (p.position[2] - cc[2]) * fz] as V3,
       }));
     } else pieces = [{ shape: 'cylinder', size: [sx, sy, sx], position: center, color: '#c8fff9', moving: true, name }];
-    model.parts = [...model.parts, ...pieces];
+    // Vision often draws the cap into the body as well as listing it separately. Where the cap goes, take out any fixed
+    // piece of the body that is mostly inside the cap's area (it is the cap, drawn twice), or lifting the cap would leave
+    // a second one sitting on the bottle. And if the body already has a movable piece there, do not add another.
+    const capArea = { c: center, s: [sx * 1.25, sy * 1.25, sx * 1.25] as V3 };
+    const dupMoving = model.parts.find(p => p.moving && insideFrac(p, capArea) >= 0.5);
+    if (dupMoving) {
+      model.parts = model.parts.map(p => (p.moving && insideFrac(p, capArea) >= 0.5 && !p.name ? { ...p, name } : p));
+    } else {
+      model.parts = [...model.parts.filter(p => p.moving || insideFrac(p, capArea) < 0.5), ...pieces];
+    }
     P.partNames = [...new Set([...(P.partNames ?? []), name])];
     P.affordances = [...new Set([...P.affordances, ...c.affordances])];
     folded.add(c.objectId);

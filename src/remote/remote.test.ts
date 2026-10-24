@@ -125,3 +125,23 @@ test('tilting the palm does not read as moving away', () => {
   const a = apparentScale(tilted.landmarks), b = apparentScale(flat.landmarks);
   assert.ok(a >= b - 1e-9);
 });
+
+test('a second hand travels in its own slot, and each slot goes stale and clears on its own', () => {
+  const r = new RemoteHandState(350);
+  r.accept(encodeHand(1, 0, hand(), 0), 1000);
+  r.accept(encodeHand(2, 0, hand({ x: 0.2, y: 0.5 }), 1), 1010);
+  assert.equal(decodeHand(encodeHand(9, 0, hand(), 1), 0)!.slot, 1);
+  assert.equal(decodeHand(encodeHand(9, 0, hand()), 0)!.slot, 0);
+  assert.ok(r.current(1100, 0) && r.current(1100, 1));
+  assert.ok(Math.abs(r.current(1100, 1)!.landmarks[8].x - 0.2) < 1e-3, 'slot 1 holds the second hand, not the first');
+  r.accept(encodeHand(3, 0, null, 1), 1200);                 // the second hand leaves
+  assert.ok(r.current(1210, 0) && !r.current(1210, 1), 'slot 0 is untouched when slot 1 clears');
+  assert.equal(r.current(1500, 0), null, 'slot 0 goes stale on its own clock');
+});
+
+test('the loopback carries both slots through the real codec', () => {
+  const got = new RemoteHandState(); const ch = new LoopbackChannel(() => 0.99, () => 0);
+  ch.onMessage(b => got.accept(b, 0));
+  ch.send(hand({ x: 0.3, y: 0.4 }), 0); ch.send(hand({ x: 0.7, y: 0.4 }), 1);
+  assert.ok(Math.abs(got.current(1, 0)!.landmarks[8].x - 0.3) < 1e-3 && Math.abs(got.current(1, 1)!.landmarks[8].x - 0.7) < 1e-3);
+});

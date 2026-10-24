@@ -2,7 +2,13 @@ import { Component, useEffect, useRef, type MutableRefObject, type ReactNode } f
 import { Canvas, useFrame, useThree } from '@react-three/fiber';
 import * as THREE from 'three';
 import { BONES, transformHand, type HandFrame } from './coordinates';
-export interface LiveData { frame: HandFrame | null; receivedAt: number; aspect: number; renderFps: number; mirrored: boolean }
+export interface LiveData {
+  /** the main hand (the first of the two, else the second): what single-hand features use */
+  frame: HandFrame | null;
+  /** both hands, each kept in its own slot from frame to frame */
+  hands?: [HandFrame | null, HandFrame | null];
+  receivedAt: number; aspect: number; renderFps: number; mirrored: boolean;
+}
 function Skeleton({ live }: { live: MutableRefObject<LiveData> }) {
   const group = useRef<THREE.Group>(null!);
   const joints = useRef<(THREE.Mesh | null)[]>([]);

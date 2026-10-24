@@ -162,7 +162,7 @@ test('pose messages roundtrip, and malformed or wild ones are clamped or rejecte
   assert.equal(decodePose('nope'), null);
   assert.equal(decodePose(JSON.stringify({ type: 'twin-pose', o: [1, 2] })), null);
   assert.deepEqual(decodePose(JSON.stringify({ type: 'twin-pose', o: [99, -99, 'x'], g: 1, h: null }))!.offset, [2, -2, 0]);
-  assert.equal(decodePose('x'.repeat(1000)), null);
+  assert.equal(decodePose('x'.repeat(1200)), null);
   // components: too many are dropped, malformed ones are skipped, and a target that points at nothing is ignored
   const many = decodePose(JSON.stringify({ type: 'twin-pose', o: [0, 0, 0], t: 3, c: Array.from({ length: 9 }, () => [0, 0, 0, 0, 0, 0, 1]) }))!;
   assert.equal(many.parts.length, 4); assert.equal(many.target, 3);
@@ -180,4 +180,14 @@ test('spoken sentences roundtrip and are bounded', async () => {
   assert.equal(decodeSay(encodeSay('look at the bottle')), 'look at the bottle');
   assert.equal(decodeSay(encodeSay('x'.repeat(5000)))!.length, 600);
   for (const bad of ['nope', JSON.stringify({ type: 'say' }), JSON.stringify({ type: 'say', text: '  ' }), JSON.stringify({ type: 'twin' }), 'x'.repeat(2000)]) assert.equal(decodeSay(bad), null);
+});
+
+test('the second hand\'s hold travels in the pose and is validated', () => {
+  const base = { offset: [0, 0, 0] as [number, number, number], rotation: [0, 0, 0, 1] as [number, number, number, number], grabbing: true, kind: 'pinch' as const, anchor: null, parts: [{ offset: [0, 0, 0] as [number, number, number], rotation: [0, 0, 0, 1] as [number, number, number, number] }], target: -1 };
+  const p = decodePose(encodePose({ ...base, second: { target: 0, kind: 'grip', anchor: [0.1, 0.2, 0.3] } }))!;
+  assert.deepEqual(p.second, { target: 0, kind: 'grip', anchor: [0.1, 0.2, 0.3] });
+  assert.equal(decodePose(encodePose({ ...base, second: null }))!.second, null);
+  assert.equal(decodePose(encodePose(base))!.second, null);
+  const bad = decodePose(JSON.stringify({ type: 'twin-pose', o: [0, 0, 0], c: [[0, 0, 0, 0, 0, 0, 1]], s: [99, 7, [1, 2]] }))!;
+  assert.equal(bad.second!.target, -2); assert.equal(bad.second!.kind, 'none'); assert.equal(bad.second!.anchor, null);
 });

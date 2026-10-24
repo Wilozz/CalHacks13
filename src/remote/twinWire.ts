@@ -39,9 +39,12 @@ export interface PieceWire { offset: [number, number, number]; rotation: [number
  * `offset`/`rotation` are the whole object; `parts` are its separately movable components (the cap), relative to the whole.
  * `target` is what is held: -2 nothing, -1 the whole, 0.. a component.
  */
+/** What the second hand is holding (the first hand's is in the pose itself). */
+export interface HoldWire { target: number; kind: 'none' | 'pinch' | 'grip'; anchor: [number, number, number] | null }
 export interface TwinPose {
   offset: [number, number, number]; rotation: [number, number, number, number]; grabbing: boolean; kind: 'none' | 'pinch' | 'grip';
   anchor: [number, number, number] | null; parts: PieceWire[]; target: number;
+  second?: HoldWire | null;
 }
 export const REST_POSE: TwinPose = { offset: [0, 0, 0], rotation: [0, 0, 0, 1], grabbing: false, kind: 'none', anchor: null, parts: [], target: -2 };
 const MAX_PARTS = 4;
@@ -60,11 +63,12 @@ export const encodePose = (p: TwinPose): string => JSON.stringify({
   type: 'twin-pose', o: r3(p.offset), q: r4(p.rotation), g: p.grabbing ? 1 : 0,
   k: KINDS.indexOf(p.kind), h: p.anchor ? r3(p.anchor) : null, t: p.target,
   c: p.parts.slice(0, MAX_PARTS).map(x => [...r3(x.offset), ...r4(x.rotation)]),
+  s: p.second ? [p.second.target, KINDS.indexOf(p.second.kind), p.second.anchor ? r3(p.second.anchor) : null] : null,
 });
 
 /** null = not a pose message or invalid. Values are clamped and rotations renormalized, never trusted. */
 export function decodePose(text: string): TwinPose | null {
-  if (typeof text !== 'string' || text.length > 900) return null;
+  if (typeof text !== 'string' || text.length > 1100) return null;
   let m: any;
   try { m = JSON.parse(text); } catch { return null; }
   if (!m || m.type !== 'twin-pose') return null;
@@ -72,8 +76,9 @@ export function decodePose(text: string): TwinPose | null {
   if (!offset) return null;
   const parts: PieceWire[] = (Array.isArray(m.c) ? m.c : []).slice(0, MAX_PARTS).flatMap((x: unknown): PieceWire[] =>
     Array.isArray(x) && x.length === 7 ? [{ offset: vec3(x.slice(0, 3))!, rotation: unitQuat(x.slice(3)) }] : []);
-  const t = Number.isInteger(m.t) ? m.t : -2;
-  return { offset, rotation: unitQuat(m.q), grabbing: m.g === 1, kind: KINDS[m.k] ?? 'none', anchor: vec3(m.h), parts, target: t >= -2 && t < parts.length ? t : -2 };
+  const ok = (v: unknown) => (Number.isInteger(v) && (v as number) >= -2 && (v as number) < parts.length ? (v as number) : -2);
+  const second: HoldWire | null = Array.isArray(m.s) && m.s.length === 3 ? { target: ok(m.s[0]), kind: KINDS[m.s[1]] ?? 'none', anchor: vec3(m.s[2]) } : null;
+  return { offset, rotation: unitQuat(m.q), grabbing: m.g === 1, kind: KINDS[m.k] ?? 'none', anchor: vec3(m.h), parts, target: ok(m.t), second };
 }
 
 /** A finished sentence, shared so both screens' listening agents hear the whole conversation. Text only: audio never leaves the device except to the speech service. */

@@ -4,15 +4,20 @@ import { foldParts } from './ai/foldParts';
 import type { SceneObject } from './ai/types';
 
 const MAX_SIDE = 768;
+const MESH_SIDE = 1280; // SAM 3D makes better meshes from a sharper picture
+
+/** One frame kept from a scan, so a 3D model of something it found can be made from the same picture its box is in. */
+export interface ScanFrame { imageBase64: string; mediaType: 'image/jpeg'; width: number; height: number }
 
 /** Grab one JPEG keyframe of the camera, un-mirrored, so bboxes share the raw video's coordinates. */
-function captureFrame(v: HTMLVideoElement): string | null {
+function captureFrame(v: HTMLVideoElement, maxSide = MAX_SIDE, quality = 0.7): ScanFrame | null {
   if (!v.videoWidth || !v.videoHeight) return null;
-  const scale = Math.min(1, MAX_SIDE / Math.max(v.videoWidth, v.videoHeight));
+  const scale = Math.min(1, maxSide / Math.max(v.videoWidth, v.videoHeight));
   const c = document.createElement('canvas');
   c.width = Math.round(v.videoWidth * scale); c.height = Math.round(v.videoHeight * scale);
   c.getContext('2d')?.drawImage(v, 0, 0, c.width, c.height);
-  return c.toDataURL('image/jpeg', 0.7).split(',')[1] ?? null;
+  const imageBase64 = c.toDataURL('image/jpeg', quality).split(',')[1];
+  return imageBase64 ? { imageBase64, mediaType: 'image/jpeg', width: c.width, height: c.height } : null;
 }
 
 /** Asks Claude (vision) what is in the camera view and what a 3D twin of each object looks like. */
@@ -45,19 +50,22 @@ export function useSceneScan(video: RefObject<HTMLVideoElement>, cameraOn: boole
   const lastScanAt = useRef(0);
   const prior = useRef<SceneObject[]>([]);
   prior.current = objects;
+  /** the sharper copy of the frame the current objects were found in (stays on this device unless a 3D model is asked for) */
+  const frame = useRef<ScanFrame | null>(null);
 
   /** Scans `source` (e.g. the friend's video) or, by default, the tracking camera. */
   const scan = useCallback(async (source?: HTMLVideoElement | null) => {
     const v = source ?? video.current;
     if (busy.current || !v) return;
-    const imageBase64 = captureFrame(v);
+    const shot = captureFrame(v), sharp = captureFrame(v, MESH_SIDE, 0.88);
     o.current?.beforeScan?.(v);
-    if (!imageBase64) { setError('The camera is not ready yet.'); return; }
+    if (!shot) { setError('The camera is not ready yet.'); return; }
+    const imageBase64 = shot.imageBase64;
     busy.current = true; setScanning(true); setError(''); lastScanAt.current = performance.now(); lastSig.current = frameSignature(v);
     const started = performance.now();
     try {
       const found = foldParts(await client.analyzeScene({ imageBase64, mediaType: 'image/jpeg', now: performance.now() / 1000, prior: prior.current }));
-      setObjects(found);
+      setObjects(found); frame.current = sharp;
       setLastMs(performance.now() - started);
       if (!found.length) setError('Claude did not see any objects it could model. Move closer or improve the lighting.');
     } catch (e) {
@@ -80,7 +88,7 @@ export function useSceneScan(video: RefObject<HTMLVideoElement>, cameraOn: boole
     }, 2000);
     return () => clearInterval(id);
   }, [auto, opts?.watch, scan, video]);
-  useEffect(() => { if (!cameraOn) { setObjects([]); setError(''); } }, [cameraOn]);
+  useEffect(() => { if (!cameraOn) { setObjects([]); setError(''); frame.current = null; } }, [cameraOn]);
 
-  return { objects, scanning, error, auto, setAuto, scan, lastMs, clear: () => setObjects([]) };
+  return { objects, scanning, error, auto, setAuto, scan, lastMs, frame, clear: () => { setObjects([]); frame.current = null; } };
 }

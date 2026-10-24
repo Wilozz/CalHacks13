@@ -1,6 +1,10 @@
 import Anthropic from '@anthropic-ai/sdk';
+import { fal } from '@fal-ai/client';
+import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
+import { join } from 'node:path';
 import { ACTION_TOOLS, isActionType, sanitizeSpec } from '../src/ai/actionLibrary';
+import { boxPrompt, encodeMesh, MESH_KEY, orient, readGlb, samYaw, simplify, type Quat } from '../src/ai/mesh';
 import { sanitizeModel } from '../src/ai/modelSpec';
 import { ACTION_PARSER_SYSTEM, CONTEXT_SUMMARIZER_SYSTEM, FOCUS_SYSTEM, SCENE_SYSTEM } from '../src/ai/prompts';
 import type { ContextState, ParseRequest, ParseResult, SceneObject } from '../src/ai/types';
@@ -159,21 +163,89 @@ async function voiceToken() {
   return { token: data.token, model: STT_MODEL, version: CARTESIA_VERSION, expiresIn: 600 };
 }
 
+// ---- SAM 3D meshes (fal.ai), cached on disk by object name so a good one is never made twice ----
+const FAL_KEY = process.env.FAL_KEY;
+if (FAL_KEY) fal.config({ credentials: FAL_KEY });
+const SAM3D = 'fal-ai/sam-3/3d-objects';
+const MESH_DIR = process.env.GHOST_MESH_CACHE ?? '.cache/meshes';
+const MAX_GLB = 60_000_000;
+interface MeshMeta { key: string; label: string; version: number; ms: number; triangles: number; sourceTriangles: number }
+const meshJobs = new Map<string, { startedAt: number; error?: string }>();
+const metaOf = (key: string): MeshMeta | null => { try { return JSON.parse(readFileSync(join(MESH_DIR, `${key}.json`), 'utf8')); } catch { return null; } };
+const writeAtomic = (file: string, data: string | Uint8Array) => { writeFileSync(`${file}.tmp`, data); renameSync(`${file}.tmp`, file); };
+
+/** What the cache has for an object, and whether one is being made. */
+function meshStatus(key: string) {
+  if (!FAL_KEY) throw Object.assign(new Error('FAL_KEY is not set'), { status: 503 });
+  if (!MESH_KEY.test(key)) throw Object.assign(new Error('bad key'), { status: 400 });
+  const job = meshJobs.get(key), meta = metaOf(key);
+  return { key, running: !!job && !job.error, startedAt: job?.startedAt ?? null, error: job?.error ?? null, ready: meta };
+}
+
+interface MeshBody { key: string; label: string; imageBase64: string; mediaType: 'image/jpeg' | 'image/png'; width: number; height: number; bbox: [number, number, number, number]; force?: boolean }
+
+/** Starts making a mesh (unless the cache has one and it was not asked to remake it). Returns at once; poll the status. */
+async function startMesh(b: MeshBody) {
+  const status = meshStatus(String(b?.key));
+  if (status.running || (status.ready && !b.force)) return status;
+  if (!['image/jpeg', 'image/png'].includes(b.mediaType) || typeof b.imageBase64 !== 'string') throw Object.assign(new Error('bad image'), { status: 400 });
+  const w = Math.round(Number(b.width)), h = Math.round(Number(b.height));
+  const box = Array.isArray(b.bbox) && b.bbox.length === 4 ? b.bbox.map(n => Math.min(1, Math.max(0, Number(n) || 0))) as MeshBody['bbox'] : null;
+  if (!(w > 16 && h > 16 && w <= 4096 && h <= 4096) || !box || !(box[2] > box[0] && box[3] > box[1])) throw Object.assign(new Error('bad size or box'), { status: 400 });
+  const key = status.key, label = String(b.label ?? key).slice(0, 60), startedAt = Date.now();
+  meshJobs.set(key, { startedAt });
+  void (async () => {
+    try {
+      const image_url = await fal.storage.upload(new Blob([Buffer.from(b.imageBase64, 'base64')], { type: b.mediaType }));
+      const { data } = await fal.subscribe(SAM3D, { input: { image_url, prompt: label, box_prompts: [boxPrompt(box, w, h)], seed: 42 } }) as { data: any };
+      const url = data?.model_glb?.url;
+      if (typeof url !== 'string') throw new Error('SAM 3D returned no mesh');
+      const res = await fetch(url);
+      if (!res.ok) throw new Error(`mesh download failed: ${res.status}`);
+      const glb = new Uint8Array(await res.arrayBuffer());
+      if (glb.byteLength > MAX_GLB) throw new Error('mesh too large');
+      const raw = readGlb(glb), rot = data?.metadata?.[0]?.rotation?.[0];
+      const mesh = orient(simplify(raw, 120), Array.isArray(rot) && rot.length === 4 ? samYaw(rot.map(Number) as Quat) : 0);
+      mkdirSync(MESH_DIR, { recursive: true });
+      writeAtomic(join(MESH_DIR, `${key}.glb`), glb);
+      writeAtomic(join(MESH_DIR, `${key}.ghm`), encodeMesh(mesh));
+      const meta: MeshMeta = { key, label, version: Date.now(), ms: Date.now() - startedAt, triangles: mesh.indices.length / 3, sourceTriangles: raw.indices.length / 3 };
+      writeAtomic(join(MESH_DIR, `${key}.json`), JSON.stringify(meta));
+      meshJobs.delete(key);
+      console.log(`SAM 3D: ${key} in ${(meta.ms / 1000).toFixed(1)}s, ${meta.sourceTriangles} -> ${meta.triangles} triangles`);
+    } catch (e: any) {
+      const msg = String(e?.body?.detail ?? e?.message ?? e).slice(0, 200);
+      console.error('SAM 3D', key, msg);
+      meshJobs.set(key, { startedAt, error: msg });
+    }
+  })();
+  return meshStatus(key);
+}
+
 async function readJson(req: IncomingMessage): Promise<any> {
   let size = 0; const chunks: Buffer[] = [];
   for await (const c of req) { size += c.length; if (size > MAX_BODY) throw Object.assign(new Error('body too large'), { status: 413 }); chunks.push(c); }
   try { return JSON.parse(Buffer.concat(chunks).toString('utf8')); } catch { throw Object.assign(new Error('invalid JSON'), { status: 400 }); }
 }
 
-const routes: Record<string, (b: any) => Promise<unknown>> = { '/parse': parse, '/context': context, '/scene': scene, '/focus': focus, '/voice-token': voiceToken };
+const routes: Record<string, (b: any) => Promise<unknown>> = { '/parse': parse, '/context': context, '/scene': scene, '/focus': focus, '/voice-token': voiceToken, '/mesh': startMesh };
+const NEEDS_CLAUDE = new Set(['/parse', '/context', '/scene', '/focus']);
 
 createServer(async (req: IncomingMessage, res: ServerResponse) => {
   const send = (status: number, body: unknown) => { res.writeHead(status, { 'content-type': 'application/json' }); res.end(JSON.stringify(body)); };
-  const path = (req.url ?? '').replace(/^\/ai/, '').split('?')[0];
+  const [path, query = ''] = (req.url ?? '').replace(/^\/ai/, '').split('?');
   const handler = routes[path];
-  if (req.method === 'GET' && path === '/health') return send(200, { ok: true, ai: !!anthropic, voice: !!CARTESIA_KEY });
+  if (req.method === 'GET' && path === '/health') return send(200, { ok: true, ai: !!anthropic, voice: !!CARTESIA_KEY, mesh: !!FAL_KEY });
+  if (req.method === 'GET' && path === '/mesh') {
+    try { return send(200, meshStatus(new URLSearchParams(query).get('key') ?? '')); } catch (e: any) { return send(e.status ?? 500, { error: e.message }); }
+  }
+  const file = req.method === 'GET' && /^\/mesh\/file\/([a-z0-9-]{1,40})$/.exec(path);
+  if (file) {
+    try { const body = readFileSync(join(MESH_DIR, `${file[1]}.ghm`)); res.writeHead(200, { 'content-type': 'application/octet-stream', 'content-length': body.length, 'cache-control': 'no-cache' }); return res.end(body); }
+    catch { return send(404, { error: 'no mesh' }); }
+  }
   if (req.method !== 'POST' || !handler) return send(404, { error: 'not found' });
-  if (!anthropic && path !== '/voice-token') return send(503, { error: 'ANTHROPIC_API_KEY is not set' });
+  if (!anthropic && NEEDS_CLAUDE.has(path)) return send(503, { error: 'ANTHROPIC_API_KEY is not set' });
   try { send(200, await handler(await readJson(req))); }
   catch (e: any) { console.error(path, e?.message ?? e); send(e?.status && (e.status < 500 || e.status === 503) ? e.status : 502, { error: String(e?.message ?? e).slice(0, 200) }); }
 }).listen(PORT, '127.0.0.1', () => console.log(`GHOST AI server on http://127.0.0.1:${PORT}`));

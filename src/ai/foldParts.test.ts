@@ -55,3 +55,39 @@ test('saying the part finds the object it belongs to', () => {
   assert.equal(m.mentions[0]?.objectId, 'bottle_1');
   assert.equal(matchObjects('press the button', out).mentions[0]?.objectId, 'button_box_1');
 });
+
+// ---- a cap drawn into the body AND listed on its own (what made a second cap stay on the bottle) ----
+import { sanitizeModel } from './modelSpec';
+const mkModel = (parts: unknown[]) => sanitizeModel({ parts })!;
+const meta = { affordances: ['twist'] as SceneObject['affordances'], confidence: 0.9, seenAt: 0 };
+const BLUE = '#2f5fd0';
+const bodyWithBakedCap = () => ({ ...meta, objectId: 'b', label: 'water bottle', bbox: [0.4, 0.1, 0.6, 0.9] as SceneObject['bbox'], model: mkModel([
+  { shape: 'cylinder', size: [0.4, 0.7, 0.4], position: [0, -0.15, 0], color: '#6ec6f2', moving: false },
+  { shape: 'cylinder', size: [0.18, 0.12, 0.18], position: [0, 0.26, 0], color: '#6ec6f2', moving: false },
+  { shape: 'cylinder', size: [0.22, 0.14, 0.22], position: [0, 0.38, 0], color: BLUE, moving: false },       // the cap, drawn into the body
+]) });
+const capObject = (): SceneObject => ({ ...meta, objectId: 'c', label: 'bottle cap', bbox: [0.46, 0.1, 0.54, 0.18], model: mkModel([{ shape: 'cylinder', size: [0.3, 0.12, 0.3], position: [0, 0, 0], color: BLUE, moving: true }]) });
+
+test('a cap that is also drawn into the body is not left behind when you lift it', () => {
+  const [bottle] = foldParts([bodyWithBakedCap(), capObject()]);
+  const parts = bottle.model!.parts, comp = componentsOf(bottle.model!)[0];
+  assert.equal(parts.filter(p => p.moving).length, 1, 'exactly one movable cap');
+  const leftBehind = parts.filter(p => !p.moving && Math.abs(p.position[1] - comp.center[1]) < 0.08 && p.color === BLUE);
+  assert.equal(leftBehind.length, 0, 'no cap-coloured fixed piece is still sitting where the cap was');
+  assert.ok(parts.filter(p => !p.moving).length === 2, 'the body and the neck are kept');
+});
+
+test('the body, neck and label are never removed just because they are near the cap', () => {
+  const b = bodyWithBakedCap(), before = b.model!.parts.filter(p => p.color !== BLUE).length;
+  const [out] = foldParts([b, capObject()]);
+  assert.equal(out.model!.parts.filter(p => !p.moving).length, before);
+});
+
+test('if the body already has its own movable cap, the separate cap object is folded away without adding a second one', () => {
+  const b = bodyWithBakedCap();
+  b.model!.parts[2] = { ...b.model!.parts[2], moving: true, name: 'cap' };
+  const [out] = foldParts([b, capObject()]);
+  assert.equal(out.model!.parts.filter(p => p.moving).length, 1);
+  assert.equal(componentsOf(out.model!)[0].name, 'cap');
+  assert.equal(out.partNames?.[0], 'cap');
+});

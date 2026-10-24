@@ -209,12 +209,39 @@ Logic: `src/remote/grasp.ts` (detection with hysteresis), `src/remote/twinMove.t
 
 ### Parts: the cap and the whole
 
-An object is a **whole plus separately movable pieces**: Claude marks and names the moving parts when it builds the model (`moving: true`, `name: "cap"`), and `src/remote/components.ts` groups touching moving pieces into components. Nothing is selected first. Pinch or grip **on the cap** and only the cap moves or turns (twist it about its own axis, or pull it clear of the bottle); do it **anywhere else** and the whole object moves, cap included. Hovering outlines whatever you would take, and the box says what you are holding ("pinching the cap"). Logic: `src/remote/twinRig.ts`. The other person's box shows the same, because each piece's movement travels in the pose message.
+An object is a **whole plus separately movable pieces**: Claude marks and names the moving parts when it builds the model (`moving: true`, `name: "cap"`), and `src/remote/components.ts` groups touching moving pieces into components. Nothing is selected first. Pinch or grip **on the cap** and only the cap moves or turns (twist it loose, then pull it clear of the bottle); do it **anywhere else** and the whole object moves, cap included. Hovering outlines whatever you would take, and the box says what you are holding ("pinching the cap"). Logic: `src/remote/twinRig.ts`. The other person's box shows the same, because each piece's movement travels in the pose message.
 
 The box also has a **magnify** button (top right) and, when you are alone, shows a **mirrored** view so the hand moves the way your mirrored video does.
 
-**Why a part is reachable:** vision lists a bottle and its cap as two objects, so `src/ai/foldParts.ts` folds a small object that sits inside a larger, related one (a cap in a bottle, a button in a box) into the larger object as a named moving part, and drops it from the list. Saying "the cap" still finds the bottle. Caps and lids behave like threaded parts: twisting one either way raises it (about three twists free it), and it cannot sink below its seat. Holding uses the index fingertip, and the hold is frozen while the fingers open, so letting go never drags the object.
+**Why a part is reachable:** vision lists a bottle and its cap as two objects, so `src/ai/foldParts.ts` folds a small object that sits inside a larger, related one (a cap in a bottle, a button in a box) into the larger object as a named moving part, and drops it from the list. Saying "the cap" still finds the bottle. Caps and lids behave like threaded parts: while screwed on they only turn in place, climbing as they turn either way, so a shaky hand cannot drag one off the neck. About two-thirds of a turn (two or three twists of the wrist) frees one; the box shows the progress ("twist to unscrew · 70%", then "cap is loose · pull it off"), and only then does it follow your hand. Holding uses the index fingertip, and the hold is frozen while the fingers open, so letting go never drags the object.
 
 ## Community assistance
 
 Community adds email/password accounts, profiles, reactive helper availability, public/direct help requests, notifications and participant-authorized call assignments. Manual calls and the existing hand/3D features remain available. Start local Convex with `npm run convex`, configure auth once with `npm run community:auth`, then run `npm run dev`. After initial setup, `npm run dev:community` launches both together. See [the complete local setup and two-user checklist](docs/COMMUNITY.md). The hosted Render app uses a production Convex deployment; see the production section there.
+
+### Two hands, and grabs that are deliberate
+
+**Two hands.** The tracker follows up to two hands and keeps each in its own slot by where it is and how fast it is moving (`src/remote/handSlots.ts`), because MediaPipe's left/right label swaps and hands cross. Both hands are drawn in the box and on the call (a second hand message slot on the wire), and each can hold a different piece: steady the bottle with one hand and twist the cap with the other. A piece one hand holds cannot be taken by the other; closing on it takes the body under it instead. The second hand is tinted purple.
+
+**Bottle or cap?** Each hand takes the nearest free thing, judged by the gesture as well as the position (`pick` in `src/remote/twinRig.ts`):
+- **Fingertips** (a pinch, or an open hand about to pinch) take the cap when they are on it or just around it, and also when they land a little low on the neck.
+- **A fist** (grip) takes the bottle unless it is squarely on the cap. Grip the bottle by its shoulder or neck and you get the bottle.
+- Once one hand holds the bottle, the other hand closing anywhere near the cap takes the cap.
+- While the other hand works on the cap, the hand on the bottle **steadies** it: the bottle follows that hand's position but no longer turns with it, so wobbles do not swing it.
+- A hand that holds something and drops out of tracking for a moment (two hands close together hide each other) keeps its hold for 350 ms.
+- What a hand is on is decided along the line of sight through the fingertip, so it stays right however the object has been turned: tip the bottle toward you and the cap under your finger is still the cap.
+
+**Deliberate grabs.** Waving a hand over the object used to move it, because opening and closing your fingers while swinging looks like a pinch. A grab now only starts when the hand was open just before, had been over the part for a moment, and is closing slowly (`src/remote/grabGate.ts`). That is judged only at the moment of closing, so a closed hand sweeping over the object, or one that closes mid-swing, never catches it. Once held, it stays held. The fingertip is also smoothed (One Euro filter), which steadies the hover and the hold. Thresholds (open 120 ms, over it 110 ms, slower than 1.4 object-heights per second, 250 ms cooldown after letting go) are first guesses to tune on real hands.
+
+### Real 3D models with SAM 3D (fal.ai)
+
+The copy starts as Claude's simple shapes, which appear at once. Press **3D** in the box's corner and the AI server sends the scanned picture, with Claude's box around the object, to SAM 3D on fal.ai (`fal-ai/sam-3/3d-objects`). In about 15 seconds the box swaps in a real mesh of the object, in the scan's own colours. Needs `FAL_KEY` in `.env` (server-side only); without it the button does not appear.
+
+- **The parts still work.** The mesh is fitted onto the model and cut along the same pieces (`src/render/meshFit.ts`): the part of the scan inside the cap's box becomes the cap, so you still twist the cap off and steady the bottle with two hands. A piece the scan has nothing for keeps Claude's shape.
+- **Facing the right way.** SAM 3D returns an upright mesh plus the pose it had in the photo. The box keeps it upright and turns it about the vertical so the side the camera saw faces you (`samYaw` in `src/ai/mesh.ts`, checked on a real result).
+- **The cache.** A finished model is stored on disk by the object's name (`.cache/meshes/`, or `GHOST_MESH_CACHE`), so a good model is never made twice: next time that object is scanned, its model appears at once. Both screens of a call read the same cache, so the other person sees the model too. In the enlarged box, ⟳ remakes it (the new one replaces the old one only if it succeeds), and ◆/◇ switches between the model and the simple shapes.
+- **Smaller downloads.** fal's mesh is about half a million triangles (5-12 MB). The server merges nearby vertices down to tens of thousands (about 1-2 MB) and stores that compact format (`.ghm`) next to the original `.glb`.
+- **Privacy.** Nothing goes to fal.ai unless someone presses 3D, and then only the one picture from the scan. It is sent whole: the box only tells SAM 3D which object to model.
+
+Routes on the AI server: `POST /ai/mesh` starts one (returns at once), `GET /ai/mesh?key=` reports what the cache has and whether one is being made, `GET /ai/mesh/file/<key>` serves the compact mesh.
+
