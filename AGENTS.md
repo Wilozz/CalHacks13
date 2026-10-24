@@ -47,13 +47,13 @@ Unit tests sit next to the code (`*.test.ts`, `server/server.test.mjs`). New uni
 
 ## Invariants (do not break)
 
-- Camera frames never leave the browser except as call media to the connected peer (and explicit single-frame AI scans). Hand landmarks go only to the peer over the call's data channel, and into a replay the learner saves.
+- Camera frames never leave the browser except as call media to the connected peer (and explicit single-frame AI scans). Hand landmarks go only to the peer over the call's data channel, and into a replay the learner saves. Community metadata lives in Convex; never send high-frequency hand data through Convex.
 - At most one frame in flight to the worker; drop frames rather than queue. Always close transferred `ImageBitmap`s.
 - `HandFrame` stays plain, serializable data (planned future transport boundary).
 - TURN secrets are server-side only. Never put them in a `VITE_` variable.
 - One signaling instance only: rooms are in-memory, capacity two, cleared on restart.
 - Call video and audio are never recorded or stored. A replay is the 3D event log only (hands, object pose, part states, captions), stored only when the learner saves it, and deletable.
-- No accounts, simulated hand motion, or fake relays. Uploaded replays and profiles are validated server-side (size cap, schema), like `sanitizeModel` on the client.
+- No simulated hand motion or fake relays. Accounts exist only for Community (Convex Auth); manual calls stay anonymous. Uploaded replays and profiles are validated server-side (size cap, schema), like `sanitizeModel` on the client.
 
 ## Conventions
 
@@ -67,3 +67,17 @@ Unit tests sit next to the code (`*.test.ts`, `server/server.test.mjs`). New uni
 2. `npm run build` passes.
 3. If call/signaling code changed: `npm run test:e2e` passes.
 4. Camera and tracking behavior can't be verified headlessly. Say so and point to the manual checklists in README.
+
+<!-- convex-ai-start -->
+
+This project uses [Convex](https://convex.dev) as its backend.
+
+When working on Convex code, **always read
+`convex/_generated/ai/guidelines.md` first** for important guidelines on
+how to correctly use Convex APIs and patterns. The file contains rules that
+override what you may have learned about Convex from training data.
+
+Convex agent skills for common tasks can be installed by running
+`npx convex ai-files install`.
+
+<!-- convex-ai-end -->

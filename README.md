@@ -1,6 +1,6 @@
 # GHOST — hand tracking prototype
 
-A local browser proof of concept: webcam on the left, a live cyan 21-joint skeleton on the right. Includes a two-person WebRTC audio/video call panel. Includes a small shared signaling server; no simulated hand movement, accounts, or recorded video uploads.
+A local browser proof of concept: webcam on the left, a live cyan 21-joint skeleton on the right. Includes a two-person WebRTC audio/video call panel. Includes a small shared signaling server; no simulated hand movement or recorded video uploads. Community adds optional accounts for assistance matchmaking; manual calls remain anonymous.
 
 ## Docs
 
@@ -214,3 +214,7 @@ An object is a **whole plus separately movable pieces**: Claude marks and names 
 The box also has a **magnify** button (top right) and, when you are alone, shows a **mirrored** view so the hand moves the way your mirrored video does.
 
 **Why a part is reachable:** vision lists a bottle and its cap as two objects, so `src/ai/foldParts.ts` folds a small object that sits inside a larger, related one (a cap in a bottle, a button in a box) into the larger object as a named moving part, and drops it from the list. Saying "the cap" still finds the bottle. Caps and lids behave like threaded parts: twisting one either way raises it (about three twists free it), and it cannot sink below its seat. Holding uses the index fingertip, and the hold is frozen while the fingers open, so letting go never drags the object.
+
+## Community assistance
+
+Community adds email/password accounts, profiles, reactive helper availability, public/direct help requests, notifications and participant-authorized call assignments. Manual calls and the existing hand/3D features remain available. Start local Convex with `npm run convex`, configure auth once with `npm run community:auth`, then run `npm run dev`. After initial setup, `npm run dev:community` launches both together. See [the complete local setup and two-user checklist](docs/COMMUNITY.md). The hosted Render app uses a production Convex deployment; see the production section there.

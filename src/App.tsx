@@ -1,3 +1,4 @@
+import {PageHeading} from './components/ui/page-heading';
 import { useEffect, useRef, useState, type CSSProperties } from 'react';
 import { useCall } from './CallPanel';
 import { normalizeRoomCode, ROOM_PATTERN } from './callSignaling';
@@ -27,7 +28,7 @@ import { twinKindForLabel } from './render/motion';
 import { decodePose, decodeSay, decodeTwin, encodePose, encodeSay, encodeTwin, REST_POSE, type TwinInfo, type TwinPose } from './remote/twinWire';
 type Facing = 'user' | 'environment';
 type Phase = 'idle' | 'loading' | 'running' | 'error';
-export default function App() {
+export default function App({communitySession}:{communitySession?:{id:string;token:string}}) {
   const mobile = useMobileDevice();
   const [facing, setFacing] = useState<Facing>('user');
   const [notice, setNotice] = useState('');
@@ -50,6 +51,7 @@ export default function App() {
   const [moreOpen,setMoreOpen] = useState(false);
   const [code,setCode] = useState('');
   const call = useCall(() => video.current?.srcObject instanceof MediaStream ? video.current.srcObject : null);
+  useEffect(()=>{if(communitySession)call.start(undefined,communitySession);},[communitySession]);
   const handOnRef = useRef(true);
   // In a call: my hand goes to the friend over the data channel, and theirs arrives in peerHand.
   const peerHand = useRef(new RemoteHandState());
@@ -364,7 +366,7 @@ export default function App() {
       onToggle={() => voice.state==='listening' ? voice.stop() : voice.start()} onChoose={chooseObject} onAccept={voice.accept} onDecline={voice.decline}/>}
     {twin && (screen==='home' || screen==='incall') && <TwinBox twin={twin} mirror={screen==='home'} hand={helperMode ? myHand : peerHand} drive={helperMode ? 'local' : 'remote'} remotePose={remotePose} onPose={sendPose} placement={placement} posFlip={screen==='home' ? false : placement.flipX} onClose={closeTwin}/>}
     {screen==='home' && <section className="home-panel" aria-label="Start a call">
-      <div><h1>GHOST</h1><p className="tagline">Show someone what to do with your hands.</p></div>
+      <PageHeading compact eyebrow="GHOST LIVE" title={<>A hand.<br/><span className="gradient-text">From anywhere.</span></>} description="Show someone what to do with your hands."/>
       <button className="primary" onClick={() => call.start()}><Icon name="video" size={20}/>New call</button>
       <form className="join" onSubmit={e => { e.preventDefault(); if(validCode) call.start(code); }}>
         <label htmlFor="room-input">Join with a code</label>

@@ -1,7 +1,8 @@
 /* FaceTime-style call UI. .phone (iPhone layout) or .mac (desktop window), set from useMobileDevice; screens: .home, .calling, .incall. */
 :root{--bg:#000;--surface:#1c1c1e;--surface-2:#2c2c2e;--text:#fff;--text-2:rgba(235,235,245,.62);--green:#30d158;--red:#ff3b30;--focus:#0a84ff;font-family:-apple-system,BlinkMacSystemFont,'SF Pro Text','Helvetica Neue',system-ui,sans-serif;color:var(--text);background:var(--bg);color-scheme:dark;-webkit-font-smoothing:antialiased;font-synthesis:none}
 *{box-sizing:border-box}
-body{margin:0;overflow:hidden}
+/* Document pages scroll; Call and Throw keep their own fixed viewport layouts. */
+body{margin:0;overflow-x:hidden;overflow-y:auto}
 button,input{font:inherit;color:inherit;-webkit-tap-highlight-color:transparent}
 button{cursor:pointer;touch-action:manipulation}
 button:disabled{opacity:.4;cursor:default}
@@ -228,7 +229,7 @@ button:disabled{opacity:.4;cursor:default}
 .throw button:focus-visible,.tabs button:focus-visible{outline:2px solid var(--focus);outline-offset:2px}
 /* Voice bar: GHOST is listening, and what it heard and thinks you mean */
 .voice-bar{position:absolute;z-index:4;top:calc(env(safe-area-inset-top) + 12px);left:12px;width:min(480px,calc(100vw - 24px));display:grid;gap:8px;padding:10px 12px;border-radius:16px;background:rgba(18,20,24,.82);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);border:1px solid rgba(255,255,255,.1);color:#f2f4f6;font-size:13px;line-height:1.4}
-.mac.home .voice-bar{left:356px;top:16px}
+.mac.home .voice-bar{left:396px;top:88px}   /* right of the 380px column, below the 72px top nav */
 .voice-row{display:flex;gap:10px;align-items:center}
 .voice-mic{position:relative;flex:none;width:40px;height:40px;min-height:0;padding:0;border-radius:50%;border:0;display:grid;place-items:center;background:#34383f;color:#fff}
 .voice-mic.on{background:#30b86a}
@@ -252,9 +253,6 @@ button:disabled{opacity:.4;cursor:default}
 .twin-badge.pinch{background:#fff36b}.twin-badge.grip{background:#ff9f43}
 .twin-box[data-kind=grip][data-mode=grab]{outline-color:#ff9f43}
 
-/* The Call / Throwing tabs sit in the top-right corner, in a layer above the app, which is exactly where the Hand tools
-   panel's close button is. Hide them while that panel (or the listening dialog) is open so the button can be clicked. */
-.app:has(.sheet-backdrop,.consent-backdrop)~.tabs{display:none}
 
 /* Corner box: tools at the top right (magnify, put back, close), a mirrored view when alone, and a bigger size. */
 .twin-tools{position:absolute;top:6px;right:6px;display:flex;gap:6px;z-index:2}
@@ -267,3 +265,7 @@ button:disabled{opacity:.4;cursor:default}
 @media(prefers-reduced-motion:reduce){.twin-box{transition:none}}
 .twin-label span:first-child{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:42%}
 .twin-label .twin-status{text-align:right;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+
+/* The top nav bar is 72px tall and sits above the app, so on the home screen the Hand tools panel starts below it;
+   otherwise the bar covers the panel's close button. (In a call the nav bar is hidden, so the panel is full height.) */
+.mac.home .sheet-backdrop{top:72px}

@@ -80,7 +80,7 @@ test('host can wait beyond old timeout and join starts only after guest permissi
  await a.close();await b.close();
 });
 test('missing room and denied permissions return actionable errors',async({page})=>{
- await page.goto('/');await page.getByLabel('Join with a code').fill('ZZZ999');await page.getByRole('button',{name:'Join',exact:true}).click();
+ await page.goto('/');await page.getByLabel('Join with a code').fill('YYY999');await page.getByRole('button',{name:'Join',exact:true}).click();
  await expect(page.getByRole('alert')).toContainText('Room not found');
  await page.evaluate(()=>{navigator.mediaDevices.getUserMedia=()=>Promise.reject(new DOMException('Denied','NotAllowedError'));});
  await page.getByRole('button',{name:'New call',exact:true}).click();await expect(page.getByRole('alert')).toContainText('permission was denied');

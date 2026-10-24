@@ -1,5 +1,7 @@
+import {readFileSync,existsSync} from 'node:fs';
 import {spawn} from 'node:child_process';
 const env={...process.env,HOST:'127.0.0.1',PORT:'8788',ALLOWED_ORIGINS:'http://127.0.0.1:5180',GHOST_SIGNALING_TARGET:'ws://127.0.0.1:8788',VITE_SIGNALING_URL:'/signal',GHOST_HTTPS:'0'};
+if(existsSync('.env.local')){const local=readFileSync('.env.local','utf8');const url=local.match(/^VITE_CONVEX_URL=(.+)$/m)?.[1];if(url){env.CONVEX_URL=url;env.VITE_CONVEX_URL=url;}}
 // Isolated from user .env: tests must never use a real relay's credentials.
 delete env.TURN_URLS;delete env.TURN_SHARED_SECRET;delete env.RELAY_ONLY;
 if(process.env.GHOST_TEST_TURN_URL) {env.TURN_URLS=process.env.GHOST_TEST_TURN_URL;env.TURN_SHARED_SECRET=process.env.GHOST_TEST_TURN_SECRET;env.RELAY_ONLY='true';}
