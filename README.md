@@ -144,9 +144,10 @@ Implements the pipeline in `ai-integration.md`: hand history (2 s) and pointing 
 
 ```sh
 cp .env.example .env   # set ANTHROPIC_API_KEY
-npm run ai             # AI server on :8790 (Vite proxies /ai to it; 8787 is the signaling server)
-npm run dev
+npm run dev            # also starts the AI server on :8790 (Vite proxies /ai to it)
 ```
+
+`npm start` (production, Render) runs it too, behind the main server's `/ai` route. Set `ANTHROPIC_API_KEY` (and optionally `CARTESIA_API_KEY`) in the host's environment.
 
 Wire-up: `new Orchestrator(new Transcript(), {client: httpAiClient(), clock, viewerLanguage, onOutcome})`, feed it `orchestrator.hands.pushLandmarks(t, landmarks)` and `orchestrator.scene.update(objects, t)`, and finalize speech with `transcript.finalize(...)`. `Outcome.decision` is `play`, `confirm` or `ask` for the helper UI. The model proposes; `policy.ts` enforces the rules, so a confident wrong answer cannot skip confirmation, and fallback parses never auto-play.
 
@@ -167,6 +168,14 @@ Scan (Hand tools → AI scan) a camera view, or in a call your friend's view, an
 ### Moving the copy
 
 Pinch (thumb to index) with the fingertip on the 3D copy to grab it; while pinched it follows the hand, and letting go leaves it where it was dropped. The ↺ button puts it back. A ring on the fingertip closes as the fingers meet, the object is outlined when in reach and yellow while held, and a ghost outline plus dashed line show where it started. Logic: `src/remote/pinch.ts` (hysteresis, palm-relative so it ignores distance) and `src/remote/twinMove.ts`. The helper's screen computes the movement and sends the pose over the control channel; the recipient's screen only displays it. "Rip" and other interactions are not built yet.
+
+## Tutorials: record and replay (`src/replay/`, `convex/replays.ts`)
+
+Lessons record themselves while the 3D copy is open; there is no record button. A hand arriving on the copy starts one (a red **● LESSON** badge shows), and 6 s with no hand and nothing held ends it, trimmed to just after the last activity. Switching objects or closing the copy ends it at once. It is kept only if the object was grabbed or a hand stayed for 4 s, so a hand passing through the view is not a lesson; 5 minutes at most. These are plain rules, not an AI call, so capture is certain, instant and works offline. Claude names it: the voice agent's current topic becomes the default name.
+
+A recording is what the copy showed, never video: each hand frame (all 21 points, drawn as the same 3D hand) in the call's wire format and the object's pose, about 30 times a second. A **Lesson captured** card appears without interrupting the call; **Watch & save** plays it straight away (play/pause, scrub, 0.5–2× speed, drag to look from any angle). Name it and **Save tutorial**, keep it for **Later** (until the tab closes), or **Discard**. Nothing is uploaded until you save.
+
+Saved tutorials are under **Tutorials**, a live Convex query, newest first, each with its own player and **Delete**. The log is uploaded to Convex file storage. Then the `replays.save` action checks its size (6 MB cap) and every field with the same decoders the call uses, and deletes an upload that fails the check. Tutorials belong to this browser through a random key in `localStorage`, not an account. Saving needs Convex (`npm run convex` locally; the Render build deploys it); without it you can still watch a recording until you close it.
 
 ## Throwing prototype (`src/throw/`)
 

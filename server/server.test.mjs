@@ -106,3 +106,13 @@ test('community authorization is rechecked while a room is open',async t=>{
  a.send({type:'community',sessionId:'session-check',token:'member'});await a.next();revoked=true;
  assert.match((await a.next()).message,/authorization expired/);assert.equal(app.rooms.size,0);
 });
+test('/ai requests are proxied to the AI server, and a missing AI server is a 503',async t=>{
+ const {createServer}=await import('node:http');
+ const ai=createServer((req,res)=>{let body='';req.on('data',c=>body+=c);req.on('end',()=>{res.writeHead(200,{'Content-Type':'application/json'});res.end(JSON.stringify({path:req.url,method:req.method,body}));});});
+ ai.listen(0,'127.0.0.1');await once(ai,'listening');t.after(()=>ai.close());
+ const app=await fixture(t,{aiPort:ai.address().port});
+ const res=await fetch(`http://127.0.0.1:${app.port}/ai/scene`,{method:'POST',headers:{'content-type':'application/json'},body:'{"x":1}'});
+ assert.equal(res.status,200);assert.deepEqual(await res.json(),{path:'/ai/scene',method:'POST',body:'{"x":1}'});
+ const down=await fixture(t,{aiPort:1});
+ assert.equal((await fetch(`http://127.0.0.1:${down.port}/ai/health`)).status,503);
+});

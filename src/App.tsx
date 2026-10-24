@@ -25,6 +25,8 @@ import { LoopbackChannel, RemoteHandState, RtcHandChannel } from './remote/remot
 import { HandSlots } from './remote/handSlots';
 import { DemoPanel } from './render/DemoPanel';
 import { TwinBox } from './render/TwinBox';
+import type { Replay } from './replay/log';
+import { TakeDialog } from './replay/Tutorials';
 import { twinKindForLabel } from './render/motion';
 import { decodePose, decodeSay, decodeTwin, encodePose, encodeSay, encodeTwin, REST_POSE, type TwinInfo, type TwinPose } from './remote/twinWire';
 const SLOTS = [0, 1] as const;
@@ -339,6 +341,13 @@ export default function App({communitySession}:{communitySession?:{id:string;tok
   const scanMine = () => { void scene.scan(video.current); };
   const scanFriend = () => { void scene.scan(call.friendVideo.current); };
   const closeTwin = () => { setTwin(null); setSelectedId(null); sendTwin(null); };
+  // Lessons the 3D copy captured by itself, kept here (this tab only) until watched and saved. Claude's topic names them.
+  const [takes,setTakes] = useState<{id:number;replay:Replay;name:string}[]>([]);
+  const [watching,setWatching] = useState<number|null>(null);
+  const topicRef = useRef(''); topicRef.current = topic;
+  const onLesson = (replay:Replay) => setTakes(list => [...list.slice(-4), {id:performance.now(), replay, name:topicRef.current.trim() || `${replay.twin.label} lesson`}]);
+  const dropTake = (id:number) => { setTakes(list => list.filter(t => t.id!==id)); setWatching(w => w===id ? null : w); };
+  const watched = takes.find(t => t.id===watching);
   // App re-renders every 250 ms for stats, which also ticks this clock.
   const elapsed = call.connectedAt ? Math.floor((Date.now()-call.connectedAt)/1000) : 0;
   const clock = `${String(Math.floor(elapsed/60)).padStart(2,'0')}:${String(elapsed%60).padStart(2,'0')}`;
@@ -371,7 +380,13 @@ export default function App({communitySession}:{communitySession?:{id:string;tok
     </div>
     {screen!=='calling' && <VoiceBar state={voice.state} engine={voice.engine} partial={voice.partial} error={voice.error} heard={heard} objects={scene.objects} focus={focusInfo} topic={topic}
       onToggle={() => voice.state==='listening' ? voice.stop() : voice.start()} onChoose={chooseObject} onAccept={voice.accept} onDecline={voice.decline}/>}
-    {twin && (screen==='home' || screen==='incall') && <TwinBox twin={twin} mirror={screen==='home'} hand={helperMode ? myHand : peerHand} drive={helperMode ? 'local' : 'remote'} remotePose={remotePose} onPose={sendPose} placement={placement} posFlip={screen==='home' ? false : placement.flipX} onClose={closeTwin} frame={helperMode && scene.objects.some(o => o.objectId===twin.objectId) ? scene.frame.current : null}/>}
+    {twin && (screen==='home' || screen==='incall') && <TwinBox twin={twin} mirror={screen==='home'} hand={helperMode ? myHand : peerHand} drive={helperMode ? 'local' : 'remote'} remotePose={remotePose} onPose={sendPose} placement={placement} posFlip={screen==='home' ? false : placement.flipX} onClose={closeTwin} onLesson={onLesson} frame={helperMode && scene.objects.some(o => o.objectId===twin.objectId) ? scene.frame.current : null}/>}
+    {takes.length>0 && <div className="lesson-cards" role="status" aria-live="polite">{takes.map(t => <div key={t.id} className="lesson-card">
+      <span><b>Lesson captured</b><small>{t.name} · {Math.round(t.replay.durationMs/1000)} s</small></span>
+      <button className="pill-button" onClick={() => setWatching(t.id)}>Watch &amp; save</button>
+      <button className="twin-tool" aria-label="Discard this lesson" onClick={() => dropTake(t.id)}>×</button>
+    </div>)}</div>}
+    {watched && <TakeDialog replay={watched.replay} defaultName={watched.name} onClose={() => setWatching(null)} onSaved={() => dropTake(watched.id)} onDiscard={() => dropTake(watched.id)}/>}
     {screen==='home' && <section className="home-panel" aria-label="Start a call">
       <PageHeading compact eyebrow="GHOST LIVE" title={<>A hand.<br/><span className="gradient-text">From anywhere.</span></>} description="Show someone what to do with your hands."/>
       <button className="primary" onClick={() => call.start()}><Icon name="video" size={20}/>New call</button>

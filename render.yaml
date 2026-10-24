@@ -26,3 +26,9 @@ services:
       # https://<deployment>.convex.cloud, used by the server to check Community sessions.
       - key: CONVEX_URL
         sync: false
+      # Claude scan / voice agent (server/ai.ts, proxied at /ai). Without it the app runs with the offline fallback.
+      - key: ANTHROPIC_API_KEY
+        sync: false
+      # Optional: Cartesia speech-to-text. Without it, the browser's own speech recognition is used.
+      - key: CARTESIA_API_KEY
+        sync: false

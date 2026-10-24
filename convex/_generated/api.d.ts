@@ -13,6 +13,7 @@ import type * as community from "../community.js";
 import type * as http from "../http.js";
 import type * as presence from "../presence.js";
 import type * as profiles from "../profiles.js";
+import type * as replays from "../replays.js";
 import type * as social from "../social.js";
 import type * as socialHelpers from "../socialHelpers.js";
 import type * as usernames from "../usernames.js";
@@ -29,6 +30,7 @@ declare const fullApi: ApiFromModules<{
   http: typeof http;
   presence: typeof presence;
   profiles: typeof profiles;
+  replays: typeof replays;
   social: typeof social;
   socialHelpers: typeof socialHelpers;
   usernames: typeof usernames;
