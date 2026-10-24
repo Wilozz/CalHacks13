@@ -1,7 +1,8 @@
 /* FaceTime-style call UI. .phone (iPhone layout) or .mac (desktop window), set from useMobileDevice; screens: .home, .calling, .incall. */
 :root{--bg:#000;--surface:#1c1c1e;--surface-2:#2c2c2e;--text:#fff;--text-2:rgba(235,235,245,.62);--green:#30d158;--red:#ff3b30;--focus:#0a84ff;font-family:-apple-system,BlinkMacSystemFont,'SF Pro Text','Helvetica Neue',system-ui,sans-serif;color:var(--text);background:var(--bg);color-scheme:dark;-webkit-font-smoothing:antialiased;font-synthesis:none}
 *{box-sizing:border-box}
-body{margin:0;overflow:hidden}
+/* Document pages scroll; Call and Throw keep their own fixed viewport layouts. */
+body{margin:0;overflow-x:hidden;overflow-y:auto}
 button,input{font:inherit;color:inherit;-webkit-tap-highlight-color:transparent}
 button{cursor:pointer;touch-action:manipulation}
 button:disabled{opacity:.4;cursor:default}

@@ -32,10 +32,10 @@ export function useCall(getCameraStream:()=>MediaStream|null) {
     if(remote)void video.play().then(()=>setPlayBlocked(false)).catch(()=>setPlayBlocked(true));
   },[remote]);
   useEffect(()=>{if(status==='connected')setConnectedAt(t=>t||Date.now());else if(status==='idle')setConnectedAt(0);},[status]);
-  function start(code?:string) {
+  function start(code?:string,community?:{id:string;token:string}) {
     session.current?.close();setError('');setHint('');setRoom('');setMuted(false);setCameraOff(false);setRoute('');
     const call=new CallSession({status:setStatus,room:(code,hasRelay)=>{setRoom(code);setRelay(hasRelay);},local:setLocal,remote:setRemote,ended:setHint,error:setError,hand:setHandChannel,control:setControlChannel,route:relayed=>setRoute(relayed?'TURN relay':'Direct')},getCameraStream);
-    session.current=call;call.connect(code?normalizeRoomCode(code):undefined);
+    session.current=call;call.connect(code?normalizeRoomCode(code):undefined,community);
   }
   return {status,room,relay,route,error,hint,muted,cameraOff,local,remote,playBlocked,connectedAt,handChannel,controlChannel,selfVideo,friendVideo,start,
     end:()=>{session.current?.close();setHint('Call ended.');},

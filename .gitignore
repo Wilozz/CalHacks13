@@ -9,3 +9,4 @@ public/vendor/
 .env.*.local
 test-results/
 playwright-report/
+.convex/

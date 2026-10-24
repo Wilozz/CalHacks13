@@ -1,6 +1,6 @@
 # GHOST — hand tracking prototype
 
-A local browser proof of concept: webcam on the left, a live cyan 21-joint skeleton on the right. Includes a two-person WebRTC audio/video call panel. Includes a small shared signaling server; no simulated hand movement, accounts, or recorded video uploads.
+A local browser proof of concept: webcam on the left, a live cyan 21-joint skeleton on the right. Includes a two-person WebRTC audio/video call panel. Includes a small shared signaling server; no simulated hand movement or recorded video uploads. Community adds optional accounts for assistance matchmaking; manual calls remain anonymous.
 
 ## Docs
 
@@ -206,3 +206,7 @@ Cartesia protocol details are from its docs (`wss://api.cartesia.ai/stt/websocke
 - The box shows a PINCH or GRIP badge, lights the fingertips that hold, and outlines the object (yellow for pinch, orange for grip). The other person's box shows the same turn.
 
 Logic: `src/remote/grasp.ts` (detection with hysteresis), `src/remote/twinMove.ts` (grab, move, turn), `src/remote/quat.ts` (rotation math). Pinch and grip are measured on the 2D image landmarks and checked against real hand photos (`src/remote/turn.test.ts`); turning gains are first guesses to tune on real hands. The Throwing prototype uses the same palm-orientation math to turn what you hold.
+
+## Community assistance
+
+Community adds email/password accounts, profiles, reactive helper availability, public/direct help requests, notifications and participant-authorized call assignments. Manual calls and the existing hand/3D features remain available. Start local Convex with `npm run convex`, configure auth once with `npm run community:auth`, then run `npm run dev`. After initial setup, `npm run dev:community` launches both together. See [the complete local setup and two-user checklist](docs/COMMUNITY.md). The hosted Render app uses a production Convex deployment; see the production section there.

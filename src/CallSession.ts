@@ -21,14 +21,14 @@ export class CallSession {
   private timer:ReturnType<typeof setTimeout>|undefined;
   private queued:RTCIceCandidateInit[]=[];
   constructor(private callbacks:CallCallbacks,private camera:()=>MediaStream|null){}
-  connect(code?:string) {
+  connect(code?:string,community?:{id:string;token:string}) {
     try {
       if(!window.isSecureContext || !navigator.mediaDevices?.getUserMedia)throw new Error('Open GHOST on localhost or trusted HTTPS to use the camera and microphone.');
       const room=code?validateRoomCode(code):undefined;
       this.callbacks.status('preparing');
       const socket=new WebSocket(signalingUrl());this.socket=socket;
       this.deadline(12_000,'Could not reach the calling server. Check that both laptops use the same running server.');
-      socket.onopen=()=>this.send(room?{type:'join',code:room}:{type:'create'});
+      socket.onopen=()=>this.send(community?{type:'community',sessionId:community.id,token:community.token}:room?{type:'join',code:room}:{type:'create'});
       let messages=Promise.resolve();
       socket.onmessage=event=>{
         messages=messages.then(async()=>{if(!this.closed)await this.receive(JSON.parse(event.data));}).catch(error=>this.fail(error));
@@ -48,7 +48,7 @@ export class CallSession {
   }
   private async receive(message:any) {
     if(message.type==='error')throw new Error(message.message);
-    if(message.type==='ended'){this.close();this.callbacks.ended(message.message);return;}
+    if(message.type==='ended'){this.close(false);this.callbacks.ended(message.message);return;}
     if(message.type==='joined') {
       clearTimeout(this.timer); // No network deadline while granting permissions / waiting for friend.
       this.callbacks.room(message.code,message.configuration.relayConfigured);
@@ -128,12 +128,12 @@ export class CallSession {
   cameraOff(off:boolean){this.media?.getVideoTracks().forEach(track=>{track.enabled=!off;});}
   private fail(error:unknown) {
     if(this.closed)return;
-    this.close();
+    this.close(false);
     this.callbacks.error(error instanceof Error && error.name==='NotAllowedError'?'Camera or microphone permission was denied. Allow both in browser site settings and retry.':error instanceof Error?error.message:String(error));
   }
-  close() {
+  close(notify=true) {
     if(this.closed)return;
-    try{this.send({type:'leave'});}catch{/* Connection may already be gone. */}
+    try{if(notify)this.send({type:'leave'});}catch{/* Connection may already be gone. */}
     this.closed=true;clearTimeout(this.timer);
     this.socket?.close();this.socket=null;
     this.peer?.close();this.peer=null;
