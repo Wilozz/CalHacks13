@@ -51,6 +51,11 @@ test('rejects foreign origins and malformed protocol data',async t=>{
  const bad=new WebSocket(`ws://127.0.0.1:${app.port}/signal`,{origin:'https://foreign.example'});
  bad.on('error',()=>{});const [response]=await once(bad,'unexpected-response');assert.equal(response.constructor.name,'ClientRequest');bad.terminate();
 });
+test('hosted server trusts its own Render URL as an origin',async t=>{
+ const app=await fixture(t,{env:{ALLOWED_ORIGINS:'http://localhost:5173',RENDER_EXTERNAL_URL:'https://ghost.onrender.com'}});
+ const hosted=new WebSocket(`ws://127.0.0.1:${app.port}/signal`,{origin:'https://ghost.onrender.com'});
+ await once(hosted,'open');hosted.terminate();
+});
 test('TURN issues expiring HMAC credentials without exposing shared secret',()=>{
  const env={TURN_URLS:'turn:relay.example:3478?transport=udp,turns:relay.example:443?transport=tcp',TURN_SHARED_SECRET:'server-secret'};
  const config=turnConfiguration(env,1_000_000);const turn=config.iceServers[1];

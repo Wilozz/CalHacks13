@@ -1,0 +1,22 @@
+services:
+  - type: web
+    name: ghost
+    runtime: node
+    plan: free
+    buildCommand: npm ci --include=dev && npm run build
+    startCommand: npm start
+    healthCheckPath: /health
+    envVars:
+      - key: NODE_VERSION
+        value: "24"
+      - key: HOST
+        value: 0.0.0.0
+      - key: RELAY_ONLY
+        value: "true"
+      # Metered → TURN Server → Credentials. Render asks for these when the Blueprint is created.
+      - key: TURN_URLS
+        sync: false
+      - key: TURN_USERNAME
+        sync: false
+      - key: TURN_PASSWORD
+        sync: false

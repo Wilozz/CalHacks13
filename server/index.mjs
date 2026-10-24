@@ -10,7 +10,7 @@ const CODE=/^[A-HJ-NP-Z2-9]{6}$/;
 export function createSignalingServer({env=process.env,roomTtl=30*60_000,heartbeatMs=30_000,maxRooms=1000,staticDirectory=resolve('dist')}={}) {
   turnConfiguration(env); // Fail startup for invalid relay configuration.
   const rooms=new Map();
-  const allowedOrigins=(env.ALLOWED_ORIGINS??`http://127.0.0.1:5173,http://localhost:5173,https://127.0.0.1:5173,https://localhost:5173,http://127.0.0.1:${env.PORT??8787},http://localhost:${env.PORT??8787}`).split(',').map(v=>v.trim());
+  const allowedOrigins=(env.ALLOWED_ORIGINS??`http://127.0.0.1:5173,http://localhost:5173,https://127.0.0.1:5173,https://localhost:5173,http://127.0.0.1:${env.PORT??8787},http://localhost:${env.PORT??8787}`).split(',').map(v=>v.trim()).concat(env.RENDER_EXTERNAL_URL??[]); // Render sets its own public URL, so the hosted app always trusts itself.
   const upgrades=new Map();
   const send=(socket,data)=>{if(socket.readyState===WebSocket.OPEN){if(socket.bufferedAmount>256_000){socket.terminate();return;}socket.send(JSON.stringify(data));}};
   const server=createServer(async(req,res)=>{
