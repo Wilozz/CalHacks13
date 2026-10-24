@@ -3,7 +3,7 @@ services:
     name: ghost
     runtime: node
     plan: free
-    buildCommand: npm ci --include=dev && npm run build
+    buildCommand: npm ci --include=dev && npx convex deploy --cmd-url-env-var-name VITE_CONVEX_URL --cmd 'npm run build'
     startCommand: npm start
     healthCheckPath: /health
     envVars:
@@ -19,4 +19,10 @@ services:
       - key: TURN_USERNAME
         sync: false
       - key: TURN_PASSWORD
+        sync: false
+      # Convex dashboard → production deployment → Settings → Generate Production Deploy Key. The build pushes convex/ and bakes the URL into the bundle.
+      - key: CONVEX_DEPLOY_KEY
+        sync: false
+      # https://<deployment>.convex.cloud, used by the server to check Community sessions.
+      - key: CONVEX_URL
         sync: false

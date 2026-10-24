@@ -116,4 +116,10 @@ Community backend tests use `convex-test`, Vitest edge runtime and registered pr
 - No followers, uploads, read receipts, attachments or leaderboards were added. Messages are plain text, persisted in Convex and protected by participant authorization; they are not end-to-end encrypted.
 - Username search returns up to 20 matches; friends/conversations show up to 100 per participant index and chat shows the latest 100 messages. Older-history pagination is future work.
 - Community acceptance is not a substitute for TURN/public networking; event-network reliability is a separate deployment concern.
-- Render/public Convex changes, branch merge and deployment are deliberately left for later.
+
+## Production: Convex Cloud + Render
+
+1. `npx convex login`, then `npx convex dev --once --configure new` to create the cloud project. This points `.env.local` at the project's cloud dev deployment; delete those lines and rerun `npm run convex` to go back to a local backend.
+2. `npx convex deploy` pushes `convex/` to the production deployment. Then `npm run community:auth -- --prod` sets production `JWT_PRIVATE_KEY`/`JWKS`, and `npx convex env set --prod SITE_URL https://<your-app>.onrender.com`.
+3. Convex dashboard → production deployment → Settings → **Generate Production Deploy Key**.
+4. Render service → Environment: `CONVEX_DEPLOY_KEY` (that key) and `CONVEX_URL` (`https://<deployment>.convex.cloud`). The build (`render.yaml`) runs `convex deploy`, which pushes the functions and sets `VITE_CONVEX_URL` for the bundle. The deploy key is build-time only and never reaches the browser.
