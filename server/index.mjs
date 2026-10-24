@@ -1,4 +1,4 @@
-import { createServer } from 'node:http';
+import { createServer, request } from 'node:http';
 import { randomInt } from 'node:crypto';
 import { readFile, stat } from 'node:fs/promises';
 import { resolve, extname, sep } from 'node:path';
@@ -8,7 +8,7 @@ import { communityBridge } from './community.mjs';
 import { turnConfiguration } from './turn.mjs';
 const ALPHABET='ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 const CODE=/^[A-HJ-NP-Z2-9]{6}$/;
-export function createSignalingServer({env=process.env,roomTtl=30*60_000,heartbeatMs=30_000,maxRooms=1000,staticDirectory=resolve('dist'),community=communityBridge(env.CONVEX_URL||env.VITE_CONVEX_URL)}={}) {
+export function createSignalingServer({env=process.env,roomTtl=30*60_000,heartbeatMs=30_000,maxRooms=1000,staticDirectory=resolve('dist'),community=communityBridge(env.CONVEX_URL||env.VITE_CONVEX_URL),aiPort=Number(env.GHOST_AI_PORT??8790)}={}) {
   turnConfiguration(env); // Fail startup for invalid relay configuration.
   const rooms=new Map();
   const allowedOrigins=(env.ALLOWED_ORIGINS??`http://127.0.0.1:5173,http://localhost:5173,https://127.0.0.1:5173,https://localhost:5173,http://127.0.0.1:${env.PORT??8787},http://localhost:${env.PORT??8787}`).split(',').map(v=>v.trim()).concat(env.RENDER_EXTERNAL_URL??[]); // Render sets its own public URL, so the hosted app always trusts itself.
@@ -18,6 +18,8 @@ export function createSignalingServer({env=process.env,roomTtl=30*60_000,heartbe
     res.setHeader('Cache-Control','no-store');
     res.setHeader('X-Content-Type-Options','nosniff');
     if(req.url==='/health') {res.writeHead(200,{'Content-Type':'application/json'});res.end(JSON.stringify({ok:true,relayConfigured:!!env.TURN_URLS}));return;}
+    // /ai/* goes to server/ai.ts on this machine (started by scripts/start.mjs), so one public URL serves everything.
+    if(req.url==='/ai'||req.url.startsWith('/ai/')){const up=request({host:'127.0.0.1',port:aiPort,path:req.url,method:req.method,headers:{'content-type':req.headers['content-type']??'application/json'}},r=>{res.writeHead(r.statusCode,{'Content-Type':r.headers['content-type']??'application/json'});r.pipe(res);});up.on('error',()=>{if(!res.headersSent){res.writeHead(503,{'Content-Type':'application/json'});res.end(JSON.stringify({error:'AI server unavailable'}));}});req.pipe(up);return;}
     if(req.method!=='GET' && req.method!=='HEAD'){res.writeHead(405);res.end();return;}
     const root=resolve(staticDirectory);
     try {

@@ -14,7 +14,7 @@
     "dev:https": "node scripts/dev-https.mjs",
     "predev:https": "node scripts/prepare-assets.mjs",
     "ai": "node --import tsx server/ai.ts",
-    "start": "node server/index.mjs",
+    "start": "node scripts/start.mjs",
     "test:e2e": "playwright test",
     "test:e2e:relay": "node scripts/test-turn.mjs",
     "convex": "convex dev",

@@ -144,9 +144,10 @@ Implements the pipeline in `ai-integration.md`: hand history (2 s) and pointing 
 
 ```sh
 cp .env.example .env   # set ANTHROPIC_API_KEY
-npm run ai             # AI server on :8790 (Vite proxies /ai to it; 8787 is the signaling server)
-npm run dev
+npm run dev            # also starts the AI server on :8790 (Vite proxies /ai to it)
 ```
+
+`npm start` (production, Render) runs it too, behind the main server's `/ai` route. Set `ANTHROPIC_API_KEY` (and optionally `CARTESIA_API_KEY`) in the host's environment.
 
 Wire-up: `new Orchestrator(new Transcript(), {client: httpAiClient(), clock, viewerLanguage, onOutcome})`, feed it `orchestrator.hands.pushLandmarks(t, landmarks)` and `orchestrator.scene.update(objects, t)`, and finalize speech with `transcript.finalize(...)`. `Outcome.decision` is `play`, `confirm` or `ask` for the helper UI. The model proposes; `policy.ts` enforces the rules, so a confident wrong answer cannot skip confirmation, and fallback parses never auto-play.
 
