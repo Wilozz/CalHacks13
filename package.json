@@ -4,31 +4,36 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "vite --host 127.0.0.1",
+    "dev": "node scripts/dev.mjs",
     "build": "tsc -b && vite build",
     "preview": "vite preview --host 127.0.0.1",
-    "test": "node --import tsx --test src/coordinates.test.ts src/callSignaling.test.ts",
+    "test": "node --import tsx --test src/coordinates.test.ts src/callSignaling.test.ts server/server.test.mjs",
     "postinstall": "node scripts/prepare-assets.mjs",
     "predev": "node scripts/prepare-assets.mjs",
     "prebuild": "node scripts/prepare-assets.mjs",
     "dev:https": "node scripts/dev-https.mjs",
-    "predev:https": "node scripts/prepare-assets.mjs"
+    "predev:https": "node scripts/prepare-assets.mjs",
+    "start": "node server/index.mjs",
+    "test:e2e": "playwright test",
+    "test:e2e:relay": "node scripts/test-turn.mjs"
   },
   "dependencies": {
     "@mediapipe/tasks-vision": "0.10.32",
     "@react-three/fiber": "^9.4.0",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
-    "three": "^0.180.0"
+    "three": "^0.180.0",
+    "ws": "^8.22.0"
   },
   "devDependencies": {
+    "@playwright/test": "^1.64.1",
+    "@types/node": "^22.0.0",
     "@types/react": "^19.2.0",
     "@types/react-dom": "^19.2.0",
     "@types/three": "^0.180.0",
-    "@types/node": "^22.0.0",
     "@vitejs/plugin-react": "^5.0.4",
+    "tsx": "^4.20.6",
     "typescript": "~5.9.3",
-    "vite": "^7.1.12",
-    "tsx": "^4.20.6"
+    "vite": "^7.1.12"
   }
 }

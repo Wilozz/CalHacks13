@@ -1,0 +1,16 @@
+[Unit]
+Description=GHOST web and signaling server
+After=network.target
+
+[Service]
+Type=simple
+User=ghost
+WorkingDirectory=/opt/ghost
+ExecStart=/usr/bin/node server/index.mjs
+Restart=on-failure
+RestartSec=3
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

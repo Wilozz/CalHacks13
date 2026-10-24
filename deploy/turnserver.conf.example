@@ -1,0 +1,25 @@
+# Install coturn on a public Linux host with a stable, publicly reachable IP.
+# Replace every CHANGE_ME value before running.
+listening-port=3478
+tls-listening-port=443
+realm=CHANGE_ME_TURN_HOSTNAME
+fingerprint
+use-auth-secret
+static-auth-secret=CHANGE_ME_RANDOM_SECRET
+cert=/etc/letsencrypt/live/CHANGE_ME_TURN_HOSTNAME/fullchain.pem
+pkey=/etc/letsencrypt/live/CHANGE_ME_TURN_HOSTNAME/privkey.pem
+# Match public/private IPs if the host is behind NAT; omit if directly assigned.
+# external-ip=CHANGE_ME_PUBLIC_IP/CHANGE_ME_PRIVATE_IP
+min-port=49160
+max-port=49260
+no-cli
+no-multicast-peers
+# Current coturn defaults to TLS 1.2 or newer.
+user-quota=4
+total-quota=100
+max-bps=2000000
+# Prevent relaying into private infrastructure. Use a dedicated relay host.
+denied-peer-ip=10.0.0.0-10.255.255.255
+denied-peer-ip=172.16.0.0-172.31.255.255
+denied-peer-ip=192.168.0.0-192.168.255.255
+denied-peer-ip=169.254.0.0-169.254.255.255
