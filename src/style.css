@@ -194,6 +194,7 @@ button:disabled{opacity:.4;cursor:default}
 .throw{position:fixed;inset:0;overflow:hidden;background:var(--bg)}
 .throw-friend{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;display:none}
 .t-incall .throw-friend{display:block}
+.throw-warn{position:absolute;z-index:3;top:calc(env(safe-area-inset-top) + 64px);left:50%;transform:translateX(-50%);width:min(440px,calc(100% - 32px))}
 .throw-wait{position:absolute;inset:0;margin:0;display:grid;place-items:center;color:var(--text-2);font-size:14px}
 .throw-self{position:absolute;inset:0;overflow:hidden;background:var(--surface)}
 .throw-self video{display:block;width:100%;height:100%;object-fit:cover;transform:scaleX(-1)}

@@ -19,6 +19,21 @@ test('a hologram tossed on the throwing prototype lands on the other caller',asy
  await expect(host.getByRole('button',{name:'Toss',exact:true})).toBeDisabled();
  await guest.getByRole('button',{name:'Toss',exact:true}).click();
  await expect(host.getByText('Your friend tossed you a mug',{exact:true})).toBeVisible({timeout:5_000});
+ // Both on this screen with the same build: no mismatch warning.
+ for(const p of [host,guest])await expect(p.getByRole('alert')).toHaveCount(0);
+ await a.close();await b.close();
+});
+
+test('a friend who joined from the Call tab is pointed out instead of silently seeing nothing',async({browser})=>{
+ const a=await browser.newContext({permissions:['camera','microphone']}),b=await browser.newContext({permissions:['camera','microphone']});
+ const host=await a.newPage(),guest=await b.newPage();
+ await host.goto('/#throw');await guest.goto('/');
+ await host.getByRole('button',{name:'New call',exact:true}).click();
+ await expect(host.getByTestId('room-code')).toHaveText(/^[A-HJ-NP-Z2-9]{6}$/,{timeout:20_000});
+ await guest.getByLabel('Join with a code').fill(await host.getByTestId('room-code').innerText());
+ await guest.getByRole('button',{name:'Join',exact:true}).click();
+ await expect(host.getByTestId('call-state')).toHaveText('Reach through',{timeout:35_000});
+ await expect(host.getByRole('alert')).toContainText('isn’t on the Throwing prototype screen',{timeout:8_000});
  await a.close();await b.close();
 });
 

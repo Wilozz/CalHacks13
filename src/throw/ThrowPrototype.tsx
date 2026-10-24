@@ -7,6 +7,10 @@ import { decodePoses, decodeToss, encodePoses, encodeToss, TOSS_OBJECTS, type Po
 import { TossScene, type TossApi, type TossStatus } from './TossScene';
 import { useTracker } from './useTracker';
 
+// Bump when the throwing messages change, so two different builds say so instead of silently showing nothing.
+const VERSION = 2, HELLO = JSON.stringify({ type: 'throw-hello', v: VERSION });
+const helloVersion = (text: unknown) => { try { const m = typeof text === 'string' && text.length < 100 && JSON.parse(text); return m?.type === 'throw-hello' ? Number(m.v) || 0 : null; } catch { return null; } };
+
 const article = (label: string) => `${/^[aeiou]/i.test(label) ? 'an' : 'a'} ${label.toLowerCase()}`;
 
 /**
@@ -22,6 +26,7 @@ export default function ThrowPrototype() {
   const [status, setStatus] = useState<TossStatus>({ state: 'none', label: '', hover: false, handSeen: false, labels: [], canToss: false, busy: false });
   const [toasts, setToasts] = useState<{ id: number; text: string }[]>([]);
   const [code, setCode] = useState('');
+  const [peer, setPeer] = useState<'unknown' | 'ok' | 'missing' | 'other'>('unknown'); // is the friend on this screen, same build?
   const toastTimers = useRef<number[]>([]);
   // Stacked, not replaced: sending and catching at the same moment shows both.
   const show = (text: string) => {
@@ -35,11 +40,20 @@ export default function ThrowPrototype() {
   useEffect(() => {
     const dc = call.controlChannel;
     if (!dc) return;
-    const onMessage = (e: MessageEvent) => { const t = decodeToss(e.data); if (t) { api.current?.receive(t); if (t.give) show(`Your friend tossed you ${article(t.label)}`); } };
-    const onOpen = () => api.current?.announce(); // objects made before the friend joined show up for them too
+    let timer = 0;
+    const onMessage = (e: MessageEvent) => {
+      const v = helloVersion(e.data);
+      if (v !== null) { clearTimeout(timer); setPeer(v === VERSION ? 'ok' : 'other'); return; }
+      const t = decodeToss(e.data); if (t) { api.current?.receive(t); if (t.give) show(`Your friend tossed you ${article(t.label)}`); }
+    };
+    const onOpen = () => {
+      dc.send(HELLO); api.current?.announce(); // objects made before the friend joined show up for them too
+      timer = window.setTimeout(() => setPeer(p => p === 'ok' ? p : 'missing'), 4000);
+    };
+    setPeer('unknown');
     dc.addEventListener('message', onMessage); dc.addEventListener('open', onOpen);
     if (dc.readyState === 'open') onOpen();
-    return () => { dc.removeEventListener('message', onMessage); dc.removeEventListener('open', onOpen); };
+    return () => { clearTimeout(timer); dc.removeEventListener('message', onMessage); dc.removeEventListener('open', onOpen); };
   }, [call.controlChannel]);
   useEffect(() => {
     const dc = call.handChannel;
@@ -103,6 +117,10 @@ export default function ThrowPrototype() {
       {call.room && <button className="pill-button" onClick={call.share}><Icon name="share" size={16}/>Share code</button>}
     </section>}
     {screen === 'incall' && <div className="call-pill throw-pill" role="status"><b>{call.room}</b><span data-testid="call-state">{call.status === 'connected' ? 'Reach through' : 'Reconnecting…'}</span></div>}
+    {screen === 'incall' && (peer === 'missing' || peer === 'other') && <p className="banner error throw-warn" role="alert">
+      {peer === 'other' ? 'Your friend is on a different version of GHOST, so objects won’t show up for them. Both of you should reload the page.'
+        : 'Your friend isn’t on the Throwing prototype screen, or has an old version, so they can’t see your objects. Ask them to open “Throwing prototype”, reload, and rejoin with your code.'}
+    </p>}
     {call.playBlocked && <button className="pill-button throw-play" onClick={call.retryPlay}>Play friend’s audio and video</button>}
 
     {toasts.length > 0 && <div className="throw-toasts">{toasts.map(t => <p key={t.id} className="throw-toast" role="status">{t.text}</p>)}</div>}
