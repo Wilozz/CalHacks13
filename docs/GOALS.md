@@ -4,7 +4,7 @@ This is the baseline plan, not the final one. Add ideas under **Ideas** or **Ope
 
 ## Purpose
 
-GHOST lets someone show you how to do something with your object, over a call. Video calls flatten the thing you need help with: "press the button on the left side" doesn't land when you can't see your phone the way the helper sees it. In GHOST the object becomes a shared 3D hologram that both people hold with their own hands, and you can watch the lesson again later.
+Handoff lets someone show you how to do something with your object, over a call. Video calls flatten the thing you need help with: "press the button on the left side" doesn't land when you can't see your phone the way the helper sees it. In Handoff the object becomes a shared 3D hologram that both people hold with their own hands, and you can watch the lesson again later.
 
 Users: anyone getting remote help with a physical thing (a new phone, a pill bottle cap, a router, a camera). That covers family tech support, elderly relatives, and teaching across distance and language. The pitch for the Meta track is that AI brings two people closer together through a shared object instead of a screen.
 
@@ -90,7 +90,7 @@ Possible but not planned: Tiger Data (we chose Convex for storage), Elastic (sea
 
 - Live uncached scan on a Vultr GPU, with the cached model shown first and swapped in when the real one is ready
 - AI step detection: split a replay into "Step 1: hold power 3 s" chapters from the part-state events
-- Learner "try it" mode: after the replay, the learner repeats the steps and GHOST checks each part state
+- Learner "try it" mode: after the replay, the learner repeats the steps and Handoff checks each part state
 - Ghost hands: play the helper's recorded hands on the learner's model while the learner follows along
 - Share a replay link with someone else
 

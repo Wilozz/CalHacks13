@@ -9,15 +9,15 @@ On a public Linux host with Node 22.12+ (or 24), check out this repository and r
 ```dotenv
 HOST=127.0.0.1
 PORT=8787
-ALLOWED_ORIGINS=https://ghost.example.com,http://localhost:5173,http://127.0.0.1:5173
+ALLOWED_ORIGINS=https://handoff.example.com,http://localhost:5173,http://127.0.0.1:5173
 TURN_URLS=turn:turn.example.com:3478?transport=udp,turns:turn.example.com:443?transport=tcp
 TURN_SHARED_SECRET=YOUR_RANDOM_SHARED_SECRET
 RELAY_ONLY=true
 ```
 
-Run `npm start`. It starts the Node server (serves `dist`, the `/signal` WebSocket endpoint, and `/health`) and the AI server (`server/ai.ts`), which the Node server proxies at `/ai`, so one public URL serves everything. Put a TLS reverse proxy in front (example `Caddyfile.example`) and allow HTTPS TCP 443. Configure a supervisor such as `ghost.service.example`, adapting its username and paths. Both browsers can simply open `https://ghost.example.com`: a single code joins the call. `/health` reports whether relay settings exist, not whether the relay is reachable.
+Run `npm start`. It starts the Node server (serves `dist`, the `/signal` WebSocket endpoint, and `/health`) and the AI server (`server/ai.ts`), which the Node server proxies at `/ai`, so one public URL serves everything. Put a TLS reverse proxy in front (example `Caddyfile.example`) and allow HTTPS TCP 443. Configure a supervisor such as `handoff.service.example`, adapting its username and paths. Both browsers can simply open `https://handoff.example.com`: a single code joins the call. `/health` reports whether relay settings exist, not whether the relay is reachable.
 
-Alternatively keep the frontend on each laptop: set `VITE_SIGNALING_URL=wss://ghost.example.com/signal` in `.env.local` on **both** laptops and restart `npm run dev`. Their localhost Origins must be in the server's `ALLOWED_ORIGINS`. An HTTPS tunnel can expose the signaling server for a short demo, but it does **not** tunnel TURN or remove the need for a public relay. Only one signaling instance is supported: rooms live in process memory and are cleared on restart. Do not use multiple replicas without a shared room store.
+Alternatively keep the frontend on each laptop: set `VITE_SIGNALING_URL=wss://handoff.example.com/signal` in `.env.local` on **both** laptops and restart `npm run dev`. Their localhost Origins must be in the server's `ALLOWED_ORIGINS`. An HTTPS tunnel can expose the signaling server for a short demo, but it does **not** tunnel TURN or remove the need for a public relay. Only one signaling instance is supported: rooms live in process memory and are cleared on restart. Do not use multiple replicas without a shared room store.
 
 ## Public coturn relay
 
@@ -45,13 +45,13 @@ The automated suite checks local direct calling and can check a temporary local 
 
 ## Easiest hosted demo: Render + managed TURN
 
-The server also accepts provider-issued `TURN_USERNAME` / `TURN_PASSWORD` instead of `TURN_SHARED_SECRET`. Use one method only. For managed credentials the provider controls expiry and rotation; GHOST does not generate a new HMAC password. Never put a provider dashboard password or API key in these fields.
+The server also accepts provider-issued `TURN_USERNAME` / `TURN_PASSWORD` instead of `TURN_SHARED_SECRET`. Use one method only. For managed credentials the provider controls expiry and rotation; Handoff does not generate a new HMAC password. Never put a provider dashboard password or API key in these fields.
 
 1. Create a managed TURN credential (for example in Metered's TURN Server & SFU → Credentials). Copy the supplied ICE server URLs, username, and credential/password. Include the provider's TLS/TCP URL if offered.
 2. Push the latest code to GitHub before deploying; the earlier manual-code commit does not contain the shared server.
 3. In Render create a **Web Service**, connect the repository, choose its updated branch and Node runtime. Build: `npm ci --include=dev && npm run build`. Start: `npm start`. Set health check `/health`, `NODE_VERSION=24`, and `HOST=0.0.0.0`.
 4. Add server environment variables `TURN_URLS` (comma-separated URLs supplied by the provider), `TURN_USERNAME`, `TURN_PASSWORD`, and `RELAY_ONLY=true`. Leave `TURN_SHARED_SECRET` unset. Render supplies `PORT` automatically. For the Claude scan and voice agent add `ANTHROPIC_API_KEY` (and optionally `CARTESIA_API_KEY`); without them the app runs with its offline fallback.
 5. Community (accounts, requests, messages) also needs `CONVEX_DEPLOY_KEY` and `CONVEX_URL`; see [docs/COMMUNITY.md](../docs/COMMUNITY.md#production-convex-cloud--render). Without them the build fails, since it runs `convex deploy`.
-6. Copy the HTTPS URL Render assigns (for example `https://ghost-demo.onrender.com`) into `ALLOWED_ORIGINS` exactly, without a trailing slash; redeploy if necessary. Both people open that same URL, create/join a room, and grant permissions. No `VITE_SIGNALING_URL` or phone certificates are needed in this arrangement.
+6. Copy the HTTPS URL Render assigns (for example `https://handoff-demo.onrender.com`) into `ALLOWED_ORIGINS` exactly, without a trailing slash; redeploy if necessary. Both people open that same URL, create/join a room, and grant permissions. No `VITE_SIGNALING_URL` or phone certificates are needed in this arrangement.
 
 Render supports inbound WebSockets: https://render.com/docs/websocket . Free web services can sleep and restart: https://render.com/docs/free . Rooms are lost on restart; use the free tier for a demo rather than a reliable always-on service. Check current provider quotas before use. Metered setup: https://www.metered.ca/docs/turn-server-service/quickstart/ .

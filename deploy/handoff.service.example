@@ -1,11 +1,11 @@
 [Unit]
-Description=GHOST web and signaling server
+Description=Handoff web and signaling server
 After=network.target
 
 [Service]
 Type=simple
-User=ghost
-WorkingDirectory=/opt/ghost
+User=handoff
+WorkingDirectory=/opt/handoff
 ExecStart=/usr/bin/node scripts/start.mjs
 Restart=on-failure
 RestartSec=3

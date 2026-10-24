@@ -57,7 +57,7 @@ Help-request conversations do not require friendship. New direct call invites in
 
 ## Member profiles and ratings
 
-Navigation separates **Requests**, **Helpers**, **Activity**, **Messages**, **Call** and **Profile**. `#community` remains the Requests route; `#helpers` and `#activity` are independently reloadable routes. The large hero and small GHOST badges are removed.
+Navigation separates **Requests**, **Helpers**, **Activity**, **Messages**, **Call** and **Profile**. `#community` remains the Requests route; `#helpers` and `#activity` are independently reloadable routes. The large hero and small brand badges are removed.
 
 Click an avatar on a request, helper card, friend/search result or conversation header to open the member profile. Cards show their bio, expertise, rating, unique people helped and completed help-session count. **Message** opens a private thread; **Send request** uses the existing friend-request flow. Edit your bio under Profile. Profile dialogs support keyboard focus, Escape and responsive sizing.
 

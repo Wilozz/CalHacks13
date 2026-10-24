@@ -1,4 +1,4 @@
-# GHOST — hand tracking prototype
+# Handoff — hand tracking prototype
 
 A local browser proof of concept: webcam on the left, a live cyan 21-joint skeleton on the right. Includes a two-person WebRTC audio/video call panel. Includes a small shared signaling server; no simulated hand movement or recorded video uploads. Community adds optional accounts for assistance matchmaking; manual calls remain anonymous.
 
@@ -196,7 +196,7 @@ Manual checks (a real camera cannot run headless): the drawn hand sits on your h
 
 ## Voice: the listening agent (`src/voice/`)
 
-GHOST listens to the whole conversation and uses it to decide which object to show.
+Handoff listens to the whole conversation and uses it to decide which object to show.
 
 - **Speech to text:** `cartesia.ts` streams the mic to Cartesia's STT WebSocket (`ink-whisper`, 16 kHz PCM) using a short-lived token from `POST /ai/voice-token` (set `CARTESIA_API_KEY` in `.env`). Audio is only sent around speech (an energy detector gates it, with a 300 ms pre-roll), which keeps credits down. With no key it falls back to the browser's recognizer. The first start asks for consent.
 - **Both sides of the call:** each person's device transcribes its own mic and sends the *text* to the other over the control channel, so both agents hear everything and no audio is relayed.

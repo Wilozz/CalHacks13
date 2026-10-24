@@ -1,6 +1,6 @@
 # AGENTS.md
 
-GHOST is a CalHacks prototype for remote help with a physical object: the learner's object becomes a cached 3D model (SAM 3 / SAM 3D), they grab and throw it through a WebRTC call, the helper demonstrates on it with tracked hands, throws it back, and the learner keeps a 3D replay (no video). Built on MediaPipe hand tracking in a worker, React Three Fiber, and a two-person call joined by a six-character room code.
+Handoff is a CalHacks prototype for remote help with a physical object: the learner's object becomes a cached 3D model (SAM 3 / SAM 3D), they grab and throw it through a WebRTC call, the helper demonstrates on it with tracked hands, throws it back, and the learner keeps a 3D replay (no video). Built on MediaPipe hand tracking in a worker, React Three Fiber, and a two-person call joined by a six-character room code.
 
 - Goals, core loop, build order, tracks: [docs/GOALS.md](docs/GOALS.md)
 - How it works, plus the planned object/interaction/replay design: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
