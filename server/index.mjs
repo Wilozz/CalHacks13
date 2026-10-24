@@ -4,10 +4,11 @@ import { readFile, stat } from 'node:fs/promises';
 import { resolve, extname, sep } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { WebSocketServer, WebSocket } from 'ws';
+import { communityBridge } from './community.mjs';
 import { turnConfiguration } from './turn.mjs';
 const ALPHABET='ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 const CODE=/^[A-HJ-NP-Z2-9]{6}$/;
-export function createSignalingServer({env=process.env,roomTtl=30*60_000,heartbeatMs=30_000,maxRooms=1000,staticDirectory=resolve('dist')}={}) {
+export function createSignalingServer({env=process.env,roomTtl=30*60_000,heartbeatMs=30_000,maxRooms=1000,staticDirectory=resolve('dist'),community=communityBridge(env.CONVEX_URL||env.VITE_CONVEX_URL)}={}) {
   turnConfiguration(env); // Fail startup for invalid relay configuration.
   const rooms=new Map();
   const allowedOrigins=(env.ALLOWED_ORIGINS??`http://127.0.0.1:5173,http://localhost:5173,https://127.0.0.1:5173,https://localhost:5173,http://127.0.0.1:${env.PORT??8787},http://localhost:${env.PORT??8787}`).split(',').map(v=>v.trim()).concat(env.RENDER_EXTERNAL_URL??[]); // Render sets its own public URL, so the hosted app always trusts itself.
@@ -46,21 +47,37 @@ export function createSignalingServer({env=process.env,roomTtl=30*60_000,heartbe
     socket.room=null;socket.alive=true;socket.ready=false;socket.windowStart=Date.now();socket.count=0;socket.created=Date.now();
     socket.on('error',()=>{});
     socket.on('pong',()=>{socket.alive=true;});
-    socket.on('message',(raw,isBinary)=>{
+    const handle=async(raw,isBinary)=>{
       if(Date.now()-socket.windowStart>60_000){socket.windowStart=Date.now();socket.count=0;}
       if(++socket.count>600){socket.close(1008,'Too many messages');return;}
       const error=message=>send(socket,{type:'error',message});
       let message;
       try{if(isBinary)throw new Error();message=JSON.parse(raw.toString());if(!message||typeof message.type!=='string')throw new Error();}catch{error('Invalid signaling message.');return;}
+      if(message.type==='community') {
+        if(socket.room){error('Already in a call');return;}
+        if(!community || typeof message.sessionId!=='string'||message.sessionId.length>200||typeof message.token!=='string'||message.token.length>12000){error('Community authorization unavailable');return;}
+        let authorization;
+        try{authorization=await community.authorize(message.sessionId,message.token);}catch{error('Not authorized for this assistance session. Sign in again or check its status.');return;}
+        if(socket.readyState!==WebSocket.OPEN)return;
+        const code=authorization.roomCode;
+        let room=rooms.get(code);
+        if(room && room.communitySession!==authorization.sessionId){error('Room conflict. Please retry.');return;}
+        if(!room&&rooms.size>=maxRooms){error('Server is busy. Retry shortly.');return;}
+        if(!room){room={code,members:[],created:Date.now(),started:false,communitySession:authorization.sessionId};rooms.set(code,room);}
+        if(room.members.length>=2 || room.members.some(member=>member.communityAuth?.userId===authorization.userId)){error('This participant already has a call open. End that call before rejoining.');return;}
+        socket.communityAuth=authorization;socket.room=room;socket.ready=false;room.members.push(socket);
+        send(socket,{type:'joined',code,role:room.members.length===1?'host':'guest',configuration:turnConfiguration(env)});return;
+      }
       if(message.type==='create' || message.type==='join') {
         if(socket.room){error('Already in a room. End this call first.');return;}
         let room;
         if(message.type==='create') {
           if(rooms.size>=maxRooms){error('Server is busy. Try again shortly.');return;}
-          let code;do {code=Array.from({length:6},()=>ALPHABET[randomInt(ALPHABET.length)]).join('');}while(rooms.has(code));
+          let code;do {const first=ALPHABET.replace('Z','');code=first[randomInt(first.length)]+Array.from({length:5},()=>ALPHABET[randomInt(ALPHABET.length)]).join('');}while(rooms.has(code));
           room={code,members:[],created:Date.now(),started:false};rooms.set(code,room);
         } else {
           if(typeof message.code!=='string'||!CODE.test(message.code)){error('Enter a valid six-character room code.');return;}
+          if(message.code.startsWith('Z')){error('Community rooms require an authenticated Join Session.');return;}
           room=rooms.get(message.code);
           if(!room){error('Room not found or expired. Both laptops must use the same calling server.');return;}
           if(room.members.length!==1 || room.started){error('This room already has two people.');return;}
@@ -71,10 +88,12 @@ export function createSignalingServer({env=process.env,roomTtl=30*60_000,heartbe
       }
       const room=socket.room;
       if(!room){error('Create or join a room first.');return;}
-      if(message.type==='leave'){destroyRoom(room,'Your friend ended the call.',socket);socket.close(1000);return;}
+      if(message.type==='leave'){room.leaving=true;try{await community?.event(socket,'complete');}catch{/* Auth or backend outage: close media anyway; persisted expiry remains a fallback. */}destroyRoom(room,'Your friend ended the call.',socket);socket.close(1000);return;}
       if(message.type==='ready') {
         socket.ready=true;
         if(room.members.length===2 && room.members.every(member=>member.ready) && !room.started) {
+          if(room.communitySession){try{await community.event(socket,'connected');}catch{destroyRoom(room,'Session authorization expired.');return;}}
+          if(!rooms.has(room.code))return;
           room.started=true;
           for(const member of room.members)send(member,{type:'peer-ready',initiator:member===room.members[0]});
         }
@@ -92,11 +111,14 @@ export function createSignalingServer({env=process.env,roomTtl=30*60_000,heartbe
         return;
       }
       error('Unexpected signaling message.');
-    });
-    socket.on('close',()=>{if(socket.room)destroyRoom(socket.room,'Your friend left the call.',socket);});
+    };
+    let chain=Promise.resolve();
+    socket.on('message',(raw,binary)=>{chain=chain.then(()=>handle(raw,binary)).catch(()=>{send(socket,{type:'error',message:'Calling service unavailable. Retry from Community.'});});});
+    socket.on('close',()=>{if(socket.room){const room=socket.room;if(room.communitySession&&!room.leaving)void community.event(socket,'disconnected').catch(()=>{});destroyRoom(room,room.communitySession?'Your friend disconnected. Rejoin from Community within one minute.':'Your friend left the call.',socket);}});
   });
   const sweep=setInterval(()=>{
     for(const [ip,budget] of upgrades)if(Date.now()-budget.start>60_000)upgrades.delete(ip);
+    for(const room of rooms.values())if(room.communitySession&&community?.check)void community.check(room.members[0]).catch(()=>destroyRoom(room,'Assistance session ended or authorization expired.'));
     for(const room of rooms.values())if(!room.started && Date.now()-room.created>roomTtl)destroyRoom(room,'This room expired. Create a new room.');
     for(const socket of wss.clients){if(!socket.alive || (!socket.room&&Date.now()-socket.created>30_000)){socket.terminate();continue;}socket.alive=false;socket.ping();}
   },heartbeatMs);
@@ -106,6 +128,7 @@ export function createSignalingServer({env=process.env,roomTtl=30*60_000,heartbe
 if(process.argv[1] && import.meta.url===pathToFileURL(resolve(process.argv[1])).href) {
   // Local .env is server-only; never prefix the shared TURN secret with VITE_.
   try{process.loadEnvFile('.env');}catch(error){if(error.code!=='ENOENT')throw error;}
+  try{process.loadEnvFile('.env.local');}catch(error){if(error.code!=='ENOENT')throw error;}
   const app=createSignalingServer();
   app.server.listen(Number(process.env.PORT??8787),process.env.HOST??'127.0.0.1',()=>console.log(`GHOST calling server listening on port ${process.env.PORT??8787}; relay ${process.env.TURN_URLS?'configured':'not configured'}`));
   for(const signal of ['SIGINT','SIGTERM'])process.on(signal,()=>void app.close().then(()=>process.exit(0)));

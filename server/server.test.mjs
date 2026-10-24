@@ -89,3 +89,20 @@ test('managed TURN credentials are supported and incomplete/mixed authentication
  assert.deepEqual(config.iceServers[1],{urls:[env.TURN_URLS],username:'provider-user',credential:'provider-password'});
  for(const bad of [{...env,TURN_PASSWORD:''},{...env,TURN_USERNAME:''},{...env,TURN_SHARED_SECRET:'mixed'}])assert.throws(()=>turnConfiguration(bad));
 });
+test('community rooms require server-side membership and reject manual room-code bypass',async t=>{
+ const events=[];const community={async authorize(id,token){if(id!=='session-test'||!['A','B'].includes(token))throw new Error('denied');return {sessionId:id,userId:token,roomCode:'ZABC23'};},async event(socket,event){events.push(event);}};
+ const app=await fixture(t,{community});const a=await app.client(),b=await app.client(),c=await app.client();
+ c.send({type:'join',code:'ZABC23'});assert.match((await c.next()).message,/authenticated/);
+ c.send({type:'community',sessionId:'session-test',token:'intruder'});assert.match((await c.next()).message,/Not authorized/);
+ a.send({type:'community',sessionId:'session-test',token:'A'});assert.equal((await a.next()).code,'ZABC23');
+ c.send({type:'community',sessionId:'session-test',token:'A'});assert.match((await c.next()).message,/already/);
+ b.send({type:'community',sessionId:'session-test',token:'B'});assert.equal((await b.next()).code,'ZABC23');
+ a.send({type:'ready'});b.send({type:'ready'});await a.next();await b.next();assert.ok(events.includes('connected'));
+ a.send({type:'leave'});assert.equal((await b.next()).type,'ended');assert.ok(events.includes('complete'));
+});
+test('community authorization is rechecked while a room is open',async t=>{
+ let revoked=false;const community={async authorize(id,token){return {sessionId:id,userId:token,roomCode:'ZABC24'};},async event(){},async check(){if(revoked)throw new Error('ended');}};
+ const app=await fixture(t,{community,heartbeatMs:20});const a=await app.client();
+ a.send({type:'community',sessionId:'session-check',token:'member'});await a.next();revoked=true;
+ assert.match((await a.next()).message,/authorization expired/);assert.equal(app.rooms.size,0);
+});

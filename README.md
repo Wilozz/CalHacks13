@@ -1,6 +1,6 @@
 # GHOST — hand tracking prototype
 
-A local browser proof of concept: webcam on the left, a live cyan 21-joint skeleton on the right. Includes a two-person WebRTC audio/video call panel. Includes a small shared signaling server; no simulated hand movement, accounts, or recorded video uploads.
+A local browser proof of concept: webcam on the left, a live cyan 21-joint skeleton on the right. Includes a two-person WebRTC audio/video call panel. Includes a small shared signaling server; no simulated hand movement or recorded video uploads. Community adds optional accounts for assistance matchmaking; manual calls remain anonymous.
 
 ## Docs
 
@@ -182,3 +182,7 @@ Only the object's shapes and colors cross the call (a `toss` message on the reli
 Grabbing follows your palm centre (it does not move when your fingers close), smoothed with a One Euro filter, and draws your hand where it appears in the camera. Pinch and fist thresholds come from MediaPipe landmarks on real hand photos (`src/remote/handPhotos.json`, checked in `src/remote/twin.test.ts`); the same pinch fix applies to the Call tab's 3D copy.
 
 Manual checks (a real camera cannot run headless): the drawn hand sits on your hand; grabbing works with both a pinch and a fist at arm's length and close up; a fast flick throws while a slow release drops it; the object reads clearly over a bright room.
+
+## Community assistance (local `forum` branch)
+
+Community adds email/password accounts, profiles, reactive helper availability, public/direct help requests, notifications and participant-authorized call assignments. Manual calls and the existing hand/3D features remain available. Start local Convex with `npm run convex`, configure auth once with `npm run community:auth`, then run `npm run dev`. After initial setup, `npm run dev:community` launches both together. See [the complete local setup and two-user checklist](docs/COMMUNITY.md). No Render or production Convex deployment is part of this work.

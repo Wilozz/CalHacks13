@@ -46,12 +46,12 @@ Unit tests sit next to the code (`*.test.ts`, `server/server.test.mjs`). New uni
 
 ## Invariants (do not break)
 
-- Camera frames and hand landmarks never leave the browser. Call media goes only to the connected peer; landmarks are not transmitted.
+- Hand inference runs locally. Calls send media and hand landmarks to the connected peer using WebRTC. Explicit AI scans can send selected snapshots to the AI backend. Community metadata lives in Convex; never send high-frequency hand data through Convex.
 - At most one frame in flight to the worker; drop frames rather than queue. Always close transferred `ImageBitmap`s.
 - `HandFrame` stays plain, serializable data (planned future transport boundary).
 - TURN secrets are server-side only. Never put them in a `VITE_` variable.
 - One signaling instance only: rooms are in-memory, capacity two, cleared on restart.
-- No accounts, uploads, recordings, simulated hand motion, or fake relays.
+- No uploads, recordings, simulated hand motion, or fake relays. Community uses Convex Auth accounts; standalone manual calls remain anonymous.
 
 ## Conventions
 
@@ -65,3 +65,17 @@ Unit tests sit next to the code (`*.test.ts`, `server/server.test.mjs`). New uni
 2. `npm run build` passes.
 3. If call/signaling code changed: `npm run test:e2e` passes.
 4. Camera and tracking behavior can't be verified headlessly. Say so and point to the manual checklists in README.
+
+<!-- convex-ai-start -->
+
+This project uses [Convex](https://convex.dev) as its backend.
+
+When working on Convex code, **always read
+`convex/_generated/ai/guidelines.md` first** for important guidelines on
+how to correctly use Convex APIs and patterns. The file contains rules that
+override what you may have learned about Convex from training data.
+
+Convex agent skills for common tasks can be installed by running
+`npx convex ai-files install`.
+
+<!-- convex-ai-end -->
