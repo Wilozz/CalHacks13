@@ -31,7 +31,8 @@ export function fistRatio(frame: HandFrame, aspect = CAMERA_ASPECT): number | nu
 /** 0 = fully open, 1 = pinched: for drawing a ring that closes as the fingers meet. */
 export const pinchCloseness = (ratio: number | null) => ratio === null ? 0 : Math.min(1, Math.max(0, (0.85 - ratio) / (0.85 - 0.25)));
 
-export interface GripOptions { engage?: number; release?: number; confirm?: number; fist?: boolean }
+/** confirm: frames to agree before letting go. confirmGrab: before closing (default the same); 1 = grab on the first closed frame. */
+export interface GripOptions { engage?: number; release?: number; confirm?: number; confirmGrab?: number; fist?: boolean }
 
 /**
  * Pinch (and optionally fist) with hysteresis and a short confirmation, so landmark jitter around a threshold
@@ -44,9 +45,9 @@ export class PinchDetector {
   fist: number | null = null;
   private streak = 0;
   private last: HandFrame | null = null;
-  private readonly engage: number; private readonly release: number; private readonly confirm: number; private readonly useFist: boolean;
-  constructor({ engage = 0.32, release = 0.48, confirm = 2, fist = false }: GripOptions = {}) {
-    this.engage = engage; this.release = release; this.confirm = confirm; this.useFist = fist;
+  private readonly engage: number; private readonly release: number; private readonly confirm: number; private readonly confirmGrab: number; private readonly useFist: boolean;
+  constructor({ engage = 0.32, release = 0.48, confirm = 2, confirmGrab = confirm, fist = false }: GripOptions = {}) {
+    this.engage = engage; this.release = release; this.confirm = confirm; this.confirmGrab = confirmGrab; this.useFist = fist;
   }
 
   update(frame: HandFrame | null): boolean {
@@ -59,7 +60,7 @@ export class PinchDetector {
     const fist = this.fist !== null && (this.pinching ? this.fist < 1.4 : this.fist < 1.2);
     const wants = pinch || fist;
     if (wants === this.pinching) { this.streak = 0; return this.pinching; }
-    if (++this.streak >= this.confirm) { this.pinching = wants; this.streak = 0; }
+    if (++this.streak >= (wants ? this.confirmGrab : this.confirm)) { this.pinching = wants; this.streak = 0; }
     return this.pinching;
   }
 

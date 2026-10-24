@@ -21,6 +21,7 @@ const FRIEND_Z = -16;      // how deep into the screen the friend is: a thrown o
 const G = 20;
 const GRAB_RADIUS = 1.15;  // × object height: generous, so a grab near the object still takes it
 const THROW_SPEED = 1.5;   // × half screen height per second, up-and-forward (see isThrow)
+const GRAB_GRACE = 0.5;  // s: a hand that closed just before reaching the object still takes it
 const LOST_HOLD = 700;     // ms: tracking drops (fast moves, hands close). Freeze and keep the grip; only then drop, never throw
 const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
 const rnd = (a = 1) => (Math.random() - 0.5) * 2 * a;
@@ -138,7 +139,7 @@ interface Obj {
 /** One tracked hand. Up to two: hands are matched to slots by position, not MediaPipe's left/right label (it swaps). */
 interface Slot {
   grip: PinchDetector; fx: OneEuro; fy: OneEuro; target: THREE.Vector3; cursor: THREE.Vector3; img: { x: number; y: number } | null;
-  seen: boolean; lostAt: number; wasGrip: boolean; palm: THREE.Quaternion | null; skeleton: THREE.Vector3[]; sizes: Sample[];
+  seen: boolean; lostAt: number; wasGrip: boolean; gripAt: number; tip: THREE.Vector3; palm: THREE.Quaternion | null; skeleton: THREE.Vector3[]; sizes: Sample[];
   glyph: ReturnType<typeof makeHandGlyph>;
 }
 
@@ -163,8 +164,8 @@ function World({ api, hand, mirrored, bottomInset, onToss, onStatus }: Props) {
   const s = useRef({
     objs: [] as Obj[], T: 0, lastAt: 0,
     slots: kit.glyphs.map((glyph): Slot => ({
-      grip: new PinchDetector({ fist: true }), fx: new OneEuro(), fy: new OneEuro(), target: new V(), cursor: new V(), img: null,
-      seen: false, lostAt: 0, wasGrip: false, palm: null, skeleton: Array.from({ length: 21 }, () => new V()), sizes: [], glyph,
+      grip: new PinchDetector({ fist: true, confirmGrab: 1 }), fx: new OneEuro(), fy: new OneEuro(), target: new V(), cursor: new V(), img: null,
+      seen: false, lostAt: 0, wasGrip: false, gripAt: 0, tip: new V(), palm: null, skeleton: Array.from({ length: 21 }, () => new V()), sizes: [], glyph,
     })),
     pointers: new Map<number, { x: number; y: number }>(), statusKey: '',
   });
@@ -375,6 +376,7 @@ function World({ api, hand, mirrored, bottomInset, onToss, onStatus }: Props) {
     sl.seen = true; sl.lostAt = 0;
     const z = dims().S * 0.8;
     lm.forEach((p, k) => { const w = map(p); sl.skeleton[k].set(w.x + fx - c.x, w.y + fy - c.y, z); });
+    sl.tip.copy(sl.skeleton[4]).add(sl.skeleton[8]).multiplyScalar(0.5); // where a pinch closes: people reach with fingertips, not the palm
     const ps = palmSize(frame);
     if (ps) { sl.sizes.push({ t, x: Math.log(ps), y: 0 }); while (sl.sizes.length && t - sl.sizes[0].t > 0.4) sl.sizes.shift(); }
     // Palm orientation (palmQuat) from the 3D landmarks, in screen space: x mirrored like the video, y up, z toward you.
@@ -383,9 +385,10 @@ function World({ api, hand, mirrored, bottomInset, onToss, onStatus }: Props) {
     sl.palm = q ? (sl.palm ?? new THREE.Quaternion()).set(q[0], q[1], q[2], q[3]) : null;
 
     const grip = sl.grip.update(frame);
-    if (grip && !sl.wasGrip && !heldBy('hand', i)) {
+    if (grip && !sl.wasGrip) sl.gripAt = t;
+    if (grip && t - sl.gripAt < GRAB_GRACE && !heldBy('hand', i)) {
       // Closing on something the other hand holds = both hands on it, to stretch it; on something free = take it.
-      const { o, join: stretchIt } = pick(sl.target, 'hand');
+      const at = pick(sl.target, 'hand'), { o, join: stretchIt } = at.o ? at : pick(sl.tip, 'hand');
       if (o && stretchIt) join(o, i); else if (o) grab(o, 'hand', sl.target, i);
     }
     const o = heldBy('hand', i);
@@ -427,7 +430,8 @@ function World({ api, hand, mirrored, bottomInset, onToss, onStatus }: Props) {
     let anyHover = false;
     st.slots.forEach((sl, i) => {
       sl.cursor.lerp(sl.target, glide);
-      const held = heldBy('hand', i), hover = sl.seen && !held && !!nearest(sl.cursor, o => grabbable(o) || (o.by === 'hand' && o.holders.length === 1));
+      const held = heldBy('hand', i), ok = (o: Obj) => grabbable(o) || (o.by === 'hand' && o.holders.length === 1);
+      const hover = sl.seen && !held && !!(nearest(sl.cursor, ok) ?? nearest(sl.tip, ok));
       anyHover ||= hover;
       sl.glyph.show(sl.seen ? sl.skeleton : null, new V(sl.cursor.x, sl.cursor.y, S * 0.8), pinchCloseness(sl.grip.ratio) || (sl.grip.pinching ? 1 : 0), !!held, hover, S);
       if (held && held.holders[0] === i) {

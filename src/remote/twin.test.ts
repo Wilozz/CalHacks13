@@ -119,6 +119,13 @@ test('pinch has hysteresis and needs two confirming frames', () => {
   assert.equal(d.update(null), false);          // hand lost
 });
 
+test('confirmGrab 1 grabs on the first closed frame but still needs two open frames to let go', () => {
+  const d = new PinchDetector({ confirmGrab: 1 });
+  assert.equal(d.update(pinched(0.1)), true);
+  assert.equal(d.update(pinched(0.9)), true);
+  assert.equal(d.update(pinched(0.9)), false);
+});
+
 test('the same tracker frame passed on every render counts once', () => {
   const d = new PinchDetector(), f = pinched(0.1);
   for (let i = 0; i < 5; i++) d.update(f);
