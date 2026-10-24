@@ -140,6 +140,7 @@ Builds on `src/throw/TossScene.tsx` and `src/remote/pinch.ts`.
 | `control` (existing) | reliable | `toss` (object id + pose + scale + part states), `part` state changes, `grab` and `release` events |
 
 - Whoever holds the object is the authority for its pose and part states. The other side only displays them, the same rule as `twinMove.ts` today.
+- Built in the Throwing prototype: the owner streams `poses` (position on their raw camera image, height, rotation) over `hand`, and the other side draws the object inside the owner's video, on their real hand. A throw (`toss` with `give`) passes ownership. The object never leaves either screen.
 - Hands are drawn in the object's frame (object-relative), so they stay on the model when the viewer orbits.
 
 ### Recording and replay

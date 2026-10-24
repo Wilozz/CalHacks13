@@ -1,11 +1,12 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { decodeToss, encodeToss, isThrow, releaseVelocity, TOSS_OBJECTS } from './toss';
+import { decodePoses, decodeToss, encodePoses, encodeToss, isThrow, releaseVelocity, TOSS_OBJECTS } from './toss';
 
 test('a toss survives the wire with its model intact', () => {
   const { label, model } = TOSS_OBJECTS.mug;
-  const t = decodeToss(encodeToss({ id: 'abc', label, model, spin: [1.234, -2, 3], scale: 1.5 }));
+  const t = decodeToss(encodeToss({ id: 'abc', label, model, spin: [1.234, -2, 3], scale: 1.5, give: true }));
   assert.ok(t);
+  assert.equal(t.give, true);
   assert.equal(t.label, 'Mug');
   assert.deepEqual(t.spin, [1.23, -2, 3]);
   assert.equal(t.scale, 1.5);
@@ -26,6 +27,15 @@ test('decodeToss clamps a hostile peer', () => {
   assert.equal(t.id.length, 16);
   assert.equal(t.label.length, 40);
   assert.equal(t.model.parts[0].color, '#64f5ed');
+  assert.equal(t.give, false, 'only an explicit give passes ownership');
+});
+
+test('poses survive the wire, and a hostile peer is clamped', () => {
+  const [p] = decodePoses(encodePoses([{ id: 'a', u: 0.25, v: 0.5, h: 0.3, q: [0, 0, 0, 1], hot: true, fade: 0 }]))!;
+  assert.deepEqual(p, { id: 'a', u: 0.25, v: 0.5, h: 0.3, q: [0, 0, 0, 1], hot: true, fade: 0 });
+  const [b] = decodePoses(JSON.stringify({ type: 'poses', p: [['x'.repeat(99), 1e9, 'a', -5, 2, 0, 0, 0, 1, 7], ['short'], 5] }))!;
+  assert.equal(b.id.length, 16); assert.equal(b.u, 3); assert.equal(b.v, 0); assert.equal(b.h, 0); assert.deepEqual(b.q, [1, 0, 0, 0]); assert.equal(b.fade, 1);
+  for (const bad of [null, '{"type":"toss"}', 'nope', 'x'.repeat(5000)]) assert.equal(decodePoses(bad), null);
 });
 
 test('releaseVelocity finds the flick even when the hand slows before letting go', () => {

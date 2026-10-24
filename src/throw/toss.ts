@@ -1,8 +1,11 @@
 import { sanitizeModel } from '../ai/modelSpec';
 import type { ModelPart, ModelSpec, PartShape, V3 } from '../ai/types';
 
-/** One object thrown across the call. Shape data only: the receiver rebuilds the hologram locally. */
-export interface Toss { id: string; label: string; model: ModelSpec; spin: V3; scale: number }
+/**
+ * One object across the call. Shape data only: the receiver rebuilds the hologram locally.
+ * give: ownership passes to the receiver (a throw). Otherwise the sender just shows it: the receiver draws it in the sender's video.
+ */
+export interface Toss { id: string; label: string; model: ModelSpec; spin: V3; scale: number; give: boolean }
 
 export const MIN_SCALE = 0.5, MAX_SCALE = 2.2; // how far a hologram can be shrunk or stretched
 
@@ -29,7 +32,7 @@ export type TossKind = keyof typeof TOSS_OBJECTS;
 const MAX_BYTES = 20_000;
 const num = (n: unknown, lim: number) => { const v = Number(n); return Number.isFinite(v) ? Math.min(lim, Math.max(-lim, v)) : 0; };
 
-export const encodeToss = (t: Toss): string => JSON.stringify({ type: 'toss', id: t.id, label: t.label, model: t.model, spin: t.spin.map(v => +v.toFixed(2)), scale: +t.scale.toFixed(3) });
+export const encodeToss = (t: Toss): string => JSON.stringify({ type: 'toss', give: t.give, id: t.id, label: t.label, model: t.model, spin: t.spin.map(v => +v.toFixed(2)), scale: +t.scale.toFixed(3) });
 
 /** null = not a toss or invalid. Never trusts the peer: the model goes through the same validation as a Claude scan. */
 export function decodeToss(text: unknown): Toss | null {
@@ -42,7 +45,31 @@ export function decodeToss(text: unknown): Toss | null {
   const spin = Array.isArray(m.spin) ? m.spin : [];
   const scale = Number(m.scale);
   return { id: String(m.id ?? '').slice(0, 16), label: String(m.label ?? 'Object').slice(0, 40), model, spin: [num(spin[0], 20), num(spin[1], 20), num(spin[2], 20)],
-    scale: Number.isFinite(scale) ? Math.min(MAX_SCALE, Math.max(MIN_SCALE, scale)) : 1 };
+    scale: Number.isFinite(scale) ? Math.min(MAX_SCALE, Math.max(MIN_SCALE, scale)) : 1, give: m.give === true };
+}
+
+/**
+ * Where one of your objects is, as your friend sees it in your video: u, v on your raw (unmirrored) camera image,
+ * h its height as a fraction of the image height, q its rotation in camera space, hot while held, fade 0-1.
+ */
+export interface Pose { id: string; u: number; v: number; h: number; q: [number, number, number, number]; hot: boolean; fade: number }
+const MAX_POSES = 8;
+const r3 = (n: number) => Math.round(n * 1000) / 1000;
+export const encodePoses = (ps: Pose[]): string => JSON.stringify({ type: 'poses', p: ps.slice(0, MAX_POSES).map(p => [p.id, r3(p.u), r3(p.v), r3(p.h), ...p.q.map(r3), p.hot ? 1 : 0, r3(p.fade)]) });
+
+/** null = not poses or invalid. Out-of-range numbers are clamped and the rotation renormalized. */
+export function decodePoses(text: unknown): Pose[] | null {
+  if (typeof text !== 'string' || text.length > 4000) return null;
+  let m: any;
+  try { m = JSON.parse(text); } catch { return null; }
+  if (!m || m.type !== 'poses' || !Array.isArray(m.p)) return null;
+  const out: Pose[] = [];
+  for (const a of m.p.slice(0, MAX_POSES)) {
+    if (!Array.isArray(a) || a.length !== 10 || typeof a[0] !== 'string') continue;
+    const q = [num(a[4], 1), num(a[5], 1), num(a[6], 1), num(a[7], 1)], n = Math.hypot(...q) || 1;
+    out.push({ id: a[0].slice(0, 16), u: num(a[1], 3), v: num(a[2], 3), h: Math.max(0, num(a[3], 3)), q: q.map(x => n > 1e-6 ? x / n : 0) as Pose['q'], hot: a[8] === 1, fade: Math.min(1, Math.max(0, num(a[9], 1))) });
+  }
+  return out;
 }
 
 export interface Sample { t: number; x: number; y: number }

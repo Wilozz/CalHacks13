@@ -3,7 +3,7 @@ import { useCall } from '../CallPanel';
 import { normalizeRoomCode, ROOM_PATTERN } from '../callSignaling';
 import { useMobileDevice } from '../device';
 import { Icon } from '../icons';
-import { decodeToss, encodeToss, TOSS_OBJECTS, type Toss, type TossKind } from './toss';
+import { decodePoses, decodeToss, encodePoses, encodeToss, TOSS_OBJECTS, type Pose, type Toss, type TossKind } from './toss';
 import { TossScene, type TossApi, type TossStatus } from './TossScene';
 import { useTracker } from './useTracker';
 
@@ -35,18 +35,31 @@ export default function ThrowPrototype() {
   useEffect(() => {
     const dc = call.controlChannel;
     if (!dc) return;
-    const onMessage = (e: MessageEvent) => { const t = decodeToss(e.data); if (t) { api.current?.receive(t); show(`Your friend tossed you ${article(t.label)}`); } };
+    const onMessage = (e: MessageEvent) => { const t = decodeToss(e.data); if (t) { api.current?.receive(t); if (t.give) show(`Your friend tossed you ${article(t.label)}`); } };
+    const onOpen = () => api.current?.announce(); // objects made before the friend joined show up for them too
+    dc.addEventListener('message', onMessage); dc.addEventListener('open', onOpen);
+    if (dc.readyState === 'open') onOpen();
+    return () => { dc.removeEventListener('message', onMessage); dc.removeEventListener('open', onOpen); };
+  }, [call.controlChannel]);
+  useEffect(() => {
+    const dc = call.handChannel;
+    if (!dc) return;
+    const onMessage = (e: MessageEvent) => { const p = decodePoses(e.data); if (p) api.current?.poses(p); };
     dc.addEventListener('message', onMessage);
     return () => dc.removeEventListener('message', onMessage);
-  }, [call.controlChannel]);
+  }, [call.handChannel]);
   useEffect(() => () => toastTimers.current.forEach(clearTimeout), []);
 
   function onToss(t: Toss) {
     const dc = call.controlChannel;
-    if (dc?.readyState === 'open') { dc.send(encodeToss(t)); show(`Tossed ${article(t.label)} to your friend`); return; }
+    if (dc?.readyState === 'open') { dc.send(encodeToss(t)); if (t.give) show(`Tossed ${article(t.label)} to your friend`); return; }
+    if (!t.give) return;
     // Nobody on the other end: it comes back, so the effect can be tried alone.
     window.setTimeout(() => { api.current?.receive(t); show('Nobody caught it, so it came back'); }, 700);
   }
+  // Unreliable channel: a lost pose is replaced by the next one 33 ms later.
+  const onPoses = (p: Pose[]) => { const dc = call.handChannel; if (dc?.readyState === 'open') dc.send(encodePoses(p)); };
+  const friendAspect = () => { const v = call.friendVideo.current; return v?.videoWidth ? v.videoWidth / v.videoHeight : 4 / 3; };
   async function begin(room?: string) {
     if (tracker.phase !== 'running') await tracker.start(); // the call reuses this camera track
     call.start(room);
@@ -70,11 +83,11 @@ export default function ThrowPrototype() {
       <video ref={call.selfVideo} autoPlay playsInline muted/>
     </div>
 
-    <TossScene api={api} hand={tracker.hand} mirrored bottomInset={mobile ? 190 : 120} onToss={onToss} onStatus={setStatus}/>
+    <TossScene api={api} hand={tracker.hand} mirrored bottomInset={mobile ? 190 : 120} onToss={onToss} onPoses={onPoses} friendAspect={friendAspect} onStatus={setStatus}/>
 
     {screen === 'home' && <section className="throw-card" aria-label="Start a call">
       <h1>Throwing prototype</h1>
-      <p>Make one or two objects, grab them with a pinch or a fist, turn and resize them, and throw them through the screen to the person you're calling. Alone, they come back to you.</p>
+      <p>Make one or two objects, grab them with a pinch or a fist, turn and resize them, and throw them through the screen to the person you're calling. You both always see every object: when your friend holds one, it sits in their hand in their video. Alone, they come back to you.</p>
       <div className="throw-actions">
         <button className="primary" onClick={() => void begin()}><Icon name="video" size={20}/>New call</button>
         <form onSubmit={e => { e.preventDefault(); if (validCode) void begin(code); }}>

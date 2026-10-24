@@ -6,15 +6,17 @@ import { BONES, type HandFrame } from '../coordinates';
 import { OneEuro } from '../remote/oneEuro';
 import { palmSize, pinchCloseness, PinchDetector } from '../remote/pinch';
 import { palmQuat } from '../remote/quat';
-import { isThrow, MAX_SCALE, MIN_SCALE, releaseVelocity, TOSS_OBJECTS, type Sample, type Toss, type TossKind } from './toss';
+import { isThrow, MAX_SCALE, MIN_SCALE, releaseVelocity, TOSS_OBJECTS, type Pose, type Sample, type Toss, type TossKind } from './toss';
 import type { TrackedHand } from './useTracker';
 
-export interface TossApi { spawn(kind: TossKind): void; flick(): void; receive(t: Toss): void }
-/** state/label: the object in focus (held, else newest). labels: every object on this screen. busy: one is on its way to or from the friend. */
+/** receive: a toss from the friend (shown, or given to you). poses: where the friend's objects are. announce: show yours again (new call). */
+export interface TossApi { spawn(kind: TossKind): void; flick(): void; receive(t: Toss): void; poses(p: Pose[]): void; announce(): void }
+/** state/label: your object in focus (held, else newest). labels: every object you have. busy: one is on its way to or from the friend. */
 export interface TossStatus { state: State | 'none'; label: string; hover: boolean; handSeen: boolean; labels: string[]; canToss: boolean; busy: boolean }
-type State = 'spawn' | 'rest' | 'held' | 'drop' | 'out' | 'in';
+type State = 'spawn' | 'rest' | 'held' | 'drop' | 'out' | 'in' | 'remote'; // remote: the friend has it; drawn in their video
 type Input = 'hand' | 'pointer' | 'script';
-interface Props { api: MutableRefObject<TossApi | null>; hand: MutableRefObject<TrackedHand>; mirrored: boolean; bottomInset: number; onToss: (t: Toss) => void; onStatus: (s: TossStatus) => void }
+/** friendAspect: width / height of the friend's camera video, drawn full screen with object-fit: cover. */
+interface Props { api: MutableRefObject<TossApi | null>; hand: MutableRefObject<TrackedHand>; mirrored: boolean; bottomInset: number; friendAspect: () => number; onToss: (t: Toss) => void; onPoses: (p: Pose[]) => void; onStatus: (s: TossStatus) => void }
 
 const V = THREE.Vector3;
 const FRIEND_Z = -16;      // how deep into the screen the friend is: a thrown object shrinks into their video by perspective alone
@@ -22,6 +24,8 @@ const G = 20;
 const GRAB_RADIUS = 1.15;  // × object height: generous, so a grab near the object still takes it
 const THROW_SPEED = 1.5;   // × half screen height per second, up-and-forward (see isThrow)
 const GRAB_GRACE = 0.5;  // s: a hand that closed just before reaching the object still takes it
+const REMOTE_GONE = 1500; // ms without a pose before the friend's object is taken off your screen
+const POSE_EVERY = 33;    // ms between pose updates to the friend
 const LOST_HOLD = 700;     // ms: tracking drops (fast moves, hands close). Freeze and keep the grip; only then drop, never throw
 const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
 const rnd = (a = 1) => (Math.random() - 0.5) * 2 * a;
@@ -124,6 +128,8 @@ function makeHandGlyph(scene: THREE.Scene) {
 }
 
 interface Obj {
+  /** id: the same object on both screens. remote: the friend's latest pose for it (state 'remote'); seen: when it last came. */
+  id: string; remote: Pose | null; seen: number;
   twin: Twin; shadow: THREE.Mesh; label: string; model: ModelSpec; state: State; age: number;
   pos: THREE.Vector3; vel: THREE.Vector3; spin: THREE.Vector3; fade: number; scan: number; hot: number;
   /** by: what holds it. holders: hand slots (by 'hand') or pointer ids (by 'pointer'); the first one moves and turns it. */
@@ -132,7 +138,7 @@ interface Obj {
   rot: THREE.Quaternion; turn: { palm: THREE.Quaternion; rot: THREE.Quaternion } | null;
   /** User size (1 = normal). resize: baseline while a second hand or finger stretches it. */
   scale: number; resize: { d0: number; s0: number } | null;
-  path: { p0: THREE.Vector3; p1: THREE.Vector3; p2: THREE.Vector3; dur: number } | null;
+  path: { p0: THREE.Vector3; p1: THREE.Vector3; p2: THREE.Vector3; dur: number; visible?: boolean } | null;
   script: { from: { x: number; y: number }; wind: { x: number; y: number }; flick: { x: number; y: number } } | null;
 }
 
@@ -147,8 +153,8 @@ const MAX_OBJS = 4;
 const DELAY_IN = 0.4; // s: the toss is sent at 40% of a 0.75 s throw; arriving this much later lines up with it leaving the sender
 const palmImg = (lm: { x: number; y: number }[]) => [0, 5, 9, 13, 17].reduce((a, i) => ({ x: a.x + lm[i].x / 5, y: a.y + lm[i].y / 5 }), { x: 0, y: 0 });
 
-function World({ api, hand, mirrored, bottomInset, onToss, onStatus }: Props) {
-  const { scene, size, gl } = useThree();
+function World({ api, hand, mirrored, bottomInset, friendAspect, onToss, onPoses, onStatus }: Props) {
+  const { scene, size, gl, camera } = useThree();
   const kit = useMemo(() => {
     const mesh = (geo: THREE.BufferGeometry, mat: THREE.Material) => { const m = new THREE.Mesh(geo, mat); scene.add(m); return m; };
     const plane = new THREE.PlaneGeometry(1, 1);
@@ -167,9 +173,9 @@ function World({ api, hand, mirrored, bottomInset, onToss, onStatus }: Props) {
       grip: new PinchDetector({ fist: true, confirmGrab: 1 }), fx: new OneEuro(), fy: new OneEuro(), target: new V(), cursor: new V(), img: null,
       seen: false, lostAt: 0, wasGrip: false, gripAt: 0, tip: new V(), palm: null, skeleton: Array.from({ length: 21 }, () => new V()), sizes: [], glyph,
     })),
-    pointers: new Map<number, { x: number; y: number }>(), statusKey: '',
+    pointers: new Map<number, { x: number; y: number }>(), statusKey: '', poseAt: 0,
   });
-  const cb = useRef({ onToss, onStatus, mirrored, bottomInset }); cb.current = { onToss, onStatus, mirrored, bottomInset };
+  const cb = useRef({ onToss, onPoses, onStatus, friendAspect, mirrored, bottomInset }); cb.current = { onToss, onPoses, onStatus, friendAspect, mirrored, bottomInset };
 
   // World units: the camera sees ±halfH vertically at z = 0.
   const halfH = Math.tan(THREE.MathUtils.degToRad(20)) * 10;
@@ -197,10 +203,14 @@ function World({ api, hand, mirrored, bottomInset, onToss, onStatus }: Props) {
   const heldBy = (by: Input, id: number) => s.current.objs.find(o => o.by === by && o.holders.includes(id)) ?? null;
   const pointOf = (o: Obj, id: number) => o.by === 'hand' ? s.current.slots[id].target : s.current.pointers.get(id) ?? null;
   const setState = (o: Obj, st: State) => { o.state = st; o.age = 0; };
+  const mine = (o: Obj) => o.state !== 'remote' && !(o.state === 'out' && o.sent);
+  const toss = (o: Obj, give: boolean): Toss => ({ id: o.id, label: o.label, model: o.model, spin: o.spin.toArray() as [number, number, number], scale: o.scale, give });
+  /** Cover-fit of a camera image of this aspect on the screen: how much it overflows each way. */
+  const cover = (aspect: number) => { const a = size.width / size.height; return { sx: Math.max(1, aspect / a), sy: Math.max(1, a / aspect) }; };
 
   /** A spot on the floor with room for one more: the first of centre, left, right that is clear, else the emptiest. */
   const freeX = () => {
-    const { halfW, S } = dims(), xs = s.current.objs.filter(o => o.state !== 'out').map(o => o.pos.x);
+    const { halfW, S } = dims(), xs = s.current.objs.filter(mine).map(o => o.pos.x);
     const room = (x: number) => Math.min(99, ...xs.map(o => Math.abs(o - x)));
     const spots = [0, -0.5, 0.5].map(f => f * halfW);
     return spots.find(x => room(x) >= S * 0.95) ?? spots.reduce((a, b) => room(b) > room(a) ? b : a);
@@ -209,13 +219,13 @@ function World({ api, hand, mirrored, bottomInset, onToss, onStatus }: Props) {
     const st = s.current; scene.remove(o.twin.root); scene.remove(o.shadow); o.twin.dispose(); (o.shadow.material as THREE.Material).dispose();
     st.objs = st.objs.filter(x => x !== o);
   };
-  const newObj = (model: ModelSpec, label: string, state: State, pos: THREE.Vector3, scale = 1): Obj => {
-    const st = s.current;
-    // Room for a few at once; the oldest one nobody is holding makes way.
-    if (st.objs.length >= MAX_OBJS) { const old = st.objs.find(o => !o.by && o.state !== 'out' && o.state !== 'in') ?? st.objs.find(o => !o.by); if (old) remove(old); }
+  const newObj = (id: string, model: ModelSpec, label: string, state: State, pos: THREE.Vector3, scale = 1): Obj => {
+    const st = s.current, own = st.objs.filter(mine);
+    // Room for a few of yours at once; the oldest one nobody is holding makes way (the friend's copy goes when its poses stop).
+    if (state !== 'remote' && own.length >= MAX_OBJS) { const old = own.find(o => !o.by && o.state !== 'in') ?? own.find(o => !o.by); if (old) remove(old); }
     const twin = makeTwin(model, dims().S); scene.add(twin.root);
     const shadow = new THREE.Mesh(kit.plane, new THREE.MeshBasicMaterial({ map: soft, color: 0x000000, transparent: true, depthWrite: false, opacity: 0 })); scene.add(shadow);
-    const o: Obj = { twin, shadow, label, model, state, age: 0, pos, vel: new V(), spin: new V(), fade: 0, scan: 1, hot: 0, hist: [], by: null, holders: [], offset: { x: 0, y: 0 }, target: { x: pos.x, y: pos.y }, squash: 0, squashAmp: 0, sent: false, heldAt: 0, handled: false, rot: new THREE.Quaternion(), turn: null, scale, resize: null, path: null, script: null };
+    const o: Obj = { id, remote: null, seen: performance.now(), twin, shadow, label, model, state, age: 0, pos, vel: new V(), spin: new V(), fade: 0, scan: 1, hot: 0, hist: [], by: null, holders: [], offset: { x: 0, y: 0 }, target: { x: pos.x, y: pos.y }, squash: 0, squashAmp: 0, sent: false, heldAt: 0, handled: false, rot: new THREE.Quaternion(), turn: null, scale, resize: null, path: null, script: null };
     st.objs.push(o); return o;
   };
   // Grabbing keeps the object where it is (no jump); with a hand it then eases into the palm.
@@ -276,8 +286,14 @@ function World({ api, hand, mirrored, bottomInset, onToss, onStatus }: Props) {
   api.current = {
     spawn(kind) {
       const { label, model } = TOSS_OBJECTS[kind];
-      const o = newObj(model, label, 'spawn', new V(0, 0, 0));
+      const o = newObj(Math.random().toString(36).slice(2, 10), model, label, 'spawn', new V(0, 0, 0));
       o.pos.set(freeX(), restY(o), 0); o.scan = 0;
+      cb.current.onToss(toss(o, false));
+    },
+    announce() { s.current.objs.filter(mine).forEach(o => cb.current.onToss(toss(o, false))); },
+    poses(ps) {
+      const now = performance.now();
+      for (const p of ps) { const o = s.current.objs.find(x => x.id === p.id); if (o && !mine(o)) { o.remote = p; o.seen = now; } }
     },
     flick() {
       // The newest object at rest gets thrown for you.
@@ -288,11 +304,23 @@ function World({ api, hand, mirrored, bottomInset, onToss, onStatus }: Props) {
       grab(o, 'script', from, -1);
     },
     receive(t) {
-      // It comes out of the friend's video toward you, the reverse of the throw, and lands on a free spot.
-      const o = newObj(t.model, t.label, 'in', FRIEND_AT.clone(), t.scale);
-      const p2 = new V(freeX(), restY(o), 0);
-      o.path = { p0: FRIEND_AT.clone(), p1: new V(p2.x * 0.5, halfH * 0.45, 3), p2, dur: 0.9 }; o.fade = 1;
-      o.spin.set(...t.spin); o.twin.root.rotation.set(rnd(0.5), rnd(1), rnd(0.5));
+      const st = s.current, had = st.objs.find(o => o.id === t.id);
+      if (!t.give) { if (!had) newObj(t.id, t.model, t.label, 'remote', new V(0, 0, -0.3), 1).fade = 1; return; } // the friend's: shown when its poses come
+      // Given to you: it comes out of the friend's video toward you, from where you saw it there, and lands in front of your hand.
+      let p0 = FRIEND_AT.clone(), visible = false;
+      if (had?.state === 'remote' && had.remote && had.fade < 0.9) {
+        // Same spot on screen and same apparent size, pushed back to the depth where the full-size object looks that small.
+        const z = clamp(10 - 10.3 * t.scale / Math.max(had.scale, 0.02), -40, -0.3);
+        p0 = new V(had.pos.x * (10 - z) / 10.3, had.pos.y * (10 - z) / 10.3, z); visible = true;
+      }
+      const q = had?.twin.root.quaternion.clone();
+      if (had) remove(had);
+      const o = newObj(t.id, t.model, t.label, 'in', p0.clone(), t.scale), hand = st.slots.find(sl => sl.seen);
+      const p2 = new V(hand ? clampX(o, hand.cursor.x) : freeX(), restY(o), 0);
+      o.path = { p0, p1: new V((p0.x + p2.x) * 0.5, halfH * 0.45, 3), p2, dur: 0.9, visible }; o.fade = visible ? 0 : 1;
+      if (visible) o.age = DELAY_IN; // you already watched it leave their hand
+      o.spin.set(...t.spin);
+      if (q) o.twin.root.quaternion.copy(q); else o.twin.root.rotation.set(rnd(0.5), rnd(1), rnd(0.5));
     },
   };
 
@@ -440,18 +468,27 @@ function World({ api, hand, mirrored, bottomInset, onToss, onStatus }: Props) {
       }
     });
 
-    for (const o of [...st.objs]) { o.hot += ((o.by ? 1 : 0) - o.hot) * Math.min(1, dt * 14); stepObj(o, dt, S, floorY); }
+    for (const o of [...st.objs]) { o.hot += ((o.by || (o.state === 'remote' && o.remote?.hot) ? 1 : 0) - o.hot) * Math.min(1, dt * 14); stepObj(o, dt, S, floorY); }
+    if (now - st.poseAt >= POSE_EVERY) { st.poseAt = now; cb.current.onPoses(st.objs.filter(mine).map(pose)); }
     separate(dt);
 
-    const focus = st.objs.find(o => o.by) ?? st.objs[st.objs.length - 1] ?? null;
+    const own = st.objs.filter(mine), focus = own.find(o => o.by) ?? own[own.length - 1] ?? null;
     const status: TossStatus = {
       state: focus?.state ?? 'none', label: focus?.label ?? '', hover: anyHover, handSeen: st.slots.some(sl => sl.seen),
-      labels: st.objs.filter(o => o.state !== 'out').map(o => o.label), canToss: st.objs.some(o => grabbable(o) && o.state !== 'spawn'),
+      labels: own.map(o => o.label), canToss: st.objs.some(o => grabbable(o) && o.state !== 'spawn'),
       busy: st.objs.some(o => o.state === 'out' || o.state === 'in'),
     };
     const key = JSON.stringify(status);
     if (key !== st.statusKey) { st.statusKey = key; cb.current.onStatus(status); }
   });
+
+  /** Where the friend sees this object in your video: on your raw camera image, which is what they are shown. */
+  function pose(o: Obj): Pose {
+    const { S } = dims(), { sx, sy } = cover(hand.current.aspect), r = o.twin.root, n = o.pos.clone().project(camera);
+    const um = 0.5 + n.x / 2 / sx, v = 0.5 - n.y / 2 / sy, persp = 10 / (10 - o.pos.z);
+    const q = r.quaternion, mir = cb.current.mirrored; // your screen is your mirror image; their view of you is not
+    return { id: o.id, u: mir ? 1 - um : um, v, h: S * r.scale.y * persp / (2 * halfH) / sy, q: mir ? [q.x, -q.y, -q.z, q.w] : [q.x, q.y, q.z, q.w], hot: !!o.by, fade: o.state === 'spawn' ? 1 - o.scan : o.fade };
+  }
 
   /** Objects on the floor nudge each other apart instead of overlapping. */
   function separate(dt: number) {
@@ -507,8 +544,22 @@ function World({ api, hand, mirrored, bottomInset, onToss, onStatus }: Props) {
       o.pos.set(0, 0, 0).addScaledVector(p0, q * q).addScaledVector(p1, 2 * q * k).addScaledVector(p2, k * k);
       r.rotation.x += o.spin.x * dt; r.rotation.y += o.spin.y * dt; r.rotation.z += o.spin.z * dt;
       o.fade = clamp((k - 0.8) / 0.2, 0, 1); // it is tiny by now; the last bit melts into their video
-      if (k >= 0.4 && !o.sent) { o.sent = true; cb.current.onToss({ id: Math.random().toString(36).slice(2, 10), label: o.label, model: o.model, spin: o.spin.toArray() as [number, number, number], scale: o.scale }); }
-      if (k >= 1) { remove(o); return; }
+      if (k >= 0.4 && !o.sent) { o.sent = true; cb.current.onToss(toss(o, true)); }
+      if (k >= 1) { o.seen = Math.max(o.seen, performance.now()); setState(o, 'remote'); } // from now on it is drawn where the friend has it
+    } else if (o.state === 'remote') {
+      if (performance.now() - o.seen > REMOTE_GONE) { remove(o); return; }
+      const p = o.remote;
+      if (!p) o.fade = 1;
+      else {
+        // Their camera image, drawn full screen like their video, so it sits on their real hand.
+        const { sx, sy } = cover(cb.current.friendAspect()), w = toWorld(0.5 + (p.u - 0.5) * sx, 0.5 + (p.v - 0.5) * sy);
+        const first = o.fade >= 1, a = first ? 1 : 1 - Math.exp(-dt * 18);
+        o.pos.x += (w.x - o.pos.x) * a; o.pos.y += (w.y - o.pos.y) * a; o.pos.z = -0.3;
+        o.scale = clamp(p.h * sy * 2 * halfH / S, 0.02, 6);
+        const q = new THREE.Quaternion(...p.q);
+        if (first) r.quaternion.copy(q); else r.quaternion.slerp(q, 1 - Math.exp(-dt * 18));
+        o.fade = p.fade;
+      }
     } else if (o.state === 'in' && o.path) {
       // Waits until it has left the sender's screen (the toss message is sent partway through their throw), then
       // comes out of the friend's video: small and far, growing as it nears you, and lands.
@@ -517,7 +568,7 @@ function World({ api, hand, mirrored, bottomInset, onToss, onStatus }: Props) {
       o.pos.set(0, 0, 0).addScaledVector(p0, q * q).addScaledVector(p1, 2 * q * k).addScaledVector(p2, k * k);
       r.rotation.x += o.spin.x * dt * (1 - k); r.rotation.y += o.spin.y * dt * (1 - k); r.rotation.z += o.spin.z * dt * (1 - k);
       damp(k * 6);
-      o.fade = o.age < DELAY_IN ? 1 : 1 - clamp(k / 0.2, 0, 1);
+      o.fade = o.path.visible ? 0 : o.age < DELAY_IN ? 1 : 1 - clamp(k / 0.2, 0, 1);
       if (k >= 1) land(o);
     }
     r.position.copy(o.pos);
@@ -529,7 +580,7 @@ function World({ api, hand, mirrored, bottomInset, onToss, onStatus }: Props) {
     } else r.scale.setScalar(lift); // distance alone makes it small: no shrinking tricks
     o.twin.set(T, o.fade, o.scan, o.hot, o.scale);
     const up = 1 - Math.min(Math.max(0, o.pos.y - rest) / (halfH * 1.2), 0.85);
-    const vis = o.state === 'spawn' ? o.scan : o.state === 'out' || o.state === 'in' ? (1 - o.fade) * up : 1;
+    const vis = o.state === 'remote' ? 0 : o.state === 'spawn' ? o.scan : o.state === 'out' || o.state === 'in' ? (1 - o.fade) * up : 1;
     o.shadow.position.set(o.pos.x, floorY, o.pos.z - 0.3);
     o.shadow.scale.set(S * o.scale * 1.1 * (0.55 + 0.45 * up), S * o.scale * 0.24 * (0.55 + 0.45 * up), 1);
     (o.shadow.material as THREE.MeshBasicMaterial).opacity = 0.7 * up * vis;
