@@ -62,3 +62,15 @@ export function releaseVelocity(hist: Sample[], window = 0.2, span = 0.05): [num
   }
   return best;
 }
+
+export const MIN_HOLD = 0.25;  // s: a grab-and-let-go faster than this is a fumble, never a throw
+export const PUSH_RATE = 1.6;  // palm growing this fast (log size per second) = a push toward the screen
+/**
+ * A release is a throw only if it was held a moment, then pushed toward the screen or flicked up-and-forward
+ * (within about 55° of straight up). Fast sideways or downward moves, and slow releases, are drops.
+ */
+export function isThrow(heldFor: number, [vx, vy]: [number, number], push: number, minSpeed: number): boolean {
+  if (heldFor < MIN_HOLD) return false;
+  if (push > PUSH_RATE) return true;
+  return Math.hypot(vx, vy) > minSpeed && vy > 0 && vy >= Math.abs(vx) * 0.7;
+}

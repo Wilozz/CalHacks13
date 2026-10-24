@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { decodeToss, encodeToss, releaseVelocity, TOSS_OBJECTS } from './toss';
+import { decodeToss, encodeToss, isThrow, releaseVelocity, TOSS_OBJECTS } from './toss';
 
 test('a toss survives the wire with its model intact', () => {
   const { label, model } = TOSS_OBJECTS.mug;
@@ -33,4 +33,16 @@ test('releaseVelocity finds the flick even when the hand slows before letting go
   assert.deepEqual(releaseVelocity([{ t: 0, x: 1, y: 1 }]), [0, 0]);
   // Holding still for longer than the window reads as a drop.
   assert.deepEqual(releaseVelocity([{ t: 0, x: 0, y: 0 }, { t: 0.2, x: 2, y: 0 }, { t: 0.5, x: 2, y: 0 }, { t: 0.6, x: 2, y: 0 }]), [0, 0]);
+});
+
+test('only a held, deliberate up-flick or push toward the screen throws', () => {
+  const fast = 10;
+  assert.equal(isThrow(0.6, [0, fast], 0, 5), true, 'flick up');
+  assert.equal(isThrow(0.6, [fast * 0.6, fast], 0, 5), true, 'up and a bit to the side');
+  assert.equal(isThrow(0.6, [0, 0], 2, 5), true, 'push toward the screen');
+  assert.equal(isThrow(0.6, [fast, 0], 0, 5), false, 'fast sideways is a drop');
+  assert.equal(isThrow(0.6, [fast, fast * 0.5], 0, 5), false, 'mostly sideways is a drop');
+  assert.equal(isThrow(0.6, [0, -fast], 0, 5), false, 'down is a drop');
+  assert.equal(isThrow(0.6, [0, 3], 0, 5), false, 'slow release is a drop');
+  assert.equal(isThrow(0.1, [0, fast], 2, 5), false, 'grabbed and flung in a blink is a fumble');
 });

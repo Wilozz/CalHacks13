@@ -174,14 +174,17 @@ A demo of "Reach Through": a hologram you grab and flick through the screen to t
 
 1. Pick **Mug**, **Pill bottle** or **Teddy bear**. These are preset `ModelSpec` shapes, so no scan or AI server is needed.
 2. Grab it: turn on hand tracking (hand button), reach for it so your drawn hand is on it, then pinch or make a fist. Or drag it with the mouse or a finger.
-3. Flick, or push your hand toward the screen, and let go to throw it. It flies into the screen and comes out of the other person's screen, where it lands and becomes theirs to move and throw back. **Toss** does a flick for you.
-4. With nobody on the call, a thrown object comes back to you, so the effect can be tried alone.
+3. While holding it, turn your hand to rotate it in 3D (the change in your palm's orientation since the grab; letting go keeps the turn).
+4. Throw: flick **up** (up-and-forward, within about 55° of straight up) or push your hand toward the screen, and let go. A portal opens over your friend's video and the object is pulled into it; on their screen a portal opens and the object flies out toward them and lands, theirs to turn and throw back. **Toss** does a flick for you.
+5. With nobody on the call, a thrown object comes back to you, so the effect can be tried alone.
+
+What never throws (`isThrow` in `toss.ts`, unit-tested): letting go within 0.25 s of grabbing, fast sideways or downward moves, slow releases. Losing hand tracking freezes the object and keeps the grip for 0.7 s; if the hand comes back still closed you are still holding it, otherwise it drops in place with no momentum.
 
 Only the object's shapes and colors cross the call (a `toss` message on the reliable `control` data channel, about 1 KB). The receiver validates it with `sanitizeModel` before rendering. Both people need to be on this tab; a toss sent to someone on the Call tab is ignored.
 
 Grabbing follows your palm centre (it does not move when your fingers close), smoothed with a One Euro filter, and draws your hand where it appears in the camera. Pinch and fist thresholds come from MediaPipe landmarks on real hand photos (`src/remote/handPhotos.json`, checked in `src/remote/twin.test.ts`); the same pinch fix applies to the Call tab's 3D copy.
 
-Manual checks (a real camera cannot run headless): the drawn hand sits on your hand; grabbing works with both a pinch and a fist at arm's length and close up; a fast flick throws while a slow release drops it; the object reads clearly over a bright room.
+Manual checks (a real camera cannot run headless): the drawn hand sits on your hand; grabbing works with both a pinch and a fist at arm's length and close up; turning the wrist turns the object without jitter; an up-flick or push throws, while a fast sideways shake, a slow release, or the hand leaving the camera while holding never does; the portal opens over the friend's video on both screens; the object reads clearly over a bright room.
 
 ## Voice: the listening agent (`src/voice/`)
 
@@ -201,4 +204,4 @@ Cartesia protocol details are from its docs (`wss://api.cartesia.ai/stt/websocke
 - It turns about the spot you are holding, so that spot stays under your fingers. Switching between pinch and grip mid-hold does not make it jump. Letting go keeps the turn; ↺ puts it back.
 - The box shows a PINCH or GRIP badge, lights the fingertips that hold, and outlines the object (yellow for pinch, orange for grip). The other person's box shows the same turn.
 
-Logic: `src/remote/grasp.ts` (detection with hysteresis), `src/remote/twinMove.ts` (grab, move, turn), `src/remote/quat.ts` (rotation math). Gains and thresholds are first guesses to tune on real hands.
+Logic: `src/remote/grasp.ts` (detection with hysteresis), `src/remote/twinMove.ts` (grab, move, turn), `src/remote/quat.ts` (rotation math). Pinch and grip are measured on the 2D image landmarks and checked against real hand photos (`src/remote/turn.test.ts`); turning gains are first guesses to tune on real hands. The Throwing prototype uses the same palm-orientation math to turn what you hold.

@@ -5,7 +5,8 @@ import type { ModelSpec } from '../ai/types';
 import { BONES } from '../coordinates';
 import { OneEuro } from '../remote/oneEuro';
 import { palmSize, pinchCloseness, PinchDetector } from '../remote/pinch';
-import { releaseVelocity, TOSS_OBJECTS, type Sample, type Toss, type TossKind } from './toss';
+import { palmQuat } from '../remote/quat';
+import { isThrow, releaseVelocity, TOSS_OBJECTS, type Sample, type Toss, type TossKind } from './toss';
 import type { TrackedHand } from './useTracker';
 
 export interface TossApi { spawn(kind: TossKind): void; flick(): void; receive(t: Toss): void }
@@ -15,12 +16,11 @@ type Input = 'hand' | 'pointer' | 'script';
 interface Props { api: MutableRefObject<TossApi | null>; hand: MutableRefObject<TrackedHand>; mirrored: boolean; bottomInset: number; onToss: (t: Toss) => void; onStatus: (s: TossStatus) => void }
 
 const V = THREE.Vector3;
-const FAR = -28;           // where the friend "is": thrown objects fly into the screen to here, and arrive from here
+const PORTAL_Z = -4;       // the portal opens over the friend's video, a little into the screen
 const G = 20;
 const GRAB_RADIUS = 1.15;  // × object height: generous, so a grab near the object still takes it
-const THROW_SPEED = 1.5;   // × half screen height per second, sideways or up
-const PUSH_RATE = 1.6;     // palm growing this fast (log size per second) = a push toward the screen
-const LOST_GRACE = 250;    // ms: tracking drops during a fast flick; keep holding, then release with the last motion
+const THROW_SPEED = 1.5;   // × half screen height per second, up-and-forward (see isThrow)
+const LOST_HOLD = 700;     // ms: tracking drops (fast moves, hands close). Freeze and keep the grip; only then drop, never throw
 const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
 const rnd = (a = 1) => (Math.random() - 0.5) * 2 * a;
 const clamp = THREE.MathUtils.clamp;
@@ -77,6 +77,40 @@ const soft = (() => {
 const GEO = { cylinder: new THREE.CylinderGeometry(0.5, 0.5, 1, 48, 1), box: new THREE.BoxGeometry(1, 1, 1), sphere: new THREE.SphereGeometry(0.5, 40, 28), cone: new THREE.ConeGeometry(0.5, 1, 48) };
 const glowMat = (extra: THREE.MeshBasicMaterialParameters = {}) => new THREE.MeshBasicMaterial({ color: CYAN, transparent: true, ...ADD, depthWrite: false, opacity: 0, side: THREE.DoubleSide, ...extra });
 const OUTLINE = 0.05; // model units; a dark shell behind each part keeps it readable on any video
+
+// The portal: a spiralling cyan-violet rim around a dark hole. uOpen scales it from nothing to full size.
+const PORTAL_FRAG = `
+uniform float uTime; uniform float uOpen; varying vec2 vUv;
+void main() {
+  vec2 p = (vUv * 2.0 - 1.0) * 1.3;
+  float r = length(p) / max(uOpen, 0.001), a = atan(p.y, p.x);
+  float rim = exp(-pow((r - 1.0) * 8.0, 2.0));
+  float arms = 0.5 + 0.5 * sin(a * 5.0 - r * 10.0 + uTime * 6.0);
+  float inner = smoothstep(1.05, 0.1, r) * arms * 0.6, halo = step(1.0, r) * exp(-(r - 1.0) * 7.0) * 0.35;
+  vec3 c = mix(vec3(0.37, 0.95, 1.0), vec3(0.72, 0.5, 1.0), arms * smoothstep(0.3, 1.0, r));
+  float edge = smoothstep(1.3, 1.1, length(p)); // fades out before the quad's edge, so no square shows
+  if (edge <= 0.0) discard;
+  gl_FragColor = vec4(c * (rim * 1.5 + inner + halo) * min(uOpen * 3.0, 1.0) * edge, 1.0);
+}`;
+function makePortal(scene: THREE.Scene) {
+  const u = { uTime: { value: 0 }, uOpen: { value: 0 } };
+  const root = new THREE.Group();
+  const core = new THREE.Mesh(new THREE.CircleGeometry(1, 64), new THREE.MeshBasicMaterial({ map: soft, color: raw('#01060a'), transparent: true, depthWrite: false, opacity: 0 }));
+  const swirl = new THREE.Mesh(new THREE.PlaneGeometry(2.6, 2.6), new THREE.ShaderMaterial({ uniforms: u, vertexShader: 'varying vec2 vUv; void main() { vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }', fragmentShader: PORTAL_FRAG, transparent: true, ...ADD, depthWrite: false }));
+  swirl.position.z = 0.01; root.add(core, swirl); root.visible = false; scene.add(root);
+  let open = 0;
+  return {
+    root, target: 0,
+    /** Open (1) or close (0) at `at`, sized `radius`. */
+    to(v: number, at?: THREE.Vector3, radius?: number) { this.target = v; if (at) root.position.copy(at); if (radius) root.scale.setScalar(radius); },
+    update(dt: number, T: number) {
+      open += (this.target - open) * Math.min(1, dt * (this.target > open ? 9 : 6));
+      root.visible = open > 0.01; u.uOpen.value = open; u.uTime.value = T; swirl.rotation.z = -T * 0.6;
+      (core.material as THREE.MeshBasicMaterial).opacity = 0.8 * open; core.scale.setScalar(Math.max(open, 1e-3) * 1.15);
+    },
+    dispose() { core.geometry.dispose(); swirl.geometry.dispose(); (core.material as THREE.Material).dispose(); (swirl.material as THREE.Material).dispose(); },
+  };
+}
 
 function makeTwin(model: ModelSpec, height: number) {
   const root = new THREE.Group(), body = new THREE.Group();
@@ -168,6 +202,7 @@ interface Obj {
   pos: THREE.Vector3; vel: THREE.Vector3; spin: THREE.Vector3; dissolve: number; scan: number; hot: number;
   hist: Sample[]; by: Input | null; offset: { x: number; y: number }; target: { x: number; y: number };
   squash: number; squashAmp: number; sent: boolean;
+  heldAt: number; handled: boolean; rot: THREE.Quaternion; turn: { palm: THREE.Quaternion; rot: THREE.Quaternion } | null;
   path: { p0: THREE.Vector3; p1: THREE.Vector3; p2: THREE.Vector3; dur: number; arc: number } | null;
   script: { from: { x: number; y: number }; wind: { x: number; y: number }; flick: { x: number; y: number } } | null;
 }
@@ -182,10 +217,10 @@ function World({ api, hand, mirrored, bottomInset, onToss, onStatus }: Props) {
     return {
       particles, scanLine,
       shadow: mesh(plane, new THREE.MeshBasicMaterial({ map: soft, color: 0x000000, transparent: true, depthWrite: false, opacity: 0 })),
-      portals: [mesh(ring, glowMat()), mesh(ring, glowMat())],
+      portal: makePortal(scene),
       ripple: mesh(ring, glowMat()),
       glyph: makeHandGlyph(scene),
-      dispose() { scene.clear(); particles.dispose(); ring.dispose(); plane.dispose(); },
+      dispose() { scene.clear(); particles.dispose(); this.portal.dispose(); ring.dispose(); plane.dispose(); },
     };
   }, [scene]);
   useEffect(() => () => kit.dispose(), [kit]);
@@ -193,7 +228,7 @@ function World({ api, hand, mirrored, bottomInset, onToss, onStatus }: Props) {
   const s = useRef({
     obj: null as Obj | null, T: 0, fx: [] as { t: number; dur: number; fn: (k: number) => void }[],
     grip: new PinchDetector({ fist: true }), fx1: new OneEuro(), fy1: new OneEuro(),
-    lastAt: 0, wasGrip: false, target: new V(), cursor: new V(), seen: false, lostAt: 0,
+    lastAt: 0, wasGrip: false, target: new V(), cursor: new V(), seen: false, lostAt: 0, palm: null as THREE.Quaternion | null,
     skeleton: Array.from({ length: 21 }, () => new V()), sizes: [] as Sample[],
     pointerId: null as number | null, statusKey: '',
   });
@@ -216,26 +251,31 @@ function World({ api, hand, mirrored, bottomInset, onToss, onStatus }: Props) {
   const newObj = (model: ModelSpec, label: string, state: State, pos: THREE.Vector3): Obj => {
     clear(); // shortcut: one object per screen; a catch while holding replaces it. Keep a list if both sides should keep theirs.
     const twin = makeTwin(model, dims().S); scene.add(twin.root);
-    const o: Obj = { twin, label, model, state, age: 0, pos, vel: new V(), spin: new V(), dissolve: 0, scan: 1, hot: 0, hist: [], by: null, offset: { x: 0, y: 0 }, target: { x: pos.x, y: pos.y }, squash: 0, squashAmp: 0, sent: false, path: null, script: null };
+    const o: Obj = { twin, label, model, state, age: 0, pos, vel: new V(), spin: new V(), dissolve: 0, scan: 1, hot: 0, hist: [], by: null, offset: { x: 0, y: 0 }, target: { x: pos.x, y: pos.y }, squash: 0, squashAmp: 0, sent: false, path: null, script: null, heldAt: 0, handled: false, rot: new THREE.Quaternion(), turn: null };
     s.current.obj = o; return o;
   };
   // Grabbing keeps the object where it is (no jump); with a hand it then eases into the palm.
   const grab = (o: Obj, by: Input, at: { x: number; y: number }) => {
     if (o.state === 'spawn') o.scan = 1;
     o.by = by; o.hist = []; o.offset = { x: o.pos.x - at.x, y: o.pos.y - at.y }; o.target = { x: o.pos.x, y: o.pos.y }; o.vel.set(0, 0, 0);
+    o.heldAt = performance.now() / 1000; o.handled = true; o.rot.copy(o.twin.root.quaternion); o.turn = null;
     setState(o, 'held');
   };
 
-  function release(o: Obj) {
-    const { S, restY } = dims(), by = o.by;
-    const [vx, vy] = releaseVelocity(o.hist);
-    const [push] = by === 'hand' ? releaseVelocity(s.current.sizes) : [0];
-    o.by = null; o.script = null;
+  /** gentle: let go with no momentum (tracking was lost), so it can only drop. */
+  function release(o: Obj, gentle = false) {
+    const { S, restY, halfW } = dims(), by = o.by;
+    const v = gentle ? [0, 0] as [number, number] : releaseVelocity(o.hist), [vx, vy] = v;
+    const [push] = by === 'hand' && !gentle ? releaseVelocity(s.current.sizes) : [0];
+    o.by = null; o.script = null; o.turn = null;
     const speed = Math.hypot(vx, vy);
-    if (speed > halfH * THROW_SPEED || push > PUSH_RATE) {
-      // Thrown: keep the flick's momentum, then curve into the screen toward the friend.
-      const k = Math.min(1, 22 / Math.max(speed, 1e-6)), dur = 0.65;
-      const p0 = o.pos.clone(), p1 = p0.clone().add(new V(vx * k, vy * k, 0).multiplyScalar(dur / 2)), p2 = new V(0, halfH * 0.18, FAR);
+    if (isThrow(performance.now() / 1000 - o.heldAt, v, push, halfH * THROW_SPEED)) {
+      // Thrown: a portal opens over the friend's video (nudged toward the flick's side) and the object, keeping the
+      // flick's momentum, curves into it.
+      const k = Math.min(1, 22 / Math.max(speed, 1e-6)), dur = 0.7;
+      const p2 = new V(clamp(vx * 0.12, -halfW * 0.3, halfW * 0.3), halfH * 0.2, PORTAL_Z);
+      const p0 = o.pos.clone(), p1 = p0.clone().add(new V(vx * k, vy * k, 0).multiplyScalar(dur / 2));
+      kit.portal.to(1, p2, S * 0.95);
       o.path = { p0, p1, p2, dur, arc: 0 }; o.sent = false; o.dissolve = 0;
       o.spin.set(-vy * 0.5 + rnd(2), vx * 0.5 + rnd(3), rnd(4));
       setState(o, 'out');
@@ -269,16 +309,12 @@ function World({ api, hand, mirrored, bottomInset, onToss, onStatus }: Props) {
     },
     receive(t) {
       const { halfW, restY, S } = dims();
-      const p0 = new V(rnd(halfW * 0.15), halfH * 0.18, FAR), p2 = new V(rnd(halfW * 0.35), restY, 0);
+      // A portal opens over the friend's video; the object flies out of it toward you, then lands in front of you.
+      const p0 = new V(0, halfH * 0.2, PORTAL_Z), p2 = new V(rnd(halfW * 0.3), restY, 0), p1 = new V(p2.x * 0.5, halfH * 0.45, 3.5);
       const o = newObj(t.model, t.label, 'in', p0.clone());
-      o.path = { p0, p1: p0, p2, dur: 1.0, arc: halfH * 0.55 }; o.dissolve = 1;
+      o.path = { p0, p1, p2, dur: 1.05, arc: 0 }; o.dissolve = 1;
       o.spin.set(...t.spin); o.twin.root.rotation.set(rnd(1), rnd(2), rnd(1));
-      // Two rings open where the friend's video is, then the object comes out of them.
-      kit.portals.forEach((ring, i) => anim(0.8 + i * 0.18, k => {
-        const q = Math.max(0, (k * (0.8 + i * 0.18) - i * 0.18) / 0.8);
-        ring.position.copy(p0); ring.scale.setScalar(0.3 + q * S * 6); ring.rotation.z = q * 2;
-        (ring.material as THREE.MeshBasicMaterial).opacity = q > 0 && q < 1 ? (1 - q) * 0.9 : 0;
-      }));
+      kit.portal.to(1, p0, S * 0.95);
     },
   };
 
@@ -319,7 +355,12 @@ function World({ api, hand, mirrored, bottomInset, onToss, onStatus }: Props) {
     const c = map(palm), fx = st.fx1.filter(c.x, t), fy = st.fy1.filter(c.y, t);
     st.target.set(fx, fy, 0);
     if (!st.seen) st.cursor.copy(st.target);
+    if (st.lostAt && st.obj?.by === 'hand') { st.obj.hist = []; st.obj.turn = null; } // back after a dropout: the jump is not a flick or a turn
     st.seen = true; st.lostAt = 0;
+    // Palm orientation (Wilson's palmQuat) from the 3D landmarks, in screen space: x mirrored like the video, y up, z toward you.
+    const wl = frame.worldLandmarks, dir = cb.current.mirrored ? -1 : 1;
+    const q = wl.length === 21 ? palmQuat(wl.map(p => [dir * p.x, -p.y, -p.z] as [number, number, number])) : null;
+    st.palm = q ? (st.palm ?? new THREE.Quaternion()).set(q[0], q[1], q[2], q[3]) : null;
     const z = dims().S * 0.8;
     lm.forEach((p, i) => { const w = map(p); st.skeleton[i].set(w.x + fx - c.x, w.y + fy - c.y, z); });
     const ps = palmSize(frame);
@@ -328,8 +369,14 @@ function World({ api, hand, mirrored, bottomInset, onToss, onStatus }: Props) {
     const grip = st.grip.update(frame), o = st.obj;
     if (grip && !st.wasGrip && grabbable(o) && near(o, st.target)) grab(o, 'hand', st.target);
     if (o?.by === 'hand') {
-      if (grip) { o.hist.push({ t, x: fx, y: fy }); if (o.hist.length > 40) o.hist.shift(); }
-      else release(o);
+      if (grip) {
+        o.hist.push({ t, x: fx, y: fy }); if (o.hist.length > 40) o.hist.shift();
+        // Turn with the hand: the change in palm orientation since the grab, applied to how the object was held.
+        if (st.palm) {
+          if (!o.turn) o.turn = { palm: st.palm.clone(), rot: o.rot.clone() };
+          o.rot.copy(st.palm).multiply(o.turn.palm.clone().invert()).multiply(o.turn.rot);
+        }
+      } else release(o);
     }
     st.wasGrip = grip;
   }
@@ -343,10 +390,14 @@ function World({ api, hand, mirrored, bottomInset, onToss, onStatus }: Props) {
     const fresh = !!frame && frame.landmarks.length === 21 && now - at < 350;
     if (fresh && frame && at !== st.lastAt) { st.lastAt = at; onHandFrame(frame, aspect); }
     if (!fresh && st.seen) {
-      st.seen = false; st.grip.reset(); st.wasGrip = false; st.fx1.reset(); st.fy1.reset(); st.sizes = [];
+      // Keep the grip state: a hand that comes back still closed is still holding. The object freezes meanwhile.
+      st.seen = false; st.fx1.reset(); st.fy1.reset(); st.sizes = [];
       if (st.obj?.by === 'hand') st.lostAt = now;
     }
-    if (st.lostAt && now - st.lostAt > LOST_GRACE) { st.lostAt = 0; if (st.obj?.by === 'hand') release(st.obj); }
+    if (st.lostAt && now - st.lostAt > LOST_HOLD) {
+      st.lostAt = 0; st.grip.reset(); st.wasGrip = false;
+      if (st.obj?.by === 'hand') release(st.obj, true);
+    }
     // Draw between camera frames (30/s) so the hand and what it holds glide at the display rate.
     const glide = 1 - Math.exp(-dt * 40);
     st.cursor.lerp(st.target, glide);
@@ -360,7 +411,7 @@ function World({ api, hand, mirrored, bottomInset, onToss, onStatus }: Props) {
     const o = st.obj;
     if (o) { o.hot += ((o.by ? 1 : hover ? 0.5 : 0) - o.hot) * Math.min(1, dt * 14); stepObj(o, dt, S, floorY, restY); }
     st.fx = st.fx.filter(f => { f.t += dt; const k = Math.min(f.t / f.dur, 1); f.fn(k); return k < 1; });
-    kit.particles.update(dt);
+    kit.particles.update(dt); kit.portal.update(dt, st.T);
 
     const cur = st.obj;
     const status: TossStatus = { state: cur?.state ?? 'none', label: cur?.label ?? '', hover, handSeen: fresh };
@@ -379,7 +430,8 @@ function World({ api, hand, mirrored, bottomInset, onToss, onStatus }: Props) {
       if (o.scan >= 1) setState(o, 'rest');
     } else if (o.state === 'rest') {
       o.pos.y += (restY + (reduce ? 0 : Math.sin(T * 2.2) * 0.04) - o.pos.y) * Math.min(1, dt * 10);
-      r.rotation.y += dt * 0.35; damp(4);
+      if (o.handled) r.quaternion.slerp(o.rot, Math.min(1, dt * 10)); // letting go keeps the turn you gave it
+      else { r.rotation.y += dt * 0.35; damp(4); }
     } else if (o.state === 'held') {
       kit.scanLine.visible = false;
       if (o.script) {
@@ -391,9 +443,12 @@ function World({ api, hand, mirrored, bottomInset, onToss, onStatus }: Props) {
       const a = 1 - Math.exp(-dt * 30), px = o.pos.x, py = o.pos.y;
       o.pos.x += (o.target.x - px) * a; o.pos.y += (o.target.y - py) * a;
       const vx = (o.pos.x - px) / dt, vy = (o.pos.y - py) / dt;
-      r.rotation.z += (clamp(-vx * 0.02, -0.45, 0.45) - r.rotation.z) * Math.min(1, dt * 12);
-      r.rotation.x += (clamp(vy * 0.015, -0.35, 0.35) - r.rotation.x) * Math.min(1, dt * 12);
-      r.rotation.y += dt * 0.4;
+      if (o.by === 'hand') r.quaternion.slerp(o.rot, 1 - Math.exp(-dt * 20)); // follows the palm, smoothed between camera frames
+      else {
+        r.rotation.z += (clamp(-vx * 0.02, -0.45, 0.45) - r.rotation.z) * Math.min(1, dt * 12);
+        r.rotation.x += (clamp(vy * 0.015, -0.35, 0.35) - r.rotation.x) * Math.min(1, dt * 12);
+        r.rotation.y += dt * 0.4; o.rot.copy(r.quaternion);
+      }
       if (o.script && o.age >= 0.67) release(o);
     } else if (o.state === 'drop') {
       const { halfW } = dims();
@@ -403,18 +458,24 @@ function World({ api, hand, mirrored, bottomInset, onToss, onStatus }: Props) {
         o.pos.y = restY;
         if (o.vel.y < -3) { squash(o, Math.min(1, -o.vel.y / 14)); o.vel.y *= -0.28; } else { o.vel.set(0, 0, 0); setState(o, 'rest'); }
       }
-      damp(3);
+      if (o.handled) r.quaternion.slerp(o.rot, Math.min(1, dt * 10)); else damp(3);
     } else if (o.state === 'out' && o.path) {
       const { p0, p1, p2, dur } = o.path, k = Math.min(o.age / dur, 1), q = 1 - k;
       o.pos.set(0, 0, 0).addScaledVector(p0, q * q).addScaledVector(p1, 2 * q * k).addScaledVector(p2, k * k);
       r.rotation.x += o.spin.x * dt; r.rotation.y += o.spin.y * dt; r.rotation.z += o.spin.z * dt;
-      o.dissolve = clamp((k - 0.35) / 0.6, 0, 1);
-      if (o.dissolve > 0) for (let i = 0; i < (reduce ? 2 : 8); i++) kit.particles.spawn(o.pos.x + rnd(S * 0.3), o.pos.y + rnd(S * 0.4), o.pos.z + rnd(S * 0.2), rnd(1.5), rnd(1.5) + 0.5, rnd(1.5), 0.45 + Math.random() * 0.5);
+      o.dissolve = clamp((k - 0.6) / 0.4, 0, 1);
+      // Sucked in: sparks stream from the object into the portal's centre.
+      if (o.dissolve > 0) for (let i = 0; i < (reduce ? 2 : 10); i++) {
+        const sx = o.pos.x + rnd(S * 0.3), sy = o.pos.y + rnd(S * 0.4), sz = o.pos.z + rnd(S * 0.2);
+        kit.particles.spawn(sx, sy, sz, (p2.x - sx) * 3 + rnd(0.6), (p2.y - sy) * 3 + rnd(0.6), (p2.z - sz) * 3, 0.35 + Math.random() * 0.25);
+      }
       if (k >= 0.4 && !o.sent) { o.sent = true; cb.current.onToss({ id: Math.random().toString(36).slice(2, 10), label: o.label, model: o.model, spin: o.spin.toArray() as [number, number, number] }); }
-      if (k >= 1) { clear(); return; }
+      if (k >= 1) { clear(); kit.portal.to(0); return; }
     } else if (o.state === 'in' && o.path) {
-      const { p0, p2, dur, arc } = o.path, k = Math.min(o.age / dur, 1);
-      o.pos.lerpVectors(p0, p2, k); o.pos.y += arc * 4 * k * (1 - k);
+      // Waits a beat for the portal to open, then flies out of it toward the viewer and down to land.
+      const { p0, p1, p2, dur } = o.path, k = clamp((o.age - 0.25) / dur, 0, 1), q = 1 - k;
+      o.pos.set(0, 0, 0).addScaledVector(p0, q * q).addScaledVector(p1, 2 * q * k).addScaledVector(p2, k * k);
+      if (k > 0.5) kit.portal.to(0);
       r.rotation.x += o.spin.x * dt * (1 - k); r.rotation.y += o.spin.y * dt * (1 - k); r.rotation.z += o.spin.z * dt * (1 - k);
       damp(k * 6);
       o.dissolve = Math.max(0, 1 - k / 0.3);
@@ -422,7 +483,7 @@ function World({ api, hand, mirrored, bottomInset, onToss, onStatus }: Props) {
         const off = new V(rnd(1), rnd(1), rnd(1)).normalize().multiplyScalar(S * (0.7 + Math.random() * 0.5));
         kit.particles.spawn(o.pos.x + off.x, o.pos.y + off.y, o.pos.z + off.z, -off.x * 3, -off.y * 3, -off.z * 3, 0.3);
       }
-      if (k >= 1) land(o);
+      if (k >= 1) { kit.portal.to(0); land(o); }
     }
     r.position.copy(o.pos);
     const lift = 1 + 0.08 * o.hot;
@@ -430,10 +491,10 @@ function World({ api, hand, mirrored, bottomInset, onToss, onStatus }: Props) {
       o.squash = Math.max(0, o.squash - dt);
       const amt = Math.sin((1 - o.squash / 0.4) * Math.PI) * 0.2 * o.squashAmp;
       r.scale.set(1 + amt * 0.6, 1 - amt, 1 + amt * 0.6); r.position.y -= amt * S * 0.5;
-    } else r.scale.setScalar(lift);
+    } else r.scale.setScalar(lift * (o.state === 'out' && o.path ? 1 - 0.75 * Math.min(o.age / o.path.dur, 1) ** 2 : o.state === 'in' ? 0.25 + 0.75 * clamp((o.age - 0.25) / 0.5, 0, 1) : 1));
     o.twin.set(T, o.dissolve, o.scan, o.hot);
     const up = 1 - Math.min(Math.max(0, o.pos.y - restY) / (halfH * 1.2), 0.85);
-    const vis = o.state === 'spawn' ? o.scan : o.state === 'out' ? 1 - o.dissolve : o.state === 'in' ? (1 - o.dissolve) * Math.min(1, o.age / 0.7) : 1;
+    const vis = o.state === 'spawn' ? o.scan : o.state === 'out' ? 1 - o.dissolve : o.state === 'in' ? (1 - o.dissolve) * clamp((o.age - 0.25) / 0.7, 0, 1) : 1;
     kit.shadow.position.set(o.pos.x, floorY, o.pos.z - 0.3);
     kit.shadow.scale.set(S * 1.1 * (0.55 + 0.45 * up), S * 0.24 * (0.55 + 0.45 * up), 1);
     (kit.shadow.material as THREE.MeshBasicMaterial).opacity = 0.7 * up * vis;

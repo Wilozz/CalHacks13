@@ -44,14 +44,15 @@ Done:
 - Front/rear camera switch, mobile performance caps
 - Two-person WebRTC calls via six-character room code, automatic signaling
 - TURN relay support (coturn shared secret or managed provider), relay-only mode
-- Throwing prototype (`src/throw/`): preset primitive objects, palm-anchored pinch/fist grab, flick or push throw over the `control` channel, receive and throw back
+- Throwing prototype (`src/throw/`): preset primitive objects, palm-anchored pinch/fist grab, turn it with your palm, throw (up-flick or push) through a portal over the friend's video; it comes out of a portal on their screen toward them
+- Wilson's branch merged: voice agent (Cartesia STT, `src/voice/`), pinch/grip turning of the Call tab's 3D copy (`src/remote/grasp.ts`, `quat.ts`)
 - Claude vision scan into a primitive `ModelSpec` twin, and an action library (`twist press pull push slide lift flip tilt`) with procedural animation (`src/render/motion.ts`)
 - Helper hand wire format (`src/remote/handWire.ts`, 262 B/frame), not yet sent over the real call
 - Unit tests and Playwright e2e (direct and relay)
 
 Next, in build order (each step demoable on its own):
 
-1. **Throw safety.** Today any fast sideways or upward flick throws, and losing tracking mid-hold releases with the last motion (`LOST_GRACE` in `TossScene.tsx`), which can fire a throw nobody meant. Fix these first.
+1. ~~**Throw safety.**~~ Done: `isThrow` in `src/throw/toss.ts` (held ≥ 0.25 s, up-flick or push only), and tracking loss freezes the object instead of releasing it.
 2. **Mesh objects.** Load cached GLB models next to `ModelSpec` primitives. Add an object profile with parts, pieces and connectors (ARCHITECTURE "Object profile" and "Assembly").
 3. **Two hands.** Set `numHands: 2` in the worker, assign hands to pieces by continuity, hold one piece in each hand, and add two-hand resize and rotate.
 3b. **Assembly.** For the lanyard: align assist, thread the hook tip through the tag slot, then the tag hangs and swings (ARCHITECTURE "Hook into tag slot"). Unit-test the math first.

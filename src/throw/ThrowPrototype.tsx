@@ -51,7 +51,7 @@ export default function ThrowPrototype() {
   const hint = status.state === 'none' ? (screen === 'incall' ? 'Pick an object, or wait for your friend to toss one' : 'Pick an object to make a hologram')
     : status.state === 'spawn' ? `Scanning ${status.label.toLowerCase()}…`
     : status.state === 'rest' ? (status.handSeen ? (status.hover ? 'Pinch or make a fist to grab it' : 'Reach for it with your hand') : 'Drag it, or show your hand and grab it')
-    : status.state === 'held' ? 'Flick it, or push toward the screen, and let go'
+    : status.state === 'held' ? (status.handSeen ? 'Turn your hand to rotate it. Flick up or push toward the screen, and let go' : 'Flick up and let go to throw it')
     : status.state === 'drop' ? 'Grab it again' : '';
 
   // t- prefixes: App's .phone/.mac/.home layout rules must not apply here.
@@ -67,7 +67,7 @@ export default function ThrowPrototype() {
 
     {screen === 'home' && <section className="throw-card" aria-label="Start a call">
       <h1>Throwing prototype</h1>
-      <p>Make an object, grab it with a pinch or a fist, and flick it through the screen to the person you're calling. Alone, it comes back to you.</p>
+      <p>Make an object, grab it with a pinch or a fist, turn it with your hand, and throw it through a portal to the person you're calling. Alone, it comes back to you.</p>
       <div className="throw-actions">
         <button className="primary" onClick={() => void begin()}><Icon name="video" size={20}/>New call</button>
         <form onSubmit={e => { e.preventDefault(); if (validCode) void begin(code); }}>
