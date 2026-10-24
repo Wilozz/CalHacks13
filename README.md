@@ -106,3 +106,25 @@ If you already have a TURN server, copy `.env.example` to `.env.local`, fill in 
 Automated tests cover connection-code validation, offer/answer roles, complete ICE gathering, and cancellation, alongside the hand coordinate tests. Build checks do not establish real camera/microphone or network interoperability.
 
 For a real call, follow the two-laptop sequence above and check both audio directions, both video directions, mute/unmute, camera off/on, tracking before/during the call, stop tracking while a call continues, end call from either laptop, cancel while permissions are pending, malformed codes, denied microphone access, and a blocked-network failure. Test two tabs on one laptop first if a second laptop is unavailable (wear headphones); a successful same-device test does not prove event-Wi-Fi connectivity.
+
+## AI integration (`src/ai/`, `server/ai.ts`)
+
+Implements the pipeline in `ai-integration.md`: hand history (2 s) and pointing detection, scene cache, transcript, the pointing + verb gate, Claude action parser with a fixed action library, the section 6 confidence policy (0.85 play, 0.6 confirm, else ask), a local offline fallback, and the context summarizer.
+
+```sh
+cp .env.example .env   # set ANTHROPIC_API_KEY
+npm run ai             # AI server on :8787 (Vite proxies /ai to it)
+npm run dev
+```
+
+Wire-up: `new Orchestrator(new Transcript(), {client: httpAiClient(), clock, viewerLanguage, onOutcome})`, feed it `orchestrator.hands.pushLandmarks(t, landmarks)` and `orchestrator.scene.update(objects, t)`, and finalize speech with `transcript.finalize(...)`. `Outcome.decision` is `play`, `confirm` or `ask` for the helper UI. The model proposes; `policy.ts` enforces the rules, so a confident wrong answer cannot skip confirmation, and fallback parses never auto-play.
+
+Not built or unverified: streaming Cartesia STT (the browser Web Speech adapter gives turn-level timing only), the on-device segmentation, the helper confirm UI, the 3D renderer, and latency numbers. Model IDs and cutoffs are defaults to tune.
+
+## Helper hand on the recipient's feed (`src/remote/`)
+
+The core product path: the helper's tracked hand is sent as compact binary frames (`handWire.ts`, 262 bytes, unordered data channel) and drawn over the recipient's live camera view (`HandOverlay.tsx`). `placement.ts` anchors the index fingertip, sizes the hand from the rigid palm, and supports "follow" and "pin to a spot" modes. `RemoteHandState` drops out-of-order packets, counts loss and hides a stale hand after 350 ms.
+
+Solo demo: the page encodes your own hand, sends it through `LoopbackChannel` (adjustable latency, jitter and loss) and draws it on your own camera view through the same decoder a remote helper's hand would use. `RtcHandChannel` is the real-transport adapter (`createHandDataChannel(pc)` on the offering side, wrap the channel from `ondatachannel` on the other); it is not yet connected to the call code and has not been run in a browser.
+
+Placement puts the hand on the feed. It does not align it to a real component: monocular landmarks do not know where an object is.
