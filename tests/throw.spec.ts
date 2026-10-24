@@ -36,7 +36,7 @@ test('a computer and a phone each keep their own objects and throw at the same m
  await chip(host,'Mug').click();await chip(host,'Teddy bear').click();await chip(phone,'Pill bottle').click();
  for(const [p,n] of [[host,'Mug'],[host,'Teddy bear'],[phone,'Pill bottle']] as const)await expect(chip(p,n)).toHaveAttribute('aria-pressed','true');
  for(const p of [host,phone])await expect(p.locator('.throw-hint')).not.toContainText('Scanning',{timeout:5_000}); // Toss throws the newest finished object
- // Both throw at once: the host's newest (the bear) and the phone's pill bottle cross through the portal.
+ // Both throw at once: the host's newest (the bear) and the phone's pill bottle cross on the way.
  await Promise.all([host,phone].map(p=>p.getByRole('button',{name:'Toss',exact:true}).click()));
  await expect(phone.getByText('Your friend tossed you a teddy bear',{exact:true})).toBeVisible({timeout:5_000});
  await expect(host.getByText('Your friend tossed you a pill bottle',{exact:true})).toBeVisible({timeout:5_000});

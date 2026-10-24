@@ -74,7 +74,7 @@ export default function ThrowPrototype() {
 
     {screen === 'home' && <section className="throw-card" aria-label="Start a call">
       <h1>Throwing prototype</h1>
-      <p>Make one or two objects, grab them with a pinch or a fist, turn and resize them, and throw them through a portal to the person you're calling. Alone, they come back to you.</p>
+      <p>Make one or two objects, grab them with a pinch or a fist, turn and resize them, and throw them through the screen to the person you're calling. Alone, they come back to you.</p>
       <div className="throw-actions">
         <button className="primary" onClick={() => void begin()}><Icon name="video" size={20}/>New call</button>
         <form onSubmit={e => { e.preventDefault(); if (validCode) void begin(code); }}>

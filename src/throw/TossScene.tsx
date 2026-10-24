@@ -10,14 +10,14 @@ import { isThrow, MAX_SCALE, MIN_SCALE, releaseVelocity, TOSS_OBJECTS, type Samp
 import type { TrackedHand } from './useTracker';
 
 export interface TossApi { spawn(kind: TossKind): void; flick(): void; receive(t: Toss): void }
-/** state/label: the object in focus (held, else newest). labels: every object on this screen. busy: one is passing through the portal. */
+/** state/label: the object in focus (held, else newest). labels: every object on this screen. busy: one is on its way to or from the friend. */
 export interface TossStatus { state: State | 'none'; label: string; hover: boolean; handSeen: boolean; labels: string[]; canToss: boolean; busy: boolean }
 type State = 'spawn' | 'rest' | 'held' | 'drop' | 'out' | 'in';
 type Input = 'hand' | 'pointer' | 'script';
 interface Props { api: MutableRefObject<TossApi | null>; hand: MutableRefObject<TrackedHand>; mirrored: boolean; bottomInset: number; onToss: (t: Toss) => void; onStatus: (s: TossStatus) => void }
 
 const V = THREE.Vector3;
-const PORTAL_Z = -4;       // the portal opens over the friend's video, a little into the screen
+const FRIEND_Z = -16;      // how deep into the screen the friend is: a thrown object shrinks into their video by perspective alone
 const G = 20;
 const GRAB_RADIUS = 1.15;  // × object height: generous, so a grab near the object still takes it
 const THROW_SPEED = 1.5;   // × half screen height per second, up-and-forward (see isThrow)
@@ -42,31 +42,21 @@ void main() {
   vV = -mv.xyz;
   gl_Position = projectionMatrix * mv;
 }`;
-// Solid, lit object in its real colors, with a rim light (yellow while held), a bottom-up build (uScan) and a burn-away (uDissolve).
+// Solid, lit object in its real colors, with a rim light (yellow while held), a bottom-up build (uScan) and a plain fade (uFade).
 const FRAG = `
-uniform float uTime; uniform float uDissolve; uniform float uScan; uniform float uHot; uniform vec3 uColor;
+uniform float uTime; uniform float uFade; uniform float uScan; uniform float uHot; uniform vec3 uColor;
 varying vec3 vN; varying vec3 vV; varying vec3 vObj;
-float hash(vec3 p) { p = fract(p * 0.3183099 + 0.1); p *= 17.0; return fract(p.x * p.y * p.z * (p.x + p.y + p.z)); }
-float noise(vec3 x) {
-  vec3 i = floor(x); vec3 f = fract(x); f = f * f * (3.0 - 2.0 * f);
-  return mix(mix(mix(hash(i), hash(i + vec3(1,0,0)), f.x), mix(hash(i + vec3(0,1,0)), hash(i + vec3(1,1,0)), f.x), f.y),
-             mix(mix(hash(i + vec3(0,0,1)), hash(i + vec3(1,0,1)), f.x), mix(hash(i + vec3(0,1,1)), hash(i + vec3(1,1,1)), f.x), f.y), f.z);
-}
 void main() {
   float cut = (vObj.y + 0.5) - uScan * 1.2;
   if (cut > 0.0) discard;
-  float n = noise(vObj * 7.0) * 0.65 + noise(vObj * 19.0) * 0.35;
-  float d = n - (uDissolve * 1.1 - 0.05);
-  if (d < 0.0) discard;
-  float burn = (1.0 - smoothstep(0.0, 0.08, d)) * step(0.001, uDissolve);
   float scanEdge = (1.0 - smoothstep(0.0, 0.04, -cut)) * step(uScan, 0.999);
   vec3 N = normalize(vN), V = normalize(vV), L = normalize(vec3(0.35, 0.85, 0.6));
   float diff = max(dot(N, L), 0.0), hemi = 0.5 + 0.5 * N.y;
   float spec = pow(max(dot(reflect(-L, N), V), 0.0), 28.0) * 0.4;
   float fres = pow(1.0 - abs(dot(N, V)), 2.5);
   vec3 cyan = vec3(0.37, 0.95, 1.0), rim = mix(cyan, vec3(1.0, 0.95, 0.42), uHot);
-  vec3 col = uColor * (0.32 + 0.22 * hemi + 0.62 * diff) + spec + rim * fres * (0.45 + 0.55 * uHot) + cyan * (burn + scanEdge) * 1.8;
-  gl_FragColor = vec4(col, 1.0);
+  vec3 col = uColor * (0.32 + 0.22 * hemi + 0.62 * diff) + spec + rim * fres * (0.45 + 0.55 * uHot) + cyan * scanEdge * 1.8;
+  gl_FragColor = vec4(col, 1.0 - uFade);
 }`;
 
 const soft = (() => {
@@ -79,49 +69,15 @@ const GEO = { cylinder: new THREE.CylinderGeometry(0.5, 0.5, 1, 48, 1), box: new
 const glowMat = (extra: THREE.MeshBasicMaterialParameters = {}) => new THREE.MeshBasicMaterial({ color: CYAN, transparent: true, ...ADD, depthWrite: false, opacity: 0, side: THREE.DoubleSide, ...extra });
 const OUTLINE = 0.05; // model units; a dark shell behind each part keeps it readable on any video
 
-// The portal: a spiralling cyan-violet rim around a dark hole. uOpen scales it from nothing to full size.
-const PORTAL_FRAG = `
-uniform float uTime; uniform float uOpen; varying vec2 vUv;
-void main() {
-  vec2 p = (vUv * 2.0 - 1.0) * 1.3;
-  float r = length(p) / max(uOpen, 0.001), a = atan(p.y, p.x);
-  float rim = exp(-pow((r - 1.0) * 8.0, 2.0));
-  float arms = 0.5 + 0.5 * sin(a * 5.0 - r * 10.0 + uTime * 6.0);
-  float inner = smoothstep(1.05, 0.1, r) * arms * 0.6, halo = step(1.0, r) * exp(-(r - 1.0) * 7.0) * 0.35;
-  vec3 c = mix(vec3(0.37, 0.95, 1.0), vec3(0.72, 0.5, 1.0), arms * smoothstep(0.3, 1.0, r));
-  float edge = smoothstep(1.3, 1.1, length(p)); // fades out before the quad's edge, so no square shows
-  if (edge <= 0.0) discard;
-  gl_FragColor = vec4(c * (rim * 1.5 + inner + halo) * min(uOpen * 3.0, 1.0) * edge, 1.0);
-}`;
-function makePortal(scene: THREE.Scene) {
-  const u = { uTime: { value: 0 }, uOpen: { value: 0 } };
-  const root = new THREE.Group();
-  const core = new THREE.Mesh(new THREE.CircleGeometry(1, 64), new THREE.MeshBasicMaterial({ map: soft, color: raw('#01060a'), transparent: true, depthWrite: false, opacity: 0 }));
-  const swirl = new THREE.Mesh(new THREE.PlaneGeometry(2.6, 2.6), new THREE.ShaderMaterial({ uniforms: u, vertexShader: 'varying vec2 vUv; void main() { vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }', fragmentShader: PORTAL_FRAG, transparent: true, ...ADD, depthWrite: false }));
-  swirl.position.z = 0.01; root.add(core, swirl); root.visible = false; scene.add(root);
-  let open = 0;
-  return {
-    root, target: 0,
-    /** Open (1) or close (0) at `at`, sized `radius`. */
-    to(v: number, at?: THREE.Vector3, radius?: number) { this.target = v; if (at) root.position.copy(at); if (radius) root.scale.setScalar(radius); },
-    update(dt: number, T: number) {
-      open += (this.target - open) * Math.min(1, dt * (this.target > open ? 9 : 6));
-      root.visible = open > 0.01; u.uOpen.value = open; u.uTime.value = T; swirl.rotation.z = -T * 0.6;
-      (core.material as THREE.MeshBasicMaterial).opacity = 0.8 * open; core.scale.setScalar(Math.max(open, 1e-3) * 1.15);
-    },
-    dispose() { core.geometry.dispose(); swirl.geometry.dispose(); (core.material as THREE.Material).dispose(); (swirl.material as THREE.Material).dispose(); },
-  };
-}
-
 function makeTwin(model: ModelSpec, height: number) {
   const root = new THREE.Group(), body = new THREE.Group();
   body.scale.setScalar(height); root.add(body);
-  const u = { uTime: { value: 0 }, uDissolve: { value: 0 }, uScan: { value: 1 }, uHot: { value: 0 }, uOrigin: { value: new V() }, uScale: { value: height } };
+  const u = { uTime: { value: 0 }, uFade: { value: 0 }, uScan: { value: 1 }, uHot: { value: 0 }, uOrigin: { value: new V() }, uScale: { value: height } };
   const mats: THREE.Material[] = [];
   const outline = new THREE.MeshBasicMaterial({ color: INK.clone(), side: THREE.BackSide, transparent: true, depthWrite: false });
   for (const p of model.parts) {
     const c = raw(p.color);
-    const mat = new THREE.ShaderMaterial({ uniforms: { ...u, uColor: { value: new V(c.r, c.g, c.b) } }, vertexShader: VERT, fragmentShader: FRAG });
+    const mat = new THREE.ShaderMaterial({ uniforms: { ...u, uColor: { value: new V(c.r, c.g, c.b) } }, vertexShader: VERT, fragmentShader: FRAG, transparent: true });
     const m = new THREE.Mesh(GEO[p.shape], mat);
     m.position.fromArray(p.position); m.scale.fromArray(p.size); body.add(m); mats.push(mat);
     const shell = new THREE.Mesh(GEO[p.shape], outline);
@@ -130,9 +86,9 @@ function makeTwin(model: ModelSpec, height: number) {
   mats.push(outline);
   return {
     root,
-    set(time: number, dissolve: number, scan: number, hot: number, scale = 1) {
-      u.uTime.value = time; u.uScale.value = height * scale; u.uDissolve.value = dissolve; u.uScan.value = scan; u.uHot.value = hot; u.uOrigin.value.copy(root.position);
-      outline.opacity = dissolve > 0 || scan < 1 ? 0 : 0.85 + hot * 0.15;
+    set(time: number, fade: number, scan: number, hot: number, scale = 1) {
+      u.uTime.value = time; u.uScale.value = height * scale; u.uFade.value = fade; u.uScan.value = scan; u.uHot.value = hot; u.uOrigin.value.copy(root.position);
+      outline.opacity = scan < 1 ? 0 : (0.85 + hot * 0.15) * (1 - fade) ** 2;
       outline.color.copy(INK).lerp(HOT, hot * 0.9);
     },
     dispose() { mats.forEach(m => m.dispose()); },
@@ -140,38 +96,6 @@ function makeTwin(model: ModelSpec, height: number) {
 }
 type Twin = ReturnType<typeof makeTwin>;
 
-class Particles {
-  readonly points: THREE.Points;
-  private i = 0;
-  private pos: Float32Array; private vel: Float32Array; private col: Float32Array; private life: Float32Array; private max: Float32Array; private base: Float32Array;
-  constructor(private n = 700) {
-    this.pos = new Float32Array(n * 3); this.vel = new Float32Array(n * 3); this.col = new Float32Array(n * 3);
-    this.life = new Float32Array(n); this.max = new Float32Array(n).fill(1); this.base = new Float32Array(n);
-    const g = new THREE.BufferGeometry();
-    g.setAttribute('position', new THREE.BufferAttribute(this.pos, 3)); g.setAttribute('color', new THREE.BufferAttribute(this.col, 3));
-    this.points = new THREE.Points(g, new THREE.PointsMaterial({ size: 0.09, map: soft, vertexColors: true, transparent: true, ...ADD, depthWrite: false }));
-    this.points.frustumCulled = false;
-  }
-  spawn(x: number, y: number, z: number, vx: number, vy: number, vz: number, life: number) {
-    const i = this.i = (this.i + 1) % this.n;
-    this.pos.set([x, y, z], i * 3); this.vel.set([vx, vy, vz], i * 3);
-    this.life[i] = this.max[i] = life; this.base[i] = 0.5 + Math.random() * 0.7;
-  }
-  update(dt: number) {
-    const drag = Math.exp(-dt * 2.4);
-    for (let i = 0; i < this.n; i++) {
-      const j = i * 3;
-      if (this.life[i] <= 0) { this.col[j] = this.col[j + 1] = this.col[j + 2] = 0; continue; }
-      this.life[i] -= dt;
-      for (let a = 0; a < 3; a++) { this.vel[j + a] *= drag; this.pos[j + a] += this.vel[j + a] * dt; }
-      const k = Math.max(this.life[i] / this.max[i], 0) * this.base[i];
-      this.col[j] = CYAN.r * k; this.col[j + 1] = CYAN.g * k; this.col[j + 2] = CYAN.b * k;
-    }
-    const a = this.points.geometry.attributes;
-    a.position.needsUpdate = a.color.needsUpdate = true;
-  }
-  dispose() { this.points.geometry.dispose(); (this.points.material as THREE.Material).dispose(); }
-}
 
 /** Your tracked hand drawn on the screen, so you can see where you are reaching: bones, joints and a grip ring at the palm. */
 function makeHandGlyph(scene: THREE.Scene) {
@@ -200,7 +124,7 @@ function makeHandGlyph(scene: THREE.Scene) {
 
 interface Obj {
   twin: Twin; shadow: THREE.Mesh; label: string; model: ModelSpec; state: State; age: number;
-  pos: THREE.Vector3; vel: THREE.Vector3; spin: THREE.Vector3; dissolve: number; scan: number; hot: number;
+  pos: THREE.Vector3; vel: THREE.Vector3; spin: THREE.Vector3; fade: number; scan: number; hot: number;
   /** by: what holds it. holders: hand slots (by 'hand') or pointer ids (by 'pointer'); the first one moves and turns it. */
   hist: Sample[]; by: Input | null; holders: number[]; offset: { x: number; y: number }; target: { x: number; y: number };
   squash: number; squashAmp: number; sent: boolean; heldAt: number; handled: boolean;
@@ -219,27 +143,25 @@ interface Slot {
 }
 
 const MAX_OBJS = 4;
+const DELAY_IN = 0.4; // s: the toss is sent at 40% of a 0.75 s throw; arriving this much later lines up with it leaving the sender
 const palmImg = (lm: { x: number; y: number }[]) => [0, 5, 9, 13, 17].reduce((a, i) => ({ x: a.x + lm[i].x / 5, y: a.y + lm[i].y / 5 }), { x: 0, y: 0 });
 
 function World({ api, hand, mirrored, bottomInset, onToss, onStatus }: Props) {
   const { scene, size, gl } = useThree();
   const kit = useMemo(() => {
     const mesh = (geo: THREE.BufferGeometry, mat: THREE.Material) => { const m = new THREE.Mesh(geo, mat); scene.add(m); return m; };
-    const ring = new THREE.RingGeometry(0.84, 1, 72), plane = new THREE.PlaneGeometry(1, 1);
-    const particles = new Particles(); scene.add(particles.points);
+    const plane = new THREE.PlaneGeometry(1, 1);
     const scanLine = mesh(plane, glowMat({ map: soft, opacity: 0.9 })); scanLine.visible = false;
     return {
-      particles, scanLine, plane,
-      portal: makePortal(scene),
-      ripple: mesh(ring, glowMat()),
+      scanLine, plane,
       glyphs: [makeHandGlyph(scene), makeHandGlyph(scene)],
-      dispose() { scene.clear(); particles.dispose(); this.portal.dispose(); ring.dispose(); plane.dispose(); },
+      dispose() { scene.clear(); plane.dispose(); },
     };
   }, [scene]);
   useEffect(() => () => kit.dispose(), [kit]);
 
   const s = useRef({
-    objs: [] as Obj[], T: 0, fx: [] as { t: number; dur: number; fn: (k: number) => void }[], lastAt: 0,
+    objs: [] as Obj[], T: 0, lastAt: 0,
     slots: kit.glyphs.map((glyph): Slot => ({
       grip: new PinchDetector({ fist: true }), fx: new OneEuro(), fy: new OneEuro(), target: new V(), cursor: new V(), img: null,
       seen: false, lostAt: 0, wasGrip: false, palm: null, skeleton: Array.from({ length: 21 }, () => new V()), sizes: [], glyph,
@@ -250,7 +172,7 @@ function World({ api, hand, mirrored, bottomInset, onToss, onStatus }: Props) {
 
   // World units: the camera sees ±halfH vertically at z = 0.
   const halfH = Math.tan(THREE.MathUtils.degToRad(20)) * 10;
-  const PORTAL_AT = new V(0, halfH * 0.2, PORTAL_Z); // over the friend's face in their full-screen video
+  const FRIEND_AT = new V(0, halfH * 0.15, FRIEND_Z); // behind the friend's face in their full-screen video
   const dims = () => {
     const halfW = halfH * size.width / size.height, S = Math.min(halfH * 0.42, halfW * 0.6);
     const floorY = -halfH + (cb.current.bottomInset / size.height) * 2 * halfH + S * 0.15;
@@ -260,7 +182,6 @@ function World({ api, hand, mirrored, bottomInset, onToss, onStatus }: Props) {
   const toWorld = (u: number, v: number) => { const { halfW } = dims(); return { x: (u * 2 - 1) * halfW, y: (1 - v * 2) * halfH }; };
   const clampX = (o: Obj, x: number) => { const { halfW, S } = dims(), m = Math.min(halfW * 0.95, S * o.scale * 0.45); return clamp(x, -halfW + m, halfW - m); }; // keeps the whole object on screen
   const clampHeld = (o: Obj, p: { x: number; y: number }) => ({ x: clampX(o, p.x), y: clamp(p.y, restY(o), Math.max(restY(o), halfH - dims().S * o.scale * 0.4)) });
-  const anim = (dur: number, fn: (k: number) => void) => s.current.fx.push({ t: 0, dur, fn });
   const dist = (o: Obj, p: { x: number; y: number }) => Math.hypot(p.x - o.pos.x, p.y - o.pos.y);
   const near = (o: Obj, p: { x: number; y: number }) => dist(o, p) < dims().S * o.scale * GRAB_RADIUS;
   const grabbable = (o: Obj) => !o.by && (o.state === 'rest' || o.state === 'drop' || o.state === 'spawn');
@@ -293,7 +214,7 @@ function World({ api, hand, mirrored, bottomInset, onToss, onStatus }: Props) {
     if (st.objs.length >= MAX_OBJS) { const old = st.objs.find(o => !o.by && o.state !== 'out' && o.state !== 'in') ?? st.objs.find(o => !o.by); if (old) remove(old); }
     const twin = makeTwin(model, dims().S); scene.add(twin.root);
     const shadow = new THREE.Mesh(kit.plane, new THREE.MeshBasicMaterial({ map: soft, color: 0x000000, transparent: true, depthWrite: false, opacity: 0 })); scene.add(shadow);
-    const o: Obj = { twin, shadow, label, model, state, age: 0, pos, vel: new V(), spin: new V(), dissolve: 0, scan: 1, hot: 0, hist: [], by: null, holders: [], offset: { x: 0, y: 0 }, target: { x: pos.x, y: pos.y }, squash: 0, squashAmp: 0, sent: false, heldAt: 0, handled: false, rot: new THREE.Quaternion(), turn: null, scale, resize: null, path: null, script: null };
+    const o: Obj = { twin, shadow, label, model, state, age: 0, pos, vel: new V(), spin: new V(), fade: 0, scan: 1, hot: 0, hist: [], by: null, holders: [], offset: { x: 0, y: 0 }, target: { x: pos.x, y: pos.y }, squash: 0, squashAmp: 0, sent: false, heldAt: 0, handled: false, rot: new THREE.Quaternion(), turn: null, scale, resize: null, path: null, script: null };
     st.objs.push(o); return o;
   };
   // Grabbing keeps the object where it is (no jump); with a hand it then eases into the palm.
@@ -331,12 +252,12 @@ function World({ api, hand, mirrored, bottomInset, onToss, onStatus }: Props) {
     o.by = null; o.holders = []; o.script = null; o.turn = null; o.resize = null;
     const speed = Math.hypot(vx, vy);
     if (isThrow(performance.now() / 1000 - o.heldAt, v, push, halfH * THROW_SPEED)) {
-      // Thrown: a portal opens over the friend's video and the object, keeping the flick's momentum, curves into it.
-      const k = Math.min(1, 22 / Math.max(speed, 1e-6)), dur = 0.7;
-      const p0 = o.pos.clone(), p1 = p0.clone().add(new V(vx * k, vy * k, 0).multiplyScalar(dur / 2));
-      kit.portal.to(1, PORTAL_AT, S * 0.95);
-      o.path = { p0, p1, p2: PORTAL_AT.clone(), dur }; o.sent = false; o.dissolve = 0;
-      o.spin.set(-vy * 0.5 + rnd(2), vx * 0.5 + rnd(3), rnd(4));
+      // Thrown: it keeps the flick's momentum and flies on into the screen toward the friend, shrinking with distance,
+      // and slips into their video. No effects: it just goes through the glass.
+      const k = Math.min(1, 22 / Math.max(speed, 1e-6)), dur = 0.75;
+      const p0 = o.pos.clone(), p1 = p0.clone().add(new V(vx * k, vy * k, -6).multiplyScalar(dur / 2));
+      o.path = { p0, p1, p2: FRIEND_AT.clone(), dur }; o.sent = false; o.fade = 0;
+      o.spin.set(-vy * 0.25 + rnd(0.6), vx * 0.25 + rnd(0.8), rnd(0.6)); // a natural tumble from the flick
       setState(o, 'out');
     } else {
       o.vel.set(vx * 0.4, vy * 0.4, 0);
@@ -347,12 +268,9 @@ function World({ api, hand, mirrored, bottomInset, onToss, onStatus }: Props) {
   const squash = (o: Obj, amp: number) => { o.squash = 0.4; o.squashAmp = amp; };
 
   function land(o: Obj) {
-    const { S, floorY } = dims(), end = o.path!.p2;
-    o.pos.copy(end); o.dissolve = 0; o.path = null; squash(o, 1); setState(o, 'rest');
-    anim(0.65, k => { kit.ripple.position.set(end.x, floorY, -0.1); const r = S * o.scale * (0.3 + k * 1.4); kit.ripple.scale.set(r, r * 0.22, 1); (kit.ripple.material as THREE.MeshBasicMaterial).opacity = (1 - k) * 0.75; });
-    const n = reduce ? 8 : 28;
-    for (let i = 0; i < n; i++) { const a = i / n * Math.PI * 2; kit.particles.spawn(end.x + Math.cos(a) * S * 0.3, floorY + 0.05, Math.sin(a) * 0.3, Math.cos(a) * 3.6, 0.6 + Math.random(), Math.sin(a) * 1.4, 0.55); }
+    o.pos.copy(o.path!.p2); o.fade = 0; o.path = null; squash(o, 1); setState(o, 'rest');
   }
+
 
   api.current = {
     spawn(kind) {
@@ -369,13 +287,11 @@ function World({ api, hand, mirrored, bottomInset, onToss, onStatus }: Props) {
       grab(o, 'script', from, -1);
     },
     receive(t) {
-      const { S } = dims();
-      // A portal opens over the friend's video; the object flies out of it toward you, then lands on a free spot.
-      const o = newObj(t.model, t.label, 'in', PORTAL_AT.clone(), t.scale);
+      // It comes out of the friend's video toward you, the reverse of the throw, and lands on a free spot.
+      const o = newObj(t.model, t.label, 'in', FRIEND_AT.clone(), t.scale);
       const p2 = new V(freeX(), restY(o), 0);
-      o.path = { p0: PORTAL_AT.clone(), p1: new V(p2.x * 0.5, halfH * 0.45, 3.5), p2, dur: 1.05 }; o.dissolve = 1;
-      o.spin.set(...t.spin); o.twin.root.rotation.set(rnd(1), rnd(2), rnd(1));
-      kit.portal.to(1, PORTAL_AT, S * 0.95);
+      o.path = { p0: FRIEND_AT.clone(), p1: new V(p2.x * 0.5, halfH * 0.45, 3), p2, dur: 0.9 }; o.fade = 1;
+      o.spin.set(...t.spin); o.twin.root.rotation.set(rnd(0.5), rnd(1), rnd(0.5));
     },
   };
 
@@ -522,10 +438,6 @@ function World({ api, hand, mirrored, bottomInset, onToss, onStatus }: Props) {
 
     for (const o of [...st.objs]) { o.hot += ((o.by ? 1 : 0) - o.hot) * Math.min(1, dt * 14); stepObj(o, dt, S, floorY); }
     separate(dt);
-    // The portal stays open while anything is going into it or still coming out of it.
-    kit.portal.target = st.objs.some(o => o.state === 'out' || (o.state === 'in' && o.age < 0.25 + (o.path?.dur ?? 1) * 0.5)) ? 1 : 0;
-    st.fx = st.fx.filter(f => { f.t += dt; const k = Math.min(f.t / f.dur, 1); f.fn(k); return k < 1; });
-    kit.particles.update(dt); kit.portal.update(dt, st.T);
 
     const focus = st.objs.find(o => o.by) ?? st.objs[st.objs.length - 1] ?? null;
     const status: TossStatus = {
@@ -590,26 +502,18 @@ function World({ api, hand, mirrored, bottomInset, onToss, onStatus }: Props) {
       const { p0, p1, p2, dur } = o.path, k = Math.min(o.age / dur, 1), q = 1 - k;
       o.pos.set(0, 0, 0).addScaledVector(p0, q * q).addScaledVector(p1, 2 * q * k).addScaledVector(p2, k * k);
       r.rotation.x += o.spin.x * dt; r.rotation.y += o.spin.y * dt; r.rotation.z += o.spin.z * dt;
-      o.dissolve = clamp((k - 0.6) / 0.4, 0, 1);
-      // Sucked in: sparks stream from the object into the portal's centre.
-      if (o.dissolve > 0) for (let i = 0; i < (reduce ? 2 : 10); i++) {
-        const sx = o.pos.x + rnd(S * 0.3), sy = o.pos.y + rnd(S * 0.4), sz = o.pos.z + rnd(S * 0.2);
-        kit.particles.spawn(sx, sy, sz, (p2.x - sx) * 3 + rnd(0.6), (p2.y - sy) * 3 + rnd(0.6), (p2.z - sz) * 3, 0.35 + Math.random() * 0.25);
-      }
+      o.fade = clamp((k - 0.8) / 0.2, 0, 1); // it is tiny by now; the last bit melts into their video
       if (k >= 0.4 && !o.sent) { o.sent = true; cb.current.onToss({ id: Math.random().toString(36).slice(2, 10), label: o.label, model: o.model, spin: o.spin.toArray() as [number, number, number], scale: o.scale }); }
       if (k >= 1) { remove(o); return; }
     } else if (o.state === 'in' && o.path) {
-      // Waits a beat for the portal to open, then flies out of it toward the viewer and down to land.
-      const { p0, p1, p2, dur } = o.path, k = clamp((o.age - 0.25) / dur, 0, 1), q = 1 - k;
+      // Waits until it has left the sender's screen (the toss message is sent partway through their throw), then
+      // comes out of the friend's video: small and far, growing as it nears you, and lands.
+      const { p0, p1, p2, dur } = o.path, k = clamp((o.age - DELAY_IN) / dur, 0, 1), q = 1 - k;
       p2.x = clampX(o, p2.x); p2.y = rest;
       o.pos.set(0, 0, 0).addScaledVector(p0, q * q).addScaledVector(p1, 2 * q * k).addScaledVector(p2, k * k);
       r.rotation.x += o.spin.x * dt * (1 - k); r.rotation.y += o.spin.y * dt * (1 - k); r.rotation.z += o.spin.z * dt * (1 - k);
       damp(k * 6);
-      o.dissolve = Math.max(0, 1 - k / 0.3);
-      if (o.dissolve > 0) for (let i = 0; i < (reduce ? 2 : 9); i++) {
-        const off = new V(rnd(1), rnd(1), rnd(1)).normalize().multiplyScalar(S * (0.7 + Math.random() * 0.5));
-        kit.particles.spawn(o.pos.x + off.x, o.pos.y + off.y, o.pos.z + off.z, -off.x * 3, -off.y * 3, -off.z * 3, 0.3);
-      }
+      o.fade = o.age < DELAY_IN ? 1 : 1 - clamp(k / 0.2, 0, 1);
       if (k >= 1) land(o);
     }
     r.position.copy(o.pos);
@@ -618,10 +522,10 @@ function World({ api, hand, mirrored, bottomInset, onToss, onStatus }: Props) {
       o.squash = Math.max(0, o.squash - dt);
       const amt = Math.sin((1 - o.squash / 0.4) * Math.PI) * 0.2 * o.squashAmp;
       r.scale.set(o.scale * (1 + amt * 0.6), o.scale * (1 - amt), o.scale * (1 + amt * 0.6)); r.position.y -= amt * S * o.scale * 0.5;
-    } else r.scale.setScalar(lift * (o.state === 'out' && o.path ? 1 - 0.75 * Math.min(o.age / o.path.dur, 1) ** 2 : o.state === 'in' ? 0.25 + 0.75 * clamp((o.age - 0.25) / 0.5, 0, 1) : 1));
-    o.twin.set(T, o.dissolve, o.scan, o.hot, o.scale);
+    } else r.scale.setScalar(lift); // distance alone makes it small: no shrinking tricks
+    o.twin.set(T, o.fade, o.scan, o.hot, o.scale);
     const up = 1 - Math.min(Math.max(0, o.pos.y - rest) / (halfH * 1.2), 0.85);
-    const vis = o.state === 'spawn' ? o.scan : o.state === 'out' ? 1 - o.dissolve : o.state === 'in' ? (1 - o.dissolve) * clamp((o.age - 0.25) / 0.7, 0, 1) : 1;
+    const vis = o.state === 'spawn' ? o.scan : o.state === 'out' || o.state === 'in' ? (1 - o.fade) * up : 1;
     o.shadow.position.set(o.pos.x, floorY, o.pos.z - 0.3);
     o.shadow.scale.set(S * o.scale * 1.1 * (0.55 + 0.45 * up), S * o.scale * 0.24 * (0.55 + 0.45 * up), 1);
     (o.shadow.material as THREE.MeshBasicMaterial).opacity = 0.7 * up * vis;
@@ -630,7 +534,7 @@ function World({ api, hand, mirrored, bottomInset, onToss, onStatus }: Props) {
   return null;
 }
 
-/** Full-screen overlay: the tossable objects, your tracked hands, and the portal they leave and arrive through. */
+/** Full-screen overlay: the tossable objects and your tracked hands, over the call video. */
 export function TossScene(props: Props) {
   return <div className="toss-layer">
     <Canvas linear flat dpr={[1, 2]} camera={{ fov: 40, position: [0, 0, 10], near: 0.1, far: 100 }} gl={{ alpha: true, antialias: true }} onCreated={({ gl }) => gl.setClearColor(0x000000, 0)}>
