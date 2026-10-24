@@ -23,6 +23,12 @@ export const get=query({args:{id:v.id('replays'),ownerKey},handler:async(ctx,{id
  const r=await ctx.db.get(id);
  return r&&r.ownerKey===ownerKey?{name:r.name,label:r.label,durationMs:r.durationMs,url:await ctx.storage.getUrl(r.logFile)}:null;
 }});
+export const rename=mutation({args:{id:v.id('replays'),name:v.string(),ownerKey},handler:async(ctx,{id,name,ownerKey})=>{
+ const r=await ctx.db.get(id);
+ if(!r||r.ownerKey!==ownerKey)throw new Error('Tutorial not found');
+ await ctx.db.patch(id,{name:name.trim().slice(0,80)||r.name});
+ return null;
+}});
 export const remove=mutation({args:{id:v.id('replays'),ownerKey},handler:async(ctx,{id,ownerKey})=>{
  const r=await ctx.db.get(id);
  if(!r||r.ownerKey!==ownerKey)throw new Error('Tutorial not found');

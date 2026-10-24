@@ -1,6 +1,6 @@
 import {useEffect,useState} from 'react';
 import {createRoot} from 'react-dom/client';
-import {ConvexReactClient,useConvexAuth,useQuery} from 'convex/react';
+import {useConvexAuth,useQuery} from 'convex/react';
 import {ConvexAuthProvider} from '@convex-dev/auth/react';
 import App from './App';
 import {api} from '../convex/_generated/api';
@@ -14,8 +14,7 @@ import '@fontsource-variable/inter';
 import './style.css';
 import './community/community.css';
 import './design.css';
-const convexUrl=import.meta.env.VITE_CONVEX_URL;
-const convex=convexUrl?new ConvexReactClient(convexUrl):null;
+import {convex} from './convexClient';
 type Tab='call'|'throw'|'tutorials'|'community'|'profile'|'messages'|'helpers'|'activity';
 function Root(){
  const [tab,setTab]=useState<Tab>(()=>location.hash==='#helpers'?'helpers':location.hash==='#activity'?'activity':location.hash==='#messages'?'messages':location.hash==='#throw'?'throw':location.hash==='#tutorials'?'tutorials':location.hash==='#community'?'community':location.hash==='#profile'?'profile':'call');

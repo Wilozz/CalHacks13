@@ -299,3 +299,8 @@ button:disabled{opacity:.4;cursor:default}
 .lesson-card b{font-size:13px}
 .lesson-card small{font-size:12px;color:var(--text-2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .lesson-card .twin-tool{flex-shrink:0}
+.replay-rename{display:flex;gap:8px;align-items:center;flex:1;min-width:0}
+.replay-rename input{flex:1;min-width:0}
+/* The Community pages style every button; the player keeps its own compact controls there. */
+.replay-player .replay-controls button{min-height:36px!important;min-width:36px;padding:0 10px!important;border-radius:18px!important;white-space:nowrap;background:#262626!important;color:#eee!important;font-size:13px!important}
+.replay-player .replay-speeds button[aria-pressed=true]{background:#eee!important;color:#111!important}
