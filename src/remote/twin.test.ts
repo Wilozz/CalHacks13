@@ -4,7 +4,8 @@ import type { HandFrame } from '../coordinates';
 import { BUILTIN_MODELS, sanitizeModel } from '../ai/modelSpec';
 import { DEFAULT_PLACEMENT, HandPlacer, type Placement } from './placement';
 import { fingertipOnTwin, modelBounds, placeHandOnTwin } from './twinPlacement';
-import { PinchDetector, pinchCloseness, pinchRatio } from './pinch';
+import { fistRatio, PinchDetector, pinchCloseness, pinchRatio } from './pinch';
+import PHOTOS from './handPhotos.json';
 import { TwinMover } from './twinMove';
 import { decodePose, decodeTwin, encodePose, encodeTwin, type TwinInfo } from './twinWire';
 
@@ -90,33 +91,53 @@ test('twin messages from the peer are validated, not trusted', () => {
 });
 
 // ---- pinch and move ----
-function pinched(gapFraction: number): HandFrame {
-  // palm length 0.09 m (wrist to knuckle), thumb-to-index gap = gapFraction * palm
-  const world = Array.from({ length: 21 }, () => ({ x: 0, y: 0, z: 0 }));
-  world[9] = { x: 0, y: -0.09, z: 0 };
-  world[4] = { x: 0, y: -0.15, z: 0 };
-  world[8] = { x: gapFraction * 0.09, y: -0.15, z: 0 };
-  const lm = Array.from({ length: 21 }, (_, i) => ({ x: 0.5, y: 0.8 - i * 0.01, z: 0 }));
-  return { timestamp: 0, landmarks: lm, worldLandmarks: world, handedness: 'Right', inferenceMs: 1 };
+function pinched(gapFraction: number, scale = 1): HandFrame {
+  // image palm length 0.2 * scale (wrist to middle knuckle), thumb-to-index gap = gapFraction * palm
+  const lm = Array.from({ length: 21 }, () => ({ x: 0.5, y: 0.5, z: 0 }));
+  lm[0] = { x: 0.5, y: 0.8, z: 0 }; lm[9] = { x: 0.5, y: 0.8 - 0.2 * scale, z: 0 };
+  lm[5] = { x: 0.5 - 0.03 * scale, y: 0.65, z: 0 }; lm[17] = { x: 0.5 + 0.03 * scale, y: 0.65, z: 0 };
+  lm[4] = { x: 0.5, y: 0.4, z: 0 }; lm[8] = { x: 0.5 + (gapFraction * 0.2 * scale) / (4 / 3), y: 0.4, z: 0 };
+  for (const i of [12, 16, 20]) lm[i] = { x: 0.5, y: 0.8 - 0.4 * scale, z: 0 }; // fingers extended: not a fist
+  return { timestamp: 0, landmarks: lm, worldLandmarks: [], handedness: 'Right', inferenceMs: 1 };
 }
 
 test('pinch ratio is relative to the palm, so it is independent of hand distance', () => {
   assert.ok(Math.abs(pinchRatio(pinched(0.2))! - 0.2) < 1e-9);
-  assert.ok(Math.abs(pinchRatio(pinched(1.4))! - 1.4) < 1e-9);
+  assert.ok(Math.abs(pinchRatio(pinched(1.4, 0.5))! - 1.4) < 1e-9);
   assert.equal(pinchRatio({ ...pinched(0.2), landmarks: [], worldLandmarks: [] }), null);
   assert.equal(pinchCloseness(0.2), 1); assert.equal(pinchCloseness(1.2), 0);
 });
 
 test('pinch has hysteresis and needs two confirming frames', () => {
   const d = new PinchDetector();
-  assert.equal(d.update(pinched(0.2)), false);  // one frame is not enough
-  assert.equal(d.update(pinched(0.2)), true);
-  assert.equal(d.update(pinched(0.5)), true);   // between engage and release: stays pinched
+  assert.equal(d.update(pinched(0.1)), false);  // one frame is not enough
+  assert.equal(d.update(pinched(0.1)), true);
+  assert.equal(d.update(pinched(0.4)), true);   // between engage and release: stays pinched
   assert.equal(d.update(pinched(0.9)), true);   // first open frame
   assert.equal(d.update(pinched(0.9)), false);
-  assert.equal(d.update(pinched(0.5)), false);  // between the thresholds: stays open
-  d.update(pinched(0.2)); d.update(pinched(0.2));
+  assert.equal(d.update(pinched(0.4)), false);  // between the thresholds: stays open
+  d.update(pinched(0.1)); d.update(pinched(0.1));
   assert.equal(d.update(null), false);          // hand lost
+});
+
+test('the same tracker frame passed on every render counts once', () => {
+  const d = new PinchDetector(), f = pinched(0.1);
+  for (let i = 0; i < 5; i++) d.update(f);
+  assert.equal(d.pinching, false);
+  assert.equal(d.update(pinched(0.1)), true);
+});
+
+// Landmarks MediaPipe produced for real photos (scratch calibration run, x/y only).
+const photo = (k: keyof typeof PHOTOS): HandFrame => ({ timestamp: 0, landmarks: PHOTOS[k].map(([x, y]) => ({ x, y, z: 0 })), worldLandmarks: [], handedness: '', inferenceMs: 0 });
+test('on real hand photos, touching fingertips pinch and open or pointing hands do not', () => {
+  for (const k of ['pinched', 'pinchedOk', 'fist'] as const) assert.ok(pinchRatio(photo(k))! < 0.32, k);
+  for (const k of ['open', 'openOther', 'pointing', 'victory', 'thumbUp'] as const) assert.ok(pinchRatio(photo(k))! > 0.48, k);
+});
+test('on real hand photos, a fist grips and open or pointing hands do not', () => {
+  for (const k of ['fist', 'thumbUp'] as const) assert.ok(fistRatio(photo(k))! < 1.2, k);
+  for (const k of ['open', 'openOther', 'pointing', 'victory', 'pinched'] as const) assert.ok(fistRatio(photo(k))! > 1.4, k);
+  const grip = (k: keyof typeof PHOTOS, fist: boolean) => { const d = new PinchDetector({ fist }); d.update(photo(k)); return d.update(photo(k)); };
+  assert.equal(grip('fist', true), true); assert.equal(grip('pointing', true), false); assert.equal(grip('open', true), false);
 });
 
 const bounds = { lo: [-0.2, -0.5, -0.2] as [number, number, number], hi: [0.2, 0.5, 0.2] as [number, number, number] };
