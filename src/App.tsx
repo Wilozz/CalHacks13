@@ -1,5 +1,7 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
-import { CallPanel } from './CallPanel';
+import { useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
+import { useCall } from './CallPanel';
+import { normalizeRoomCode, ROOM_PATTERN } from './callSignaling';
+import { Icon } from './icons';
 import { useMobileDevice } from './device';
 import { HandScene, type LiveData } from './HandScene';
 import { BONES, type HandFrame } from './coordinates';
@@ -40,6 +42,9 @@ export default function App() {
   const loop = useRef<LoopbackChannel|null>(null);
   const [handOn,setHandOn] = useState(true);
   const [labOpen,setLabOpen] = useState(false);
+  const [moreOpen,setMoreOpen] = useState(false);
+  const [code,setCode] = useState('');
+  const call = useCall(() => video.current?.srcObject instanceof MediaStream ? video.current.srcObject : null);
   const handOnRef = useRef(true);
   const [placement,setPlacement] = useState<Placement>(DEFAULT_PLACEMENT);
   useEffect(() => {
@@ -214,42 +219,93 @@ export default function App() {
     if(phase==='running') void start(next);
     else { setFacing(next); live.current.mirrored=next==='user'; }
   }
-  const status = phase==='loading' ? 'STARTING…' : active ? (stats.tracked ? 'HAND TRACKED' : 'LOOKING FOR YOUR HAND') : 'CAMERA OFF';
-  return <main>
-    <header><a className="brand" href="#" aria-label="GHOST home"><span className="brand-icon">◈</span> GHOST<span className="badge">PROTOTYPE 01</span></a><span className="local"><i/> ON-DEVICE PROCESSING</span></header>
-    <section className="demo" aria-label="Helper hand demo">
-      <h1 className="demo-title">Show someone what to do <span>with your hands.</span></h1>
-      <p className="demo-sub">Your friend films a device. You see it, point at the part, and your hand appears on their screen. This demo plays both roles on one camera: your hand is sent through the same path and drawn back over the video.</p>
-      <div className="demo-bar">
-        <div className="camera-controls">
-          <button className={active||phase==='loading'?'secondary':''} onClick={() => active||phase==='loading'?stop():void start()}>{phase==='loading'?'Cancel':active?'Stop camera':'Start camera'}</button>
-          <button className="secondary switch-camera" disabled={phase==='loading'} onClick={switchCamera} aria-label={`Switch to ${facing==='user'?'rear':'front'} camera`}>⇄ <span>Switch camera</span></button>
-        </div>
-        <div className="session"><i className={stats.tracked?'lit':''}/>{status}</div>
-      </div>
-      {notice && <p className="camera-notice" role="status">{notice}</p>}
-      <HandQuickControls placement={placement} onPlacement={setPlacement} cameraOn={active} tracked={stats.tracked}/>
-      <div className="panel camera-panel"><div className={`camera-stage stage ${facing==='user'?'mirrored':''}`}><video ref={video} autoPlay playsInline muted/><canvas ref={overlay} className={showOverlay?'':'hidden'}/>
-        {!active && <div className={`empty ${phase==='error'?'has-error':''}`}><span className="reticle">⌖</span><h2>{phase==='loading'?'Connecting to your camera':phase==='error'?'Connection interrupted':'Camera is off'}</h2><p role={phase==='error'?'alert':'status'}>{phase==='loading'?message:phase==='error'?message:'Press Start camera, then hold your hand in view.'}</p>{phase==='error' && <button onClick={() => void start()}>Retry camera</button>}</div>}
+  function setLandmarks(on:boolean) {
+    setShowOverlay(on); debug.current=on;
+    if(!on) overlay.current.getContext('2d')?.clearRect(0,0,overlay.current.width,overlay.current.height);
+  }
+  const screen = call.status==='idle' ? 'home' : call.status==='connected'||call.status==='disconnected' ? 'incall' : 'calling';
+  const cameraOn = phase==='loading' || active;
+  // In a call without the tracking camera, the call's own stream is the self-view.
+  const selfFromCall = screen!=='home' && !cameraOn;
+  // App re-renders every 250 ms for stats, which also ticks this clock.
+  const elapsed = call.connectedAt ? Math.floor((Date.now()-call.connectedAt)/1000) : 0;
+  const clock = `${String(Math.floor(elapsed/60)).padStart(2,'0')}:${String(elapsed%60).padStart(2,'0')}`;
+  const validCode = ROOM_PATTERN.test(normalizeRoomCode(code));
+  const callStatus = call.status==='preparing' ? 'Getting camera and microphone ready…' : call.status==='connecting' ? 'Connecting…' : 'Waiting for your friend…';
+  return <main className={`app ${mobile?'phone':'mac'} ${screen}`}>
+    <div className="remote">
+      <video ref={call.friendVideo} className="friend-video" autoPlay playsInline/>
+      {screen==='incall' && !call.remote && <p className="remote-wait">Waiting for video…</p>}
+      {call.playBlocked && <button className="pill-button play-audio" onClick={call.retryPlay}>Play friend’s audio and video</button>}
+    </div>
+    <div className={`self ${selfFromCall?'from-call':''}`}>
+      <div className={`camera-stage ${facing==='user'?'mirrored':''}`} style={{'--ar':live.current.aspect} as CSSProperties}>
+        <video ref={video} autoPlay playsInline muted/><canvas ref={overlay} className={showOverlay?'':'hidden'}/>
         {active && <SceneOverlay objects={scene.objects} selectedId={selectedId} hoverId={hoverId} aspect={live.current.aspect} mirrored={facing==='user'} onSelect={setSelectedId}/>}
         {active && shownSpec && <DemoScene key={recenter} spec={shownSpec} model={sceneSpec ? selected?.model : undefined} mode={shownMode} live={live} aspect={live.current.aspect} mirrored={facing==='user'}/>}
         {active && handOn && <HandOverlay remote={remoteHand} placement={placement} aspect={live.current.aspect} onPin={pin => setPlacement(p => ({...p,pin}))}/>}
-      </div></div>
-    </section>
-    <div className="more-list">
-      <details className="more"><summary>Call a friend <small>video call between two laptops</small></summary><CallPanel getCameraStream={() => video.current?.srcObject instanceof MediaStream ? video.current.srcObject : null}/></details>
-      <details className="more"><summary>Tune the hand <small>size, reach, mirroring, network test</small></summary><HandAdvanced enabled={handOn} onEnabled={setHandOn} placement={placement} onPlacement={setPlacement} remote={remoteHand} loop={loop}/></details>
-      <details className="more"><summary>Experimental: AI scan to 3D model <small>needs the AI server</small></summary>
-        <ScenePanel objects={scene.objects} selectedId={selectedId} onSelect={setSelectedId} action={action} onAction={setChosen} mode={mode} onMode={setMode} onRecenter={() => setRecenter(n=>n+1)}
-          cameraOn={active} scanning={scene.scanning} error={scene.error} auto={scene.auto} onAuto={scene.setAuto} onScan={() => void scene.scan()} lastMs={scene.lastMs}/>
-        <DemoPanel cameraActive={active} onShowOnCamera={setDemo}/>
-      </details>
-      <details className="more" onToggle={e => setLabOpen(e.currentTarget.open)}><summary>Hand tracking lab <small>3D skeleton, landmarks, performance</small></summary>
-        <div className="panel-footer lab-toggle"><label><input type="checkbox" checked={showOverlay} onChange={e=>{setShowOverlay(e.target.checked);debug.current=e.target.checked; if(!e.target.checked)overlay.current.getContext('2d')?.clearRect(0,0,overlay.current.width,overlay.current.height);}}/> Draw landmark dots on the camera view</label><span>21 POINTS</span></div>
-        <div className="scene-stage stage">{labOpen && <HandScene live={live} mobile={mobile} running={active && pageVisible}/>}{!stats.tracked && <div className="scene-wait"><span className="reticle">✧</span><p>{active?'Waiting for your hand':'Start the camera first'}</p></div>}<div className="scene-label">{stats.tracked?`${stats.hand.toUpperCase()} HAND / ${stats.world?'WORLD':'IMAGE'} LANDMARKS`:'NO SIGNAL'}</div></div>
-        <section className="metrics" aria-label="Performance metrics"><div><span>RENDER RATE</span><strong>{active?stats.fps:'—'}<small> FPS</small></strong></div><div><span>PIPELINE LATENCY</span><strong>{active?stats.latency:'—'}<small> ms</small></strong></div><div><span>MODEL INFERENCE</span><strong>{active?stats.inference:'—'}<small> ms</small></strong></div><div><span>STATUS</span><strong className="status-text" aria-live="polite">{stats.tracked?'Hand detected':active?'Searching…':'Standby'}</strong></div></section>
-      </details>
+      </div>
+      <video ref={call.selfVideo} className="self-video" autoPlay muted playsInline/>
+      {screen==='home' && !active && <div className="camera-empty">
+        <p role={phase==='error'?'alert':'status'}>{phase==='idle' ? 'Turn on your camera to see your hand tracked.' : message}</p>
+        {phase!=='loading' && <button className="pill-button" onClick={() => void start()}>{phase==='error'?'Try again':'Turn on camera'}</button>}
+      </div>}
+      {screen==='home' && active && <span className="self-label">{stats.tracked ? 'Hand tracked' : 'Looking for your hand'}</span>}
+      {screen==='home' && cameraOn && <div className="preview-actions">
+        <button className="round small" disabled={phase==='loading'} onClick={switchCamera} aria-label={`Switch to ${facing==='user'?'rear':'front'} camera`}><Icon name="flip" size={20}/></button>
+        <button className="pill-button" onClick={stop}>{phase==='loading'?'Cancel':'Turn off camera'}</button>
+      </div>}
+      {screen!=='home' && call.cameraOff && <p className="self-off">Camera off</p>}
     </div>
-    <footer><p>Monocular depth is an estimate. Occlusion and fast movement can reduce accuracy.</p></footer>
+    {!mobile && screen==='incall' && showOverlay && <div className="hand-tile" aria-label="Your hand in 3D">
+      <HandScene live={live} mobile={false} running={active && pageVisible}/>
+      {!stats.tracked && <p>{active ? 'Show your hand' : 'Camera is off'}</p>}
+    </div>}
+    {screen==='home' && <section className="home-panel" aria-label="Start a call">
+      <div><h1>GHOST</h1><p className="tagline">Show someone what to do with your hands.</p></div>
+      <button className="primary" onClick={() => call.start()}><Icon name="video" size={20}/>New call</button>
+      <form className="join" onSubmit={e => { e.preventDefault(); if(validCode) call.start(code); }}>
+        <label htmlFor="room-input">Join with a code</label>
+        <div><input id="room-input" value={code} onChange={e => setCode(normalizeRoomCode(e.target.value).slice(0,6))} placeholder="ABC234" maxLength={8} spellCheck={false} autoCapitalize="characters" autoComplete="off" enterKeyHint="go"/><button type="submit" disabled={!validCode}>Join</button></div>
+      </form>
+      {call.error && <p className="banner error" role="alert">{call.error}</p>}
+      {call.hint && <p className="banner" role="status">{call.hint}</p>}
+      {notice && <p className="banner" role="status">{notice}</p>}
+      <button className="text-button" onClick={() => setMoreOpen(true)}>Hand tools and lab</button>
+      <p className="fine">Hand tracking runs on this device. Your friend gets your video and voice only.</p>
+    </section>}
+    {screen==='calling' && <section className="calling-info" aria-label="Calling">
+      <p className="code" data-testid="room-code">{call.room || '······'}</p>
+      <p className="call-status" role="status">{callStatus}</p>
+      {call.room && <button className="pill-button" onClick={call.share}><Icon name="share" size={16}/>Share code</button>}
+      {call.hint && <p className="fine" role="status">{call.hint}</p>}
+      {call.room && !call.relay && <p className="fine">No TURN relay on this server, so calls across networks may fail.</p>}
+    </section>}
+    {screen==='incall' && <div className="call-pill" role="status"><b data-testid="room-code">{call.room}</b><span data-testid="call-state">{call.status==='connected' ? clock : 'Reconnecting…'}</span>{call.route && <span>{call.route}</span>}</div>}
+    {screen!=='home' && <div className="controls">
+      <button className="round" disabled={!call.local} aria-pressed={call.muted} aria-label={call.muted?'Unmute microphone':'Mute microphone'} onClick={call.toggleMute}><Icon name={call.muted?'micOff':'mic'}/></button>
+      <button className="round" disabled={!call.local} aria-pressed={call.cameraOff} aria-label={call.cameraOff?'Turn camera on':'Turn camera off'} onClick={call.toggleCamera}><Icon name={call.cameraOff?'videoOff':'video'}/></button>
+      <button className="round" aria-pressed={showOverlay} aria-label="Hand skeleton" onClick={() => setLandmarks(!showOverlay)}><Icon name="hand"/></button>
+      <button className="round" aria-label="Hand tools" onClick={() => setMoreOpen(true)}><Icon name="more"/></button>
+      <button className="round end" aria-label={call.status==='preparing'?'Cancel':'End call'} onClick={call.end}><Icon name="end" size={26}/></button>
+    </div>}
+    {moreOpen && <div className="sheet-backdrop" onClick={e => { if(e.target===e.currentTarget) setMoreOpen(false); }}>
+      <aside className="sheet" role="dialog" aria-label="Hand tools" onKeyDown={e => { if(e.key==='Escape') setMoreOpen(false); }}>
+        <div className="sheet-head"><h2>Hand tools</h2><button className="round small" aria-label="Close" autoFocus onClick={() => setMoreOpen(false)}><Icon name="close" size={18}/></button></div>
+        <HandQuickControls placement={placement} onPlacement={setPlacement} cameraOn={active} tracked={stats.tracked}/>
+        <details className="more"><summary>Tune the hand <small>size, reach, mirroring, network test</small></summary><HandAdvanced enabled={handOn} onEnabled={setHandOn} placement={placement} onPlacement={setPlacement} remote={remoteHand} loop={loop}/></details>
+        <details className="more"><summary>AI scan to 3D model <small>needs the AI server</small></summary>
+          <ScenePanel objects={scene.objects} selectedId={selectedId} onSelect={setSelectedId} action={action} onAction={setChosen} mode={mode} onMode={setMode} onRecenter={() => setRecenter(n=>n+1)}
+            cameraOn={active} scanning={scene.scanning} error={scene.error} auto={scene.auto} onAuto={scene.setAuto} onScan={() => void scene.scan()} lastMs={scene.lastMs}/>
+          <DemoPanel cameraActive={active} onShowOnCamera={setDemo}/>
+        </details>
+        <details className="more" onToggle={e => setLabOpen(e.currentTarget.open)}><summary>Hand tracking lab <small>3D skeleton, performance</small></summary>
+          <div className="panel-footer lab-toggle"><label><input type="checkbox" checked={showOverlay} onChange={e => setLandmarks(e.target.checked)}/> Draw landmark dots on the camera view</label><span>21 POINTS</span></div>
+          <div className="scene-stage stage">{labOpen && <HandScene live={live} mobile={mobile} running={active && pageVisible}/>}{!stats.tracked && <div className="scene-wait"><p>{active?'Waiting for your hand':'Turn on the camera first'}</p></div>}<div className="scene-label">{stats.tracked?`${stats.hand.toUpperCase()} HAND / ${stats.world?'WORLD':'IMAGE'} LANDMARKS`:'NO SIGNAL'}</div></div>
+          <section className="metrics" aria-label="Performance metrics"><div><span>RENDER RATE</span><strong>{active?stats.fps:'—'}<small> FPS</small></strong></div><div><span>PIPELINE LATENCY</span><strong>{active?stats.latency:'—'}<small> ms</small></strong></div><div><span>MODEL INFERENCE</span><strong>{active?stats.inference:'—'}<small> ms</small></strong></div><div><span>STATUS</span><strong className="status-text" aria-live="polite">{stats.tracked?'Hand detected':active?'Searching…':'Standby'}</strong></div></section>
+          <p className="fine lab-note">Monocular depth is an estimate. Occlusion and fast movement can reduce accuracy.</p>
+        </details>
+      </aside>
+    </div>}
   </main>;
 }

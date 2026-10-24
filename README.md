@@ -18,7 +18,7 @@ npm install
 npm run dev
 ```
 
-Open the printed localhost URL, click **Enable camera**, and allow access. Hold one hand in view with good lighting. Toggle **2D landmark overlay** to compare tracking with the mirrored video. Use **Switch camera** to select the front or rear camera (or select it before starting). On a single-camera device the browser can fall back to the available camera. Stop camera releases the webcam; Cancel also cancels initialization. Permission errors include retry guidance. Camera access needs localhost or HTTPS.
+Open the printed localhost URL, click **Turn on camera** in the preview, and allow access. Hold one hand in view with good lighting. The UI follows FaceTime: an iPhone layout on phones and narrow windows (≤800 px or touch), a Mac-window layout on computers. The flip button in the preview switches front/rear camera (on the home screen only). **Turn off camera** releases the webcam; Cancel also cancels initialization. The hand button in a call toggles the landmark overlay (and the 3D hand tile on computers); **Hand tools and lab** (or **⋯** in a call) opens placement, tuning, the AI scan, and the 3D lab with metrics. Permission errors include retry guidance. Camera access needs localhost or HTTPS.
 
 ```sh
 npm test       # coordinate transform invariants
@@ -42,7 +42,7 @@ MediaPipe world landmarks are **monocular estimates**, not accurate full 3D reco
 
 ## Manual camera validation
 
-Enable camera and verify live mirrored video; open and close the palm, point, move each finger, and rotate the wrist. Compare joint alignment using the debug overlay. Remove the hand and confirm the skeleton disappears; return it and confirm immediate reacquisition. Stop and restart the camera. Test denying permission and retry after changing browser site settings. Test disconnecting the camera and a blocked model download. Observe the render and inference metrics on your laptop; performance is not guaranteed from build checks alone.
+Turn on the camera and verify live mirrored video; open and close the palm, point, move each finger, and rotate the wrist. Compare joint alignment using the landmark overlay. Remove the hand and confirm the skeleton disappears; return it and confirm immediate reacquisition. Stop and restart the camera. Test denying permission and retry after changing browser site settings. Test disconnecting the camera and a blocked model download. Observe the render and inference metrics in Hand tools → Hand tracking lab; performance is not guaranteed from build checks alone.
 
 Implementation follows the [MediaPipe Hand Landmarker web guide](https://ai.google.dev/edge/mediapipe/solutions/vision/hand_landmarker/web_js).
 
@@ -72,16 +72,16 @@ The phone needs the development CA too. Run `mkcert -CAROOT` on the laptop and t
 - **iPhone:** open the certificate, install the downloaded profile in Settings, then enable full trust for that CA under Settings → General → About → Certificate Trust Settings.
 - **Android:** install it as a CA certificate in Settings → Security / Encryption & credentials → Install a certificate → CA certificate (wording varies by manufacturer).
 
-Open **`https://192.168.1.42:5173`** on the phone, using your actual IP. It should show no certificate warning. Allow camera access after tapping **Enable camera**. If the page cannot load, allow the dev server through your laptop firewall and check Wi-Fi client isolation / guest-network restrictions. If there is a certificate warning, confirm the IP matches the certificate and the phone trusts the CA. After testing, you can remove the development CA profile from the phone.
+Open **`https://192.168.1.42:5173`** on the phone, using your actual IP. It should show no certificate warning. Allow camera access after tapping **Turn on camera**. If the page cannot load, allow the dev server through your laptop firewall and check Wi-Fi client isolation / guest-network restrictions. If there is a certificate warning, confirm the IP matches the certificate and the phone trusts the CA. After testing, you can remove the development CA profile from the phone.
 
 ### Device checklist
 
-1. In portrait, verify no sideways scroll at small widths (including 320/375/390 px), readable status metrics, and 44+ px touch controls. Check notch and home-indicator spacing.
+1. In portrait, verify no sideways scroll at small widths (including 320/375/390 px), the call controls fit in one row, and 44+ px touch controls. Check notch and home-indicator spacing.
 2. Enable tracking and allow permission. Check palm opening/closing, individual fingers, pointing, and wrist rotation against the 2D overlay. Front camera video and skeleton should both behave like a mirror.
 3. Switch to rear camera while tracking. Confirm the old camera stops, the new camera starts, and video/landmarks/3D move together without selfie mirroring. Switch back. Camera switches restart the tracking worker/model; a brief loading state is expected.
 4. Rotate portrait ↔ landscape during tracking. The video stays uncropped, overlay stays aligned, and the scene resizes. Resize events refresh actual stream dimensions; stale frames with the old aspect ratio are discarded.
 5. Toggle landmarks, stop/restart, cancel loading, deny permission and retry after allowing it in site settings. Stop must turn off the phone's camera indicator.
-6. Background the browser, return, and navigate away/back. Inference and mobile rendering pause while hidden; leaving the page releases the stream and worker, and returning may require **Enable camera** again. If the OS suspends the camera, stop/restart it.
+6. Background the browser, return, and navigate away/back. Inference and mobile rendering pause while hidden; leaving the page releases the stream and worker, and returning may require **Turn on camera** again. If the OS suspends the camera, stop/restart it.
 7. Run for several minutes and observe FPS, inference latency, and device temperature. Test both iOS Safari and Android Chrome: desktop build checks cannot establish real-device tracking accuracy, battery use, camera orientation, or sustained FPS.
 
 
@@ -96,7 +96,7 @@ npm install
 npm run dev
 ```
 
-This starts Vite on localhost:5173 and a signaling server on localhost:8787. Open two browser windows (or separate Chrome profiles), click **Create room** in one, and enter its code under **Have a room code? → Join room** in the other. Allow camera and microphone in both. Both sides connect automatically; no reply code is needed. Use headphones.
+This starts Vite on localhost:5173 and a signaling server on localhost:8787. Open two browser windows (or separate Chrome profiles), click **New call** in one, and type its code under **Join with a code → Join** in the other (or tap **Share code**). Allow camera and microphone in both. Both sides connect automatically; no reply code is needed. Use headphones.
 
 A host can wait up to 30 minutes without a media connection timer. The 60-second connection timer starts only after **both** participants have accepted camera/microphone permissions and are ready. Rooms have capacity two; ending/leaving the call invalidates the room. A broken signaling connection ends the call; start a new room to retry.
 

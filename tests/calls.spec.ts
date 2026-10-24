@@ -1,14 +1,14 @@
 import {test,expect,type Page} from '@playwright/test';
 async function join(host:Page,guest:Page) {
  await host.goto('/');await guest.goto('/');
- await host.getByRole('button',{name:'Create room',exact:true}).click();
+ await host.getByRole('button',{name:'New call',exact:true}).click();
  await expect(host.getByTestId('room-code')).toHaveText(/^[A-HJ-NP-Z2-9]{6}$/);
  const code=await host.getByTestId('room-code').innerText();
  await expect(host.getByText('Waiting for your friend…',{exact:true})).toBeVisible();
- await guest.getByLabel('Have a room code?').fill(code);
- await guest.getByRole('button',{name:'Join room',exact:true}).click();
- await expect(host.getByText('Connected',{exact:true})).toBeVisible({timeout:35_000});
- await expect(guest.getByText('Connected',{exact:true})).toBeVisible({timeout:35_000});
+ await guest.getByLabel('Join with a code').fill(code);
+ await guest.getByRole('button',{name:'Join',exact:true}).click();
+ await expect(host.getByTestId('call-state')).toHaveText(/^\d\d:\d\d$/,{timeout:35_000});
+ await expect(guest.getByTestId('call-state')).toHaveText(/^\d\d:\d\d$/,{timeout:35_000});
 }
 test('one short code connects two browsers with bidirectional audio/video, controls and hangup',async({browser})=>{
  const a=await browser.newContext({permissions:['camera','microphone']}),b=await browser.newContext({permissions:['camera','microphone']});
@@ -29,8 +29,8 @@ test('one short code connects two browsers with bidirectional audio/video, contr
   await expect(guest.getByText('TURN relay',{exact:true})).toBeVisible();
  }
  for(const page of [host,guest]) {
-  await expect.poll(()=>page.locator('.call-view video').nth(1).evaluate((video:HTMLVideoElement)=>video.videoWidth)).toBeGreaterThan(0);
-  const tracks=await page.locator('.call-view video').nth(1).evaluate((v:HTMLVideoElement)=>(v.srcObject as MediaStream).getTracks().map(t=>({kind:t.kind,state:t.readyState})));
+  await expect.poll(()=>page.locator('.friend-video').evaluate((video:HTMLVideoElement)=>video.videoWidth)).toBeGreaterThan(0);
+  const tracks=await page.locator('.friend-video').evaluate((v:HTMLVideoElement)=>(v.srcObject as MediaStream).getTracks().map(t=>({kind:t.kind,state:t.readyState})));
   expect(tracks).toEqual(expect.arrayContaining([{kind:'audio',state:'live'},{kind:'video',state:'live'}]));
   await expect.poll(()=>page.evaluate(async()=>{
    const stats=await ((window as any).testPeer as RTCPeerConnection).getStats();
@@ -63,45 +63,45 @@ test('host can wait beyond old timeout and join starts only after guest permissi
    await new Promise<void>(resolve=>{(window as any).allowCall=resolve;});return original(constraints);
   };
  });
- await host.getByRole('button',{name:'Create room',exact:true}).click();
+ await host.getByRole('button',{name:'New call',exact:true}).click();
  await expect(host.getByText('Waiting for your friend…',{exact:true})).toBeVisible();
  const code=await host.getByTestId('room-code').innerText();
  // Move the host browser clock past the old two-minute deadline.
  await host.clock.install();await host.clock.fastForward(125_000);
  await expect(host.getByText('Waiting for your friend…',{exact:true})).toBeVisible();
- await guest.getByLabel('Have a room code?').fill(code);await guest.getByRole('button',{name:'Join room',exact:true}).click();
+ await guest.getByLabel('Join with a code').fill(code);await guest.getByRole('button',{name:'Join',exact:true}).click();
  await expect(guest.getByTestId('room-code')).toHaveText(code);
  await guest.waitForFunction(()=>typeof (window as any).allowCall==='function');
  await host.clock.fastForward(125_000);
  await expect(host.getByText('Waiting for your friend…',{exact:true})).toBeVisible();
  await guest.evaluate(()=>(window as any).allowCall());await host.clock.resume();
- await expect(host.getByText('Connected',{exact:true})).toBeVisible({timeout:35_000});
- await expect(guest.getByText('Connected',{exact:true})).toBeVisible();
+ await expect(host.getByTestId('call-state')).toHaveText(/^\d\d:\d\d$/,{timeout:35_000});
+ await expect(guest.getByTestId('call-state')).toHaveText(/^\d\d:\d\d$/);
  await a.close();await b.close();
 });
 test('missing room and denied permissions return actionable errors',async({page})=>{
- await page.goto('/');await page.getByLabel('Have a room code?').fill('ZZZ999');await page.getByRole('button',{name:'Join room',exact:true}).click();
+ await page.goto('/');await page.getByLabel('Join with a code').fill('ZZZ999');await page.getByRole('button',{name:'Join',exact:true}).click();
  await expect(page.getByRole('alert')).toContainText('Room not found');
  await page.evaluate(()=>{navigator.mediaDevices.getUserMedia=()=>Promise.reject(new DOMException('Denied','NotAllowedError'));});
- await page.getByRole('button',{name:'Create room',exact:true}).click();await expect(page.getByRole('alert')).toContainText('permission was denied');
- await expect(page.getByRole('button',{name:'Create room',exact:true})).toBeVisible();
+ await page.getByRole('button',{name:'New call',exact:true}).click();await expect(page.getByRole('alert')).toContainText('permission was denied');
+ await expect(page.getByRole('button',{name:'New call',exact:true})).toBeVisible();
 });
 test('cancel while media permission is pending closes later media tracks',async({page})=>{
  await page.goto('/');await page.evaluate(()=>{
   const original=navigator.mediaDevices.getUserMedia.bind(navigator.mediaDevices);
   navigator.mediaDevices.getUserMedia=async constraints=>{const stream=await original(constraints);(window as any).pendingTracks=stream.getTracks();await new Promise<void>(resolve=>{(window as any).allowCall=resolve;});return stream;};
  });
- await page.getByRole('button',{name:'Create room',exact:true}).click();await page.waitForFunction(()=>typeof (window as any).allowCall==='function');
+ await page.getByRole('button',{name:'New call',exact:true}).click();await page.waitForFunction(()=>typeof (window as any).allowCall==='function');
  await page.getByRole('button',{name:'Cancel',exact:true}).click();await page.evaluate(()=>(window as any).allowCall());
  await expect.poll(()=>page.evaluate(()=>(window as any).pendingTracks.every((t:MediaStreamTrack)=>t.readyState==='ended'))).toBe(true);
- await expect(page.getByRole('button',{name:'Create room',exact:true})).toBeVisible();
+ await expect(page.getByRole('button',{name:'New call',exact:true})).toBeVisible();
 });
 test('room capacity rejects a third participant without disturbing the existing call',async({browser})=>{
  const a=await browser.newContext({permissions:['camera','microphone']}),b=await browser.newContext({permissions:['camera','microphone']}),c=await browser.newContext({permissions:['camera','microphone']});
  const host=await a.newPage(),guest=await b.newPage(),third=await c.newPage();await join(host,guest);
- const code=await host.getByTestId('room-code').innerText();await third.goto('/');await third.getByLabel('Have a room code?').fill(code);await third.getByRole('button',{name:'Join room',exact:true}).click();
+ const code=await host.getByTestId('room-code').innerText();await third.goto('/');await third.getByLabel('Join with a code').fill(code);await third.getByRole('button',{name:'Join',exact:true}).click();
  await expect(third.getByRole('alert')).toContainText('two people');
- await expect(host.getByText('Connected',{exact:true})).toBeVisible();await expect(guest.getByText('Connected',{exact:true})).toBeVisible();
+ await expect(host.getByTestId('call-state')).toHaveText(/^\d\d:\d\d$/);await expect(guest.getByTestId('call-state')).toHaveText(/^\d\d:\d\d$/);
  await guest.getByRole('button',{name:'End call',exact:true}).click();await expect(host.getByText('Your friend ended the call.',{exact:true})).toBeVisible();
  await a.close();await b.close();await c.close();
 });
@@ -113,14 +113,14 @@ test('hand-tracking camera and call tracks have independent lifetimes',async({br
  await host.locator('.camera-stage video').evaluate(async(v:HTMLVideoElement)=>{
   const stream=await navigator.mediaDevices.getUserMedia({video:true});v.srcObject=stream;await v.play();(window as any).trackingStream=stream;
  });
- await host.getByRole('button',{name:'Create room',exact:true}).click();await expect(host.getByText('Waiting for your friend…',{exact:true})).toBeVisible();
- const code=await host.getByTestId('room-code').innerText();await guest.getByLabel('Have a room code?').fill(code);await guest.getByRole('button',{name:'Join room',exact:true}).click();await expect(host.getByText('Connected',{exact:true})).toBeVisible({timeout:35_000});
+ await host.getByRole('button',{name:'New call',exact:true}).click();await expect(host.getByText('Waiting for your friend…',{exact:true})).toBeVisible();
+ const code=await host.getByTestId('room-code').innerText();await guest.getByLabel('Join with a code').fill(code);await guest.getByRole('button',{name:'Join',exact:true}).click();await expect(host.getByTestId('call-state')).toHaveText(/^\d\d:\d\d$/,{timeout:35_000});
  await host.evaluate(()=>(window as any).trackingStream.getTracks().forEach((t:MediaStreamTrack)=>t.stop()));
  expect(await host.locator('.self-video').evaluate((v:HTMLVideoElement)=>(v.srcObject as MediaStream).getVideoTracks()[0].readyState)).toBe('live');
  await host.getByRole('button',{name:'End call',exact:true}).click();await a.close();await b.close();
 });
 test('signaling outage shows an error and cancels its deadline',async({page})=>{
  await page.routeWebSocket('**/signal',ws=>ws.close({code:1011,reason:'Test service outage'}));
- await page.goto('/');await page.getByRole('button',{name:'Create room',exact:true}).click();
- await expect(page.getByRole('alert')).toContainText('calling server');await expect(page.getByRole('button',{name:'Create room',exact:true})).toBeVisible();
+ await page.goto('/');await page.getByRole('button',{name:'New call',exact:true}).click();
+ await expect(page.getByRole('alert')).toContainText('calling server');await expect(page.getByRole('button',{name:'New call',exact:true})).toBeVisible();
 });
