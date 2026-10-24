@@ -26,7 +26,7 @@ Roles (the code uses these names):
 
 Must work live, on two laptops, on event Wi-Fi:
 
-- [ ] **Hero: two-piece lanyard.** The learner has two disconnected pieces; the helper shows how to join them (align, insert, click). See ARCHITECTURE "Assembly". This must be the most polished thing in the demo.
+- [ ] **Hero: lanyard hook into a cardboard tag.** The hook has come off the tag; the helper shows how to clip it through the tag's slot (align, thread through, the tag hangs and swings). See ARCHITECTURE "Assembly". This must be the most polished thing in the demo.
 - [ ] 1–2 backup cached objects with interactive parts (e.g. a phone power button, a pill bottle push-and-twist cap).
 - [ ] Grab, move, rotate and two-hand resize that feel effortless (see ARCHITECTURE "Interaction").
 - [ ] Throw with zero accidental throws in a 2-minute handling test.
@@ -94,7 +94,7 @@ Possible but not planned: Tiger Data (we chose Convex for storage), Elastic (sea
 ## Open questions
 
 - Replay ownership without accounts: is a random replay id plus a key kept in `localStorage` enough for the demo?
-- Which lanyard exactly (side-release buckle, hook clip into a ring, or a magnetic clasp)? It sets the connector frames and whether separating needs a `press`. Get the physical one and photograph both pieces for SAM 3D first.
+- Hook type: a plain open hook, or a spring-gate clasp (lobster or trigger)? This only sets the `gate` flag. Photograph the real hook and tag first.
 - Who decides part affordances: Claude per object (with a human check on the cached ones), or hand-written profiles for the 3 demo objects? Recommended: Claude-generated, then hand-checked and committed.
 - Does the learner watch the helper's demonstration in 3D only, or 3D overlaid on the helper's video?
 - One shared scene (both see the same object at once) or the current "only the holder has it" model? Currently the holder has it. That keeps conflicts away and makes the throw meaningful.

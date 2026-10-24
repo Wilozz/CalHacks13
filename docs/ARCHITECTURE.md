@@ -69,19 +69,20 @@ Plain serializable data, validated like `sanitizeModel` before use. It travels o
 
 ### Assembly: objects made of pieces (the lanyard demo)
 
-The hero demo: the learner has a lanyard in two pieces (for example, a strap ending in a buckle tongue, and a strap ending in the buckle socket). The helper shows how to join them. This is the case the whole system is built for, so it gets its own rules.
+The hero demo: the learner has a lanyard whose hook has come off a cardboard name tag. The helper shows how to clip the hook through the small slot in the tag. This is the case the whole system is built for, so it gets its own rules. The generic model comes first, then the specifics for the hook in "Hook into tag slot".
 
 **Model.** An object is a *kit* of rigid **pieces**. Each piece has its own mesh and its own pose, plus **connectors** that can mate with each other. A part (button, cap) moves *within* a piece; a piece moves freely, and connectors join pieces.
 
 ```jsonc
 "pieces": [
-  { "id": "tongue", "mesh": "lanyard-01/tongue.glb",
-    "connectors": [{ "id": "t", "at": [0, -0.5, 0], "axis": [0, -1, 0], "up": [0, 0, 1], "mates": "socket.s" }] },
-  { "id": "socket", "mesh": "lanyard-01/socket.glb",
-    "connectors": [{ "id": "s", "at": [0, 0.5, 0], "axis": [0, 1, 0], "up": [0, 0, 1], "mates": "tongue.t",
-                     "insert": 0.35, "symmetric": false }] }
+  { "id": "hook", "mesh": "lanyard-01/hook.glb",              // the strap rides along as a rope, see below
+    "connectors": [{ "id": "tip", "kind": "hook", "at": [0.12, -0.3, 0], "axis": [0, 0, -1], "up": [0, 1, 0],
+                     "mates": "tag.slot", "bend": [0, -0.42, 0] }] },  // bend: where the tag hangs once on
+  { "id": "tag", "mesh": null, "card": { "size": [0.86, 0.54, 0.01], "texture": "lanyard-01/tag.jpg" },
+    "connectors": [{ "id": "slot", "kind": "slot", "at": [0, 0.22, 0], "axis": [0, 0, 1], "up": [0, 1, 0],
+                     "mates": "hook.tip", "slot": [0.14, 0.04] }] }   // slot opening, width × height
 ],
-"joints": []                       // runtime state: [] = apart, [["tongue.t","socket.s"]] = joined
+"joints": []                       // runtime state: [] = apart, [["hook.tip","tag.slot"]] = joined
 ```
 
 Each piece is scanned separately with SAM 3D (photograph the two pieces apart). The connector frames (`at`, `axis`, `up`) are written by hand in the profile, because a model guessing them wrong breaks the demo.
@@ -93,6 +94,17 @@ Each piece is scanned separately with SAM 3D (photograph the two pieces apart). 
 3. **Insert:** progress along the axis comes from the hands moving the two pieces together (projected onto the axis). Past `insert` depth it **snaps**: a click sound, a squash, and the joint is added to `joints`. From then on the joined pieces move as one rigid group, held by either hand.
 
 Separating uses the reverse motion (pull apart along the axis past a threshold), or a `press` part on the buckle (side-release) if the real lanyard works that way. That is the same parts system, so "press both tabs, then pull" is just a profile.
+
+**Hook into tag slot (the actual demo).** These specifics replace the generic peg-in-socket insert:
+
+- **Tag:** don't SAM 3D it. A flat piece of cardboard is a thin box with the photo of the tag as its texture, with the slot cut out (a hole in the texture's alpha, plus a darker rim). It looks better than a scan of a thin card would, and the slot is exactly where the profile says it is.
+- **Hook:** SAM 3D does poorly on small, shiny metal. Try the scan, but keep a fallback built from simple shapes: a `TorusGeometry` arc for the bend, a cylinder shank, and a ring at the top. Show it about 4× the tag's real proportion, because at true size the hook is a few pixels. The hologram can be resized anyway.
+- **Align:** the hook tip is pulled so it points through the slot (tip direction against the card's normal) and lined up with the slot's long side.
+- **Insert = thread through:** the join happens when the hook tip *crosses the card's plane inside the slot rectangle*. That's a segment-plane test on the tip's path between two frames, plus a point-in-rectangle check. It runs in the tag's frame, so either hand can be the one that moves. A tip that crosses outside the slot bumps: the tag nudges away, with no join, which shows "you missed the hole".
+- **After the join, the tag hangs.** It is no longer rigidly attached. It hangs on the hook's `bend` point as a damped pendulum (one or two angles, driven by how the hook moves), so the tag swings when the helper lifts the lanyard. That swing is the "it's on" proof, and it reads well on video.
+- **Clasp gate:** if the real hook has a spring gate (a lobster or trigger clasp), the gate opens while the hook is held in a pinch near the slot, and closes on the join. The thumb pressing the trigger is too small to track reliably, so this is cosmetic. It's a profile flag (`"gate": true`); skip it for a plain open hook.
+- **Separating:** grab the tag and pull it back over the tip (the reverse threading test), with the gate open if there is one.
+- **Strap (stretch goal):** a verlet rope from the hook's ring to off-screen, so the hook feels attached to a lanyard. It is not needed for the join.
 
 **Why it will feel good, given hand-tracking limits:**
 
