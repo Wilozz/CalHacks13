@@ -173,10 +173,12 @@ Pinch (thumb to index) with the fingertip on the 3D copy to grab it; while pinch
 A demo of "Reach Through": a hologram you grab and flick through the screen to the person you're calling. Open the **Throwing prototype** tab (top right on the start screen, or `/#throw`).
 
 1. Pick **Mug**, **Pill bottle** or **Teddy bear**. These are preset `ModelSpec` shapes, so no scan or AI server is needed.
-2. Grab it: pinch it with your tracked hand (thumb and index finger), or drag it with the mouse or a finger.
-3. Flick and let go to throw it. It flies into the screen and comes out of the other person's screen, where it lands and becomes theirs to move and throw back. **Toss** does a flick for you.
+2. Grab it: turn on hand tracking (hand button), reach for it so your drawn hand is on it, then pinch or make a fist. Or drag it with the mouse or a finger.
+3. Flick, or push your hand toward the screen, and let go to throw it. It flies into the screen and comes out of the other person's screen, where it lands and becomes theirs to move and throw back. **Toss** does a flick for you.
 4. With nobody on the call, a thrown object comes back to you, so the effect can be tried alone.
 
 Only the object's shapes and colors cross the call (a `toss` message on the reliable `control` data channel, about 1 KB). The receiver validates it with `sanitizeModel` before rendering. Both people need to be on this tab; a toss sent to someone on the Call tab is ignored.
 
-Manual checks (cannot run headless): pinch grabs only when the cursor ring is on the object; a fast flick throws while a slow release drops it; the hologram reads clearly over a real, bright camera feed.
+Grabbing follows your palm centre (it does not move when your fingers close), smoothed with a One Euro filter, and draws your hand where it appears in the camera. Pinch and fist thresholds come from MediaPipe landmarks on real hand photos (`src/remote/handPhotos.json`, checked in `src/remote/twin.test.ts`); the same pinch fix applies to the Call tab's 3D copy.
+
+Manual checks (a real camera cannot run headless): the drawn hand sits on your hand; grabbing works with both a pinch and a fist at arm's length and close up; a fast flick throws while a slow release drops it; the object reads clearly over a bright room.

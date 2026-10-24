@@ -2,7 +2,8 @@ import { useCallback, useEffect, useRef, useState, type RefObject } from 'react'
 import type { HandFrame } from '../coordinates';
 
 export type TrackerPhase = 'idle' | 'loading' | 'running' | 'error';
-export interface TrackedHand { frame: HandFrame | null; at: number }
+/** aspect: the camera frame's width / height, to line the hand up with the video on screen. */
+export interface TrackedHand { frame: HandFrame | null; at: number; aspect: number }
 
 /**
  * Front camera + the MediaPipe worker, for the throwing prototype. Same rules as App: at most one frame in
@@ -12,7 +13,7 @@ export interface TrackedHand { frame: HandFrame | null; at: number }
 export function useTracker(video: RefObject<HTMLVideoElement | null>) {
   const [phase, setPhase] = useState<TrackerPhase>('idle');
   const [error, setError] = useState('');
-  const hand = useRef<TrackedHand>({ frame: null, at: 0 });
+  const hand = useRef<TrackedHand>({ frame: null, at: 0, aspect: 4 / 3 });
   const dispose = useRef<() => void>(() => {});
 
   const stop = useCallback(() => { dispose.current(); dispose.current = () => {}; setPhase('idle'); }, []);
@@ -26,7 +27,7 @@ export function useTracker(video: RefObject<HTMLVideoElement | null>) {
       cancelled = true; cancelAnimationFrame(raf); clearTimeout(timeout); worker?.terminate();
       stream?.getTracks().forEach(t => t.stop());
       if (video.current) video.current.srcObject = null;
-      hand.current = { frame: null, at: 0 };
+      hand.current = { frame: null, at: 0, aspect: 4 / 3 };
     };
     dispose.current = end;
     const fail = (e: unknown) => {
@@ -67,7 +68,7 @@ export function useTracker(video: RefObject<HTMLVideoElement | null>) {
         if (cancelled) return;
         if (data.type === 'error') fail(new Error(data.message));
         else if (data.type === 'ready') { clearTimeout(timeout); setPhase('running'); raf = requestAnimationFrame(tick); }
-        else if (data.type === 'result') { busy = false; if (!document.hidden) hand.current = { frame: data.frame, at: performance.now() }; }
+        else if (data.type === 'result') { busy = false; if (!document.hidden) hand.current = { frame: data.frame, at: performance.now(), aspect: data.aspect }; }
       };
       timeout = window.setTimeout(() => fail(new Error('Model loading timed out. Check the network.')), 45_000);
       worker.postMessage({ type: 'init' });

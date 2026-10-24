@@ -50,8 +50,8 @@ export default function ThrowPrototype() {
   const validCode = ROOM_PATTERN.test(normalizeRoomCode(code));
   const hint = status.state === 'none' ? (screen === 'incall' ? 'Pick an object, or wait for your friend to toss one' : 'Pick an object to make a hologram')
     : status.state === 'spawn' ? `Scanning ${status.label.toLowerCase()}…`
-    : status.state === 'rest' ? (status.handSeen ? (status.hover ? 'Pinch to grab it' : 'Move your hand to it, then pinch') : 'Drag it, then flick to toss it')
-    : status.state === 'held' ? 'Flick and let go to toss it'
+    : status.state === 'rest' ? (status.handSeen ? (status.hover ? 'Pinch or make a fist to grab it' : 'Reach for it with your hand') : 'Drag it, or show your hand and grab it')
+    : status.state === 'held' ? 'Flick it, or push toward the screen, and let go'
     : status.state === 'drop' ? 'Grab it again' : '';
 
   // t- prefixes: App's .phone/.mac/.home layout rules must not apply here.
@@ -67,7 +67,7 @@ export default function ThrowPrototype() {
 
     {screen === 'home' && <section className="throw-card" aria-label="Start a call">
       <h1>Throwing prototype</h1>
-      <p>Make a hologram, pinch it to grab it, and flick it through the screen to the person you're calling. Alone, it comes back to you.</p>
+      <p>Make an object, grab it with a pinch or a fist, and flick it through the screen to the person you're calling. Alone, it comes back to you.</p>
       <div className="throw-actions">
         <button className="primary" onClick={() => void begin()}><Icon name="video" size={20}/>New call</button>
         <form onSubmit={e => { e.preventDefault(); if (validCode) void begin(code); }}>
