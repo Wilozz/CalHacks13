@@ -172,10 +172,10 @@ Pinch (thumb to index) with the fingertip on the 3D copy to grab it; while pinch
 
 A demo of "Reach Through": a hologram you grab and flick through the screen to the person you're calling. Open the **Throwing prototype** tab (top right on the start screen, or `/#throw`).
 
-1. Pick **Mug**, **Pill bottle** or **Teddy bear**. These are preset `ModelSpec` shapes, so no scan or AI server is needed.
+1. Pick **Mug**, **Pill bottle** or **Teddy bear**. These are preset `ModelSpec` shapes, so no scan or AI server is needed. Each pick adds an object: keep two (or up to four) on screen at once. They land side by side and nudge each other apart.
 2. Grab it: turn on hand tracking (hand button), reach for it so your drawn hand is on it, then pinch or make a fist. Or drag it with the mouse or a finger.
-3. While holding it, turn your hand to rotate it in 3D (the change in your palm's orientation since the grab; letting go keeps the turn).
-4. Throw: flick **up** (up-and-forward, within about 55° of straight up) or push your hand toward the screen, and let go. A portal opens over your friend's video and the object is pulled into it; on their screen a portal opens and the object flies out toward them and lands, theirs to turn and throw back. **Toss** does a flick for you.
+3. While holding it, turn your hand to rotate it in 3D (the change in your palm's orientation since the grab; letting go keeps the turn). Resize it: on a phone, put a second finger on it and pinch; on a computer, scroll over it, or close your other hand on it and move your hands apart or together (computers track two hands; phones track one, since you hold the phone with the other). Each hand or finger can also hold a different object.
+4. Throw: flick **up** (up-and-forward, within about 55° of straight up) or push your hand toward the screen, and let go. A portal opens over your friend's video and the object is pulled into it; on their screen a portal opens and the object flies out toward them and lands, theirs to turn and throw back. **Toss** throws your newest object for you. Both people can throw at the same moment; a catch never replaces what you already hold, and sending and catching messages stack instead of replacing each other. The size you gave it travels with it.
 5. With nobody on the call, a thrown object comes back to you, so the effect can be tried alone.
 
 What never throws (`isThrow` in `toss.ts`, unit-tested): letting go within 0.25 s of grabbing, fast sideways or downward moves, slow releases. Losing hand tracking freezes the object and keeps the grip for 0.7 s; if the hand comes back still closed you are still holding it, otherwise it drops in place with no momentum.

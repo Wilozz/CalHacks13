@@ -2,7 +2,9 @@ import { sanitizeModel } from '../ai/modelSpec';
 import type { ModelPart, ModelSpec, PartShape, V3 } from '../ai/types';
 
 /** One object thrown across the call. Shape data only: the receiver rebuilds the hologram locally. */
-export interface Toss { id: string; label: string; model: ModelSpec; spin: V3 }
+export interface Toss { id: string; label: string; model: ModelSpec; spin: V3; scale: number }
+
+export const MIN_SCALE = 0.5, MAX_SCALE = 2.2; // how far a hologram can be shrunk or stretched
 
 const P = (shape: PartShape, size: V3, position: V3, color: string, moving = false): ModelPart => ({ shape, size, position, color, moving });
 
@@ -27,7 +29,7 @@ export type TossKind = keyof typeof TOSS_OBJECTS;
 const MAX_BYTES = 20_000;
 const num = (n: unknown, lim: number) => { const v = Number(n); return Number.isFinite(v) ? Math.min(lim, Math.max(-lim, v)) : 0; };
 
-export const encodeToss = (t: Toss): string => JSON.stringify({ type: 'toss', id: t.id, label: t.label, model: t.model, spin: t.spin.map(v => +v.toFixed(2)) });
+export const encodeToss = (t: Toss): string => JSON.stringify({ type: 'toss', id: t.id, label: t.label, model: t.model, spin: t.spin.map(v => +v.toFixed(2)), scale: +t.scale.toFixed(3) });
 
 /** null = not a toss or invalid. Never trusts the peer: the model goes through the same validation as a Claude scan. */
 export function decodeToss(text: unknown): Toss | null {
@@ -38,7 +40,9 @@ export function decodeToss(text: unknown): Toss | null {
   const model = sanitizeModel(m.model);
   if (!model) return null;
   const spin = Array.isArray(m.spin) ? m.spin : [];
-  return { id: String(m.id ?? '').slice(0, 16), label: String(m.label ?? 'Object').slice(0, 40), model, spin: [num(spin[0], 20), num(spin[1], 20), num(spin[2], 20)] };
+  const scale = Number(m.scale);
+  return { id: String(m.id ?? '').slice(0, 16), label: String(m.label ?? 'Object').slice(0, 40), model, spin: [num(spin[0], 20), num(spin[1], 20), num(spin[2], 20)],
+    scale: Number.isFinite(scale) ? Math.min(MAX_SCALE, Math.max(MIN_SCALE, scale)) : 1 };
 }
 
 export interface Sample { t: number; x: number; y: number }

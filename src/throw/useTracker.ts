@@ -2,18 +2,18 @@ import { useCallback, useEffect, useRef, useState, type RefObject } from 'react'
 import type { HandFrame } from '../coordinates';
 
 export type TrackerPhase = 'idle' | 'loading' | 'running' | 'error';
-/** aspect: the camera frame's width / height, to line the hand up with the video on screen. */
-export interface TrackedHand { frame: HandFrame | null; at: number; aspect: number }
+/** aspect: the camera frame's width / height, to line the hand up with the video on screen. frames: every hand found. */
+export interface TrackedHand { frame: HandFrame | null; frames: HandFrame[]; at: number; aspect: number }
 
 /**
  * Front camera + the MediaPipe worker, for the throwing prototype. Same rules as App: at most one frame in
  * flight (drop, never queue) and every bitmap is closed. Kept separate from App's tracker so the two screens
  * can change independently.
  */
-export function useTracker(video: RefObject<HTMLVideoElement | null>) {
+export function useTracker(video: RefObject<HTMLVideoElement | null>, numHands: 1 | 2 = 1) {
   const [phase, setPhase] = useState<TrackerPhase>('idle');
   const [error, setError] = useState('');
-  const hand = useRef<TrackedHand>({ frame: null, at: 0, aspect: 4 / 3 });
+  const hand = useRef<TrackedHand>({ frame: null, frames: [], at: 0, aspect: 4 / 3 });
   const dispose = useRef<() => void>(() => {});
 
   const stop = useCallback(() => { dispose.current(); dispose.current = () => {}; setPhase('idle'); }, []);
@@ -27,7 +27,7 @@ export function useTracker(video: RefObject<HTMLVideoElement | null>) {
       cancelled = true; cancelAnimationFrame(raf); clearTimeout(timeout); worker?.terminate();
       stream?.getTracks().forEach(t => t.stop());
       if (video.current) video.current.srcObject = null;
-      hand.current = { frame: null, at: 0, aspect: 4 / 3 };
+      hand.current = { frame: null, frames: [], at: 0, aspect: 4 / 3 };
     };
     dispose.current = end;
     const fail = (e: unknown) => {
@@ -68,12 +68,12 @@ export function useTracker(video: RefObject<HTMLVideoElement | null>) {
         if (cancelled) return;
         if (data.type === 'error') fail(new Error(data.message));
         else if (data.type === 'ready') { clearTimeout(timeout); setPhase('running'); raf = requestAnimationFrame(tick); }
-        else if (data.type === 'result') { busy = false; if (!document.hidden) hand.current = { frame: data.frame, at: performance.now(), aspect: data.aspect }; }
+        else if (data.type === 'result') { busy = false; if (!document.hidden) hand.current = { frame: data.frame, frames: data.frames.filter((f: HandFrame) => f.landmarks.length === 21), at: performance.now(), aspect: data.aspect }; }
       };
       timeout = window.setTimeout(() => fail(new Error('Model loading timed out. Check the network.')), 45_000);
-      worker.postMessage({ type: 'init' });
+      worker.postMessage({ type: 'init', numHands });
     } catch (e) { fail(e); }
-  }, [video]);
+  }, [video, numHands]);
 
   useEffect(() => {
     const leave = () => stop();

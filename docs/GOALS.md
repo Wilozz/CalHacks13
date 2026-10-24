@@ -45,6 +45,7 @@ Done:
 - Two-person WebRTC calls via six-character room code, automatic signaling
 - TURN relay support (coturn shared secret or managed provider), relay-only mode
 - Throwing prototype (`src/throw/`): preset primitive objects, palm-anchored pinch/fist grab, turn it with your palm, throw (up-flick or push) through a portal over the friend's video; it comes out of a portal on their screen toward them
+- Several objects per screen (up to 4), both callers throwing at once, resize by pinch (phone), scroll or two hands (computer); e2e covers a computer and a phone-sized touch peer throwing simultaneously
 - Wilson's branch merged: voice agent (Cartesia STT, `src/voice/`), pinch/grip turning of the Call tab's 3D copy (`src/remote/grasp.ts`, `quat.ts`)
 - Claude vision scan into a primitive `ModelSpec` twin, and an action library (`twist press pull push slide lift flip tilt`) with procedural animation (`src/render/motion.ts`)
 - Helper hand wire format (`src/remote/handWire.ts`, 262 B/frame), not yet sent over the real call
