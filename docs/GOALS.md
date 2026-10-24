@@ -49,7 +49,7 @@ Done:
 - Wilson's branch merged: voice agent (Cartesia STT, `src/voice/`), pinch/grip turning of the Call tab's 3D copy (`src/remote/grasp.ts`, `quat.ts`)
 - Claude vision scan into a primitive `ModelSpec` twin, and an action library (`twist press pull push slide lift flip tilt`) with procedural animation (`src/render/motion.ts`)
 - Helper hand over the call (`src/remote/handWire.ts`, 262 B/frame on the `hand` channel), drawn on the friend's feed and the 3D copy
-- Tutorials (`src/replay/`): record the 3D copy, watch it at once, save it with a name to Convex, live list, player with scrub, speed and orbit
+- Tutorials (`src/replay/`): lessons on the 3D copy capture themselves (hand on the copy starts, 6 s idle ends), watch at once, save with a name (Claude's topic by default) to Convex, live list, player with scrub, speed and orbit
 - Unit tests and Playwright e2e (direct and relay)
 
 Next, in build order (each step demoable on its own):

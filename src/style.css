@@ -271,7 +271,6 @@ button:disabled{opacity:.4;cursor:default}
 .mac.home .sheet-backdrop{top:72px}
 /* Tutorials: recording badge, the replay player and the save dialog. */
 .twin-rec{position:absolute;left:50%;top:8px;transform:translateX(-50%);padding:3px 8px;border-radius:999px;background:var(--red);color:#fff;font-size:10px;font-weight:700;letter-spacing:1px;pointer-events:none;font-variant-numeric:tabular-nums}
-.twin-tool.recording{background:var(--red);color:#fff}
 .replay-player{display:grid;gap:10px}
 .replay-stage{position:relative;aspect-ratio:4/3;max-height:60dvh;border-radius:12px;overflow:hidden;background:#54575d;touch-action:none}
 .replay-stage canvas{display:block}
@@ -294,3 +293,9 @@ button:disabled{opacity:.4;cursor:default}
 .replay-item{display:grid;gap:4px;width:100%;text-align:left;cursor:pointer;color:var(--text)}
 .replay-item.active{border-color:var(--green)}
 .replay-open h2{margin:0}
+.lesson-cards{position:absolute;z-index:7;left:16px;bottom:96px;display:grid;gap:8px;max-width:min(360px,calc(100vw - 32px))}
+.lesson-card{display:flex;align-items:center;gap:10px;padding:10px 10px 10px 14px;border-radius:14px;background:rgba(28,28,30,.92);box-shadow:0 6px 20px rgba(0,0,0,.4)}
+.lesson-card span{display:grid;flex:1;min-width:0}
+.lesson-card b{font-size:13px}
+.lesson-card small{font-size:12px;color:var(--text-2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.lesson-card .twin-tool{flex-shrink:0}

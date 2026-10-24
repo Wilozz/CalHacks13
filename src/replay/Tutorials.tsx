@@ -20,10 +20,10 @@ export function ownerKey(): string {
   } catch { return memoryKey ||= make(); }
 }
 
-function SaveForm({ replay, onDone }: { replay: Replay; onDone: () => void }) {
+function SaveForm({ replay, defaultName, onDone, onSaved, onDiscard }: { replay: Replay; defaultName: string; onDone: () => void; onSaved: () => void; onDiscard: () => void }) {
   const uploadUrl = useMutation(api.replays.generateUploadUrl);
   const save = useAction(api.replays.save);
-  const [name, setName] = useState(`${replay.twin.label} tutorial`);
+  const [name, setName] = useState(defaultName);
   const [state, setState] = useState<'idle' | 'saving' | 'saved'>('idle');
   const [error, setError] = useState('');
   async function submit() {
@@ -38,20 +38,20 @@ function SaveForm({ replay, onDone }: { replay: Replay; onDone: () => void }) {
       setState('saved');
     } catch (e) { setState('idle'); setError(e instanceof Error ? e.message : 'Could not save. Try again.'); }
   }
-  if (state === 'saved') return <div className="replay-actions"><p role="status">Saved as “{name.trim() || `${replay.twin.label} tutorial`}”. Open it any time from Tutorials.</p><button className="primary" onClick={onDone}>Done</button></div>;
+  if (state === 'saved') return <div className="replay-actions"><p role="status">Saved as “{name.trim() || `${replay.twin.label} tutorial`}”. Open it any time from Tutorials.</p><button className="primary" onClick={onSaved}>Done</button></div>;
   return <form className="replay-actions" onSubmit={e => { e.preventDefault(); void submit(); }}>
     <label>Name<input value={name} maxLength={80} onChange={e => setName(e.target.value)} autoFocus /></label>
     {error && <p className="community-error" role="alert">{error}</p>}
-    <div className="community-actions"><button type="submit" className="primary" disabled={state === 'saving'}>{state === 'saving' ? 'Saving…' : 'Save tutorial'}</button><button type="button" onClick={onDone} disabled={state === 'saving'}>Discard</button></div>
+    <div className="community-actions"><button type="submit" className="primary" disabled={state === 'saving'}>{state === 'saving' ? 'Saving…' : 'Save tutorial'}</button><button type="button" onClick={onDone} disabled={state === 'saving'}>Later</button><button type="button" onClick={onDiscard} disabled={state === 'saving'}>Discard</button></div>
   </form>;
 }
 
-/** Shown when a recording stops: watch it straight away, then name and save it, or throw it away. */
-export function TakeDialog({ replay, onClose }: { replay: Replay; onClose: () => void }) {
-  return <div className="community-modal replay-modal"><section role="dialog" aria-modal="true" aria-label="Your recording">
-    <div className="community-row"><h2>Your recording</h2><span className="replay-meta">{replay.twin.label} · {fmt(replay.durationMs)}</span></div>
+/** A captured lesson: watch it straight away, then name and save it, keep it for later, or throw it away. */
+export function TakeDialog({ replay, defaultName, onClose, onSaved, onDiscard }: { replay: Replay; defaultName: string; onClose: () => void; onSaved: () => void; onDiscard: () => void }) {
+  return <div className="community-modal replay-modal"><section role="dialog" aria-modal="true" aria-label="Captured lesson">
+    <div className="community-row"><h2>Captured lesson</h2><span className="replay-meta">{replay.twin.label} · {fmt(replay.durationMs)}</span></div>
     <ReplayPlayer replay={replay} />
-    {hasConvex ? <SaveForm replay={replay} onDone={onClose} />
+    {hasConvex ? <SaveForm replay={replay} defaultName={defaultName} onDone={onClose} onSaved={onSaved} onDiscard={onDiscard} />
       : <div className="replay-actions"><p>Saving needs the Convex backend (<code>npm run convex</code>). You can watch it here until you close this.</p><button onClick={onClose}>Close</button></div>}
   </section></div>;
 }
@@ -88,7 +88,7 @@ export function Tutorials() {
     <div className="community-grid">
       <section aria-label="Saved tutorials">
         {list === undefined ? <p className="community-empty">Loading…</p>
-          : !list.length ? <p className="community-empty">Nothing saved yet. In a call, open the 3D copy of an object and press ● to record. When you stop, you can watch it and save it with a name.</p>
+          : !list.length ? <p className="community-empty">Nothing saved yet. When someone shows you something on the 3D copy of an object, the lesson is captured by itself. Watch it and save it with a name from the card that appears.</p>
           : list.map(r => <button key={r._id} className={`community-card replay-item ${open === r._id ? 'active' : ''}`} aria-pressed={open === r._id} onClick={() => setOpen(r._id)}>
             <b>{r.name}</b><small>{r.label} · {fmt(r.durationMs)} · {new Date(r._creationTime).toLocaleString()}</small>
           </button>)}

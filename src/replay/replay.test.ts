@@ -4,7 +4,7 @@ import type { HandFrame } from '../coordinates';
 import { BUILTIN_MODELS, sanitizeModel } from '../ai/modelSpec';
 import { DEFAULT_PLACEMENT } from '../remote/placement';
 import { REST_POSE, type TwinInfo, type TwinPose } from '../remote/twinWire';
-import { decodeReplay, encodeReplay, indexAt, MAX_REPLAY_MS, Recorder } from './log';
+import { decodeReplay, encodeReplay, indexAt, LessonCapture, MAX_REPLAY_MS, Recorder, type Replay } from './log';
 
 const twin: TwinInfo = { objectId: 'bottle_1', label: 'bottle', model: sanitizeModel(BUILTIN_MODELS.bottle)!, bbox: [0.4, 0.2, 0.6, 0.6], feedAspect: 4 / 3 };
 const meta = { twin, mirror: true, posFlip: false, placement: DEFAULT_PLACEMENT };
@@ -16,6 +16,7 @@ test('the recorder keeps each new hand once, changed poses at most ~30 Hz, and s
   const r = new Recorder(1000, meta), a = hand(0.3), b = hand(0.6);
   r.frame(1000, a, REST_POSE); r.frame(1016, a, REST_POSE); r.frame(1033, b, moved(0.1)); r.frame(1050, null, moved(0.2)); r.frame(1070, null, moved(0.3));
   const rec = r.finish(1100);
+  assert.equal(r.finish(1040).hands.length, 2); // finishing early cuts what came after
   assert.deepEqual(rec.hands.map(h => h.t), [0, 33, 50]);
   assert.equal(rec.hands[2].hand, null);
   assert.deepEqual(rec.poses.map(p => p.t), [0, 33, 70]); // 1050 was within 33 ms of the last pose
@@ -42,4 +43,21 @@ test('indexAt finds the last event at or before a time', () => {
   const ev = [{ t: 0 }, { t: 10 }, { t: 20 }];
   assert.deepEqual([-1, 0, 5, 10, 19, 20, 99].map(t => indexAt(ev, t)), [-1, 0, 0, 1, 1, 2, 2]);
   assert.equal(indexAt([], 5), -1);
+});
+
+test('lessons capture themselves: a hand starts one, 6 s idle ends it trimmed, passing hands are dropped', () => {
+  const got: Replay[] = [];
+  const cap = new LessonCapture(() => meta, r => got.push(r));
+  const run = (from: number, to: number, hand: HandFrame | null, pose: TwinPose = REST_POSE) => { for (let t = from; t < to; t += 33) cap.frame(t, hand, pose); };
+  run(0, 1000, null); assert.equal(cap.active, false);                  // nothing on the copy: nothing recorded
+  run(1000, 2000, hand(0.4)); assert.equal(cap.active, true);
+  run(2000, 3000, hand(0.4), moved(0.1));                               // grabbed and moved: a real lesson
+  run(3000, 9500, null);                                                // hand gone for 6.5 s
+  assert.equal(cap.active, false); assert.equal(got.length, 1);
+  assert.ok(Math.abs(got[0].durationMs - 2500) <= 40, `trimmed to just after the last activity, got ${got[0].durationMs}`);
+  assert.equal(got[0].hands.at(-1)!.hand, null);                         // the hand leaving is part of it
+  run(10000, 11000, hand(0.5)); run(11000, 18000, null);               // a hand passing for 1 s, nothing held
+  assert.equal(got.length, 1);
+  run(20000, 25000, hand(0.5)); cap.end(25000);                         // 5 s of pointing counts; closing ends it at once
+  assert.equal(got.length, 2);
 });

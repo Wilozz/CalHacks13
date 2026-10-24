@@ -18,15 +18,19 @@ export const MAX_REPLAY_MS = 5 * 60_000;
 export const MAX_REPLAY_BYTES = 6_000_000;
 const MAX_EVENTS = 20_000;
 
+/** Anything that takes the copy's rendered frames: the hand on it (if any) and the pose it was drawn in. */
+export interface FrameSink { frame(now: number, hand: HandFrame | null, pose: TwinPose): void }
+type Meta = Pick<Replay, 'twin' | 'mirror' | 'posFlip' | 'placement'>;
+
 /** Records each rendered frame of the copy: a hand whenever a new one arrives, the pose at most ~30 times a second when it changed. */
-export class Recorder {
+export class Recorder implements FrameSink {
   private hands: Replay['hands'] = [];
   private poses: Replay['poses'] = [];
   private lastHand: HandFrame | null | undefined = undefined;
   private lastPose = '';
   private poseAt = -Infinity;
   private t = 0;
-  constructor(private readonly start: number, private readonly meta: Pick<Replay, 'twin' | 'mirror' | 'posFlip' | 'placement'>) {}
+  constructor(private readonly start: number, private readonly meta: Meta) {}
   get full() { return this.t >= MAX_REPLAY_MS || this.hands.length >= MAX_EVENTS || this.poses.length >= MAX_EVENTS; }
   frame(now: number, hand: HandFrame | null, pose: TwinPose) {
     if (this.full) return;
@@ -36,8 +40,45 @@ export class Recorder {
     const s = encodePose(pose);
     if (s !== this.lastPose) { this.lastPose = s; this.poseAt = now; this.poses.push({ t: this.t, pose: decodePose(s)! }); }
   }
-  finish(now: number): Replay {
-    return { ...this.meta, durationMs: Math.min(MAX_REPLAY_MS, Math.max(this.t, Math.round(now - this.start))), hands: this.hands, poses: this.poses };
+  /** The recording up to `end`; anything recorded after it is cut. */
+  finish(end: number): Replay {
+    const durationMs = Math.min(MAX_REPLAY_MS, Math.max(0, Math.round(end - this.start)));
+    return { ...this.meta, durationMs, hands: this.hands.filter(x => x.t <= durationMs), poses: this.poses.filter(x => x.t <= durationMs) };
+  }
+}
+
+/** When a lesson counts: it starts with a hand on the copy and ends after IDLE_END_MS without one. */
+export const LESSON = { idleEndMs: 6000, tailMs: 500, minMs: 2000, minHandMs: 4000 };
+
+/**
+ * Captures lessons by itself, no record button: a hand arriving on the copy starts one, and 6 s with no hand and nothing
+ * held ends it, trimmed to just after the last activity. It is kept only if something was grabbed or a hand stayed for
+ * 4 s, so a hand passing through the view is not a lesson. Plain rules on purpose: certain, instant, free, and offline.
+ */
+export class LessonCapture implements FrameSink {
+  private rec: Recorder | null = null;
+  private lastActive = 0; private lastFrame = 0; private handMs = 0; private grabbed = false;
+  constructor(private readonly meta: () => Meta, private readonly onLesson: (r: Replay) => void) {}
+  get active() { return this.rec !== null; }
+  frame(now: number, hand: HandFrame | null, pose: TwinPose) {
+    const busy = hand !== null || pose.grabbing;
+    if (!this.rec) {
+      if (!busy) return;
+      this.rec = new Recorder(now, this.meta()); this.handMs = 0; this.grabbed = false; this.lastFrame = now;
+    }
+    if (hand) this.handMs += now - this.lastFrame;
+    if (busy) this.lastActive = now;
+    this.grabbed ||= pose.grabbing;
+    this.lastFrame = now;
+    this.rec.frame(now, hand, pose);
+    if (this.rec.full || now - this.lastActive > LESSON.idleEndMs) this.end(now);
+  }
+  /** Close the current lesson now (the object changed, the box closed). */
+  end(now: number) {
+    const rec = this.rec; if (!rec) return;
+    this.rec = null;
+    const r = rec.finish(Math.min(now, this.lastActive + LESSON.tailMs));
+    if (r.durationMs >= LESSON.minMs && (this.grabbed || this.handMs >= LESSON.minHandMs)) this.onLesson(r);
   }
 }
 

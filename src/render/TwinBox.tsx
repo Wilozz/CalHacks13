@@ -13,7 +13,7 @@ import { fingertipOnTwin, HOLD_FINGERS, placeHandOnTwin } from '../remote/twinPl
 import { REST_POSE, type TwinInfo, type TwinPose } from '../remote/twinWire';
 import { componentsOf } from '../remote/components';
 import { edgeGeometry, PartMesh } from './DemoScene';
-import { Recorder, type Replay } from '../replay/log';
+import { LessonCapture, type FrameSink, type Replay } from '../replay/log';
 
 const CYAN = '#64f5ed';
 const HOLD_COLOR: Record<GraspKind, string> = { none: CYAN, pinch: '#fff36b', grip: '#ff9f43' };
@@ -36,7 +36,7 @@ interface SceneProps {
   drive: 'local' | 'remote'; remotePose: MutableRefObject<TwinPose>; onPose: (p: TwinPose) => void;
   status: MutableRefObject<BoxStatus>; resetToken: number;
   /** when set, every rendered frame's hand and pose go into it */
-  recorder?: MutableRefObject<Recorder | null>;
+  recorder?: MutableRefObject<FrameSink | null>;
 }
 export const IDLE_STATUS: BoxStatus = { mode: 'none', kind: 'none', moved: false, turned: false, remote: false, angle: 0, target: '', partAngle: 0, partMoved: false, thumb: '', partLift: 0, partPos: '' };
 
@@ -234,28 +234,27 @@ function Lookat() {
  * `mirror` flips the picture like a selfie view: alone, you watch yourself in a mirror, so the copy and your hand
  * must move the way your mirrored video does (move left, the hand goes left).
  */
-export function TwinBox({ twin, hand, placement, posFlip, mirror = false, drive, remotePose, onPose, onClose, onRecorded }: {
+export function TwinBox({ twin, hand, placement, posFlip, mirror = false, drive, remotePose, onPose, onClose, onLesson }: {
   twin: TwinInfo; hand: MutableRefObject<RemoteHandState>; placement: Placement; posFlip: boolean; mirror?: boolean;
   drive: 'local' | 'remote'; remotePose: MutableRefObject<TwinPose>; onPose: (p: TwinPose) => void; onClose: () => void;
-  /** a finished recording of what this box showed */
-  onRecorded?: (r: Replay) => void;
+  /** a lesson this box showed, captured by itself (see LessonCapture) */
+  onLesson?: (r: Replay) => void;
 }) {
   const pl = useRef(placement);
   useEffect(() => { pl.current = placement; }, [placement]);
   const status = useRef<BoxStatus>(IDLE_STATUS);
-  const recorder = useRef<Recorder | null>(null);
-  const [recSecs, setRecSecs] = useState<number | null>(null);
-  const recStart = useRef(0);
-  const stopRecording = () => { const r = recorder.current; if (!r) return; recorder.current = null; setRecSecs(null); onRecorded?.(r.finish(performance.now())); };
-  const startRecording = () => { recStart.current = performance.now(); recorder.current = new Recorder(recStart.current, { twin, mirror, posFlip, placement: pl.current }); setRecSecs(0); };
-  const stopRef = useRef(stopRecording); stopRef.current = stopRecording;
-  // A different object (or closing the box) ends the recording rather than losing it.
-  useEffect(() => () => stopRef.current(), [twin.objectId]);
+  // Lessons record themselves while the copy is open; the latest props are read when one starts.
+  const meta = useRef({ twin, mirror, posFlip }); meta.current = { twin, mirror, posFlip };
+  const lessonCb = useRef(onLesson); lessonCb.current = onLesson;
+  const capture = useRef<LessonCapture | null>(null);
+  const [capturing, setCapturing] = useState(false);
   useEffect(() => {
-    if (recSecs === null) return;
-    const id = window.setInterval(() => { if (recorder.current?.full) stopRef.current(); else setRecSecs(Math.floor((performance.now() - recStart.current) / 1000)); }, 250);
-    return () => clearInterval(id);
-  }, [recSecs === null]); // eslint-disable-line react-hooks/exhaustive-deps
+    const c = new LessonCapture(() => ({ ...meta.current, placement: pl.current }), r => lessonCb.current?.(r));
+    capture.current = c;
+    const id = window.setInterval(() => setCapturing(c.active), 250);
+    // A different object, or closing the box, ends the lesson rather than losing it.
+    return () => { clearInterval(id); c.end(performance.now()); if (capture.current === c) capture.current = null; };
+  }, [twin.objectId]);
   const [ui, setUi] = useState<BoxStatus>(status.current);
   const [resetToken, setResetToken] = useState(0);
   const [big, setBig] = useState(false);
@@ -277,13 +276,12 @@ export function TwinBox({ twin, hand, placement, posFlip, mirror = false, drive,
       <Lookat />
       <ambientLight intensity={1.2} />
       <directionalLight position={[2, 3, 4]} intensity={2} />
-      <TwinScene key={twin.objectId} mirror={mirror} twin={twin} hand={hand} placement={pl} posFlip={posFlip} drive={drive} remotePose={remotePose} onPose={onPose} status={status} resetToken={resetToken} recorder={recorder} />
+      <TwinScene key={twin.objectId} mirror={mirror} twin={twin} hand={hand} placement={pl} posFlip={posFlip} drive={drive} remotePose={remotePose} onPose={onPose} status={status} resetToken={resetToken} recorder={onLesson ? capture : undefined} />
     </Canvas>
-    {recSecs !== null && <span className="twin-rec" role="status">● REC {Math.floor(recSecs / 60)}:{String(recSecs % 60).padStart(2, '0')}</span>}
+    {capturing && onLesson && <span className="twin-rec" role="status" title="Recording this lesson in 3D (no video). It stops by itself.">● LESSON</span>}
     {holding && <span className={`twin-badge ${ui.kind}`}>{ui.kind === 'grip' ? 'GRIP' : 'PINCH'}</span>}
     <div className="twin-label"><span>{twin.label}</span><span className="twin-status">{text}</span></div>
     <div className="twin-tools">
-      {onRecorded && <button className={`twin-tool ${recSecs !== null ? 'recording' : ''}`} aria-label={recSecs !== null ? 'Stop recording' : 'Record a tutorial'} aria-pressed={recSecs !== null} title={recSecs !== null ? 'Stop recording' : 'Record a tutorial'} onClick={recSecs !== null ? stopRecording : startRecording}>{recSecs !== null ? '■' : '●'}</button>}
       <button className="twin-tool" aria-label={big ? 'Make it smaller' : 'Make it bigger'} aria-pressed={big} title={big ? 'Make it smaller' : 'Make it bigger'} onClick={() => setBig(b => !b)}>{big ? '⤡' : '⤢'}</button>
       {changed && drive === 'local' && <button className="twin-tool" aria-label="Put it back" title="Put it back" onClick={() => setResetToken(n => n + 1)}>↺</button>}
       <button className="twin-tool" aria-label="Close 3D view" onClick={onClose}>×</button>
