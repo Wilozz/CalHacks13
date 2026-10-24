@@ -34,6 +34,8 @@ Node 20.19+ or 22.12+.
 | `src/CallPanel.tsx` | Call UI |
 | `src/CallSession.ts` | WebRTC peer + signaling client |
 | `src/callSignaling.ts` | Room code format/validation, signaling URL |
+| `src/main.tsx` | Tabs: Call (`App`) and Throwing prototype (`#throw`) |
+| `src/throw/` | Throwing prototype: hologram toss over the call's `control` data channel |
 | `server/index.mjs` | `createSignalingServer`: rooms, signaling relay, static files |
 | `server/turn.mjs` | `turnConfiguration`: TURN credentials (shared-secret or static) |
 | `scripts/` | Dev launchers, asset copy, test harnesses |

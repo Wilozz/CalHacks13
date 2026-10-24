@@ -167,3 +167,16 @@ Scan (Hand tools → AI scan) a camera view, or in a call your friend's view, an
 ### Moving the copy
 
 Pinch (thumb to index) with the fingertip on the 3D copy to grab it; while pinched it follows the hand, and letting go leaves it where it was dropped. The ↺ button puts it back. A ring on the fingertip closes as the fingers meet, the object is outlined when in reach and yellow while held, and a ghost outline plus dashed line show where it started. Logic: `src/remote/pinch.ts` (hysteresis, palm-relative so it ignores distance) and `src/remote/twinMove.ts`. The helper's screen computes the movement and sends the pose over the control channel; the recipient's screen only displays it. "Rip" and other interactions are not built yet.
+
+## Throwing prototype (`src/throw/`)
+
+A demo of "Reach Through": a hologram you grab and flick through the screen to the person you're calling. Open the **Throwing prototype** tab (top right on the start screen, or `/#throw`).
+
+1. Pick **Mug**, **Pill bottle** or **Teddy bear**. These are preset `ModelSpec` shapes, so no scan or AI server is needed.
+2. Grab it: pinch it with your tracked hand (thumb and index finger), or drag it with the mouse or a finger.
+3. Flick and let go to throw it. It flies into the screen and comes out of the other person's screen, where it lands and becomes theirs to move and throw back. **Toss** does a flick for you.
+4. With nobody on the call, a thrown object comes back to you, so the effect can be tried alone.
+
+Only the object's shapes and colors cross the call (a `toss` message on the reliable `control` data channel, about 1 KB). The receiver validates it with `sanitizeModel` before rendering. Both people need to be on this tab; a toss sent to someone on the Call tab is ignored.
+
+Manual checks (cannot run headless): pinch grabs only when the cursor ring is on the object; a fast flick throws while a slow release drops it; the hologram reads clearly over a real, bright camera feed.

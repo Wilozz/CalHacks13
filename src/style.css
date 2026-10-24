@@ -183,3 +183,44 @@ button:disabled{opacity:.4;cursor:default}
 .twin-reset{position:absolute;top:6px;right:40px;width:28px;height:28px;min-height:0;padding:0;border-radius:50%;border:0;background:rgba(0,0,0,.4);color:#fff;font-size:16px;line-height:1;cursor:pointer}
 .twin-reset:hover{background:rgba(0,0,0,.6);filter:none}
 .twin-box[data-mode=grab]{outline:2px solid #fff36b;outline-offset:-2px}
+
+/* Screen tabs: only on the start screens, so they never cover a call's controls. */
+.tabs{position:fixed;z-index:20;top:calc(env(safe-area-inset-top) + 8px);right:max(8px,env(safe-area-inset-right));display:flex;padding:3px;border-radius:999px;background:rgba(28,28,30,.82);-webkit-backdrop-filter:blur(20px);backdrop-filter:blur(20px)}
+.tabs button{min-height:30px;padding:0 11px;border:0;border-radius:999px;background:none;color:var(--text-2);font-size:12px;font-weight:600}
+.tabs button[aria-pressed=true]{background:#fff;color:#000}
+.app.incall~.tabs,.app.calling~.tabs,.throw.t-incall~.tabs,.throw.t-calling~.tabs{display:none}
+
+/* Throwing prototype: friend full screen, my camera (tracked) as the tile, the hologram layer over both. */
+.throw{position:fixed;inset:0;overflow:hidden;background:var(--bg)}
+.throw-friend{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;display:none}
+.t-incall .throw-friend{display:block}
+.throw-wait{position:absolute;inset:0;margin:0;display:grid;place-items:center;color:var(--text-2);font-size:14px}
+.throw-self{position:absolute;inset:0;overflow:hidden;background:var(--surface)}
+.throw-self video{display:block;width:100%;height:100%;object-fit:cover;transform:scaleX(-1)}
+.throw-self:not(.off) video:last-child,.throw-self.off video:first-child{display:none}
+.t-incall .throw-self{inset:auto;top:calc(env(safe-area-inset-top) + 64px);right:16px;z-index:2;width:112px;height:150px;border-radius:16px;box-shadow:0 8px 24px rgba(0,0,0,.4)}
+.t-mac.t-incall .throw-self{top:24px;right:24px;width:220px;height:165px;border-radius:14px}
+.toss-layer{position:absolute;inset:0;z-index:1}
+.throw-card{position:absolute;z-index:3;top:calc(env(safe-area-inset-top) + 56px);left:max(16px,env(safe-area-inset-left));display:grid;gap:14px;width:min(360px,calc(100% - 32px));padding:20px;border-radius:20px;background:rgba(28,28,30,.84);-webkit-backdrop-filter:blur(20px);backdrop-filter:blur(20px)}
+.throw-card h1{margin:0;font-size:24px;font-weight:700;letter-spacing:-.3px}
+.throw-card>p{margin:0;color:var(--text-2);font-size:14px;line-height:1.45}
+.throw-actions{display:grid;gap:10px}
+.throw-actions form{display:flex;gap:8px}
+.throw-actions input{flex:1;min-width:0;height:48px;padding:0 14px;border:0;border-radius:12px;background:var(--surface-2);font:600 18px ui-monospace,'SF Mono',Menlo,monospace;letter-spacing:3px;text-transform:uppercase}
+.throw-actions form button{width:72px;border:0;border-radius:12px;background:var(--surface-2);color:var(--green);font-size:16px;font-weight:600}
+.throw-calling{position:absolute;z-index:3;top:calc(env(safe-area-inset-top) + 72px);left:0;right:0;display:grid;justify-items:center;gap:8px;padding:0 24px;text-align:center;text-shadow:0 1px 4px rgba(0,0,0,.5)}
+.throw-calling p{margin:0;font-size:16px}
+.throw-calling .code{font:600 34px/1.1 ui-monospace,'SF Mono',Menlo,monospace;letter-spacing:4px;user-select:all}
+.throw-play{position:absolute;z-index:4;left:50%;top:50%;transform:translate(-50%,-50%)}
+.throw-toast{position:absolute;z-index:3;top:28%;left:50%;transform:translateX(-50%);margin:0;max-width:calc(100% - 32px);padding:8px 16px;border-radius:999px;background:rgba(8,30,34,.82);border:1px solid rgba(95,242,255,.4);color:#5ff2ff;font-size:14px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;pointer-events:none}
+.throw-bar{position:absolute;z-index:3;left:50%;bottom:calc(env(safe-area-inset-bottom) + 16px);transform:translateX(-50%);display:grid;justify-items:center;gap:10px;width:max-content;max-width:calc(100% - 24px)}
+.throw-hint{margin:0;padding:7px 14px;border-radius:999px;background:rgba(7,18,23,.82);border:1px solid rgba(95,242,255,.3);color:#d4fffc;font-size:13px;text-align:center}
+.throw-row{display:flex;flex-wrap:wrap;justify-content:center;align-items:center;gap:8px;padding:10px;border-radius:28px;background:rgba(28,28,30,.76);-webkit-backdrop-filter:blur(20px);backdrop-filter:blur(20px)}
+.throw-chips{display:flex;gap:2px;padding:3px;border-radius:999px;background:rgba(255,255,255,.08)}
+.throw-chips button{min-height:40px;padding:0 12px;border:0;border-radius:999px;background:none;color:var(--text-2);font-size:14px;font-weight:600}
+.throw-chips button[aria-pressed=true]{background:rgba(255,255,255,.92);color:#000}
+.throw-toss{min-height:44px;padding:0 22px;border:0;border-radius:22px;background:#5ff2ff;color:#031418;font-size:15px;font-weight:700;box-shadow:0 0 24px rgba(95,242,255,.35)}
+.throw-toss:disabled{box-shadow:none}
+.throw .throw-row .round{width:44px;height:44px}
+.throw-fine{margin:0;color:var(--text-2);font-size:12px}
+.throw button:focus-visible,.tabs button:focus-visible{outline:2px solid var(--focus);outline-offset:2px}
