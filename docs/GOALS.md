@@ -54,7 +54,7 @@ Next, in build order (each step demoable on its own):
 1. **Throw safety.** Today any fast sideways or upward flick throws, and losing tracking mid-hold releases with the last motion (`LOST_GRACE` in `TossScene.tsx`), which can fire a throw nobody meant. Fix these first.
 2. **Mesh objects.** Load cached GLB models next to `ModelSpec` primitives. Add an object profile with parts, pieces and connectors (ARCHITECTURE "Object profile" and "Assembly").
 3. **Two hands.** Set `numHands: 2` in the worker, assign hands to pieces by continuity, hold one piece in each hand, and add two-hand resize and rotate.
-3b. **Assembly.** Align assist, insert and snap for the lanyard. Unit-test the math first.
+3b. **Assembly.** For the lanyard: align assist, thread the hook tip through the tag slot, then the tag hangs and swings (ARCHITECTURE "Hook into tag slot"). Unit-test the math first.
 4. **Hands over the call.** Connect `RtcHandChannel` in the call and draw the remote hands on the shared model.
 5. **Part interactions.** Hit-test fingertips against part hotspots and drive part state. Sync the state over `control`.
 6. **Recording and replay.** Record the event log, upload it on throw-back, and add a replay viewer.

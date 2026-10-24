@@ -93,7 +93,7 @@ Each piece is scanned separately with SAM 3D (photograph the two pieces apart). 
 2. **Align** (inside the assist radius): the moving piece's rotation is pulled smoothly (slerp, about 150 ms) toward the mating orientation. Its position is pulled onto the socket's axis line. The connector glows. The user only has to get close; the system lines up the last few degrees and centimetres.
 3. **Insert:** progress along the axis comes from the hands moving the two pieces together (projected onto the axis). Past `insert` depth it **snaps**: a click sound, a squash, and the joint is added to `joints`. From then on the joined pieces move as one rigid group, held by either hand.
 
-Separating uses the reverse motion (pull apart along the axis past a threshold), or a `press` part on the buckle (side-release) if the real lanyard works that way. That is the same parts system, so "press both tabs, then pull" is just a profile.
+Separating uses the reverse motion. Objects with release tabs add a `press` part from the same parts system, so "press both tabs, then pull" is just a profile.
 
 **Hook into tag slot (the actual demo).** These specifics replace the generic peg-in-socket insert:
 
@@ -160,7 +160,7 @@ Convex holds everything persistent. Signaling and live media stay on `server/ind
 | `replays` table | `objectId`, `ownerKey`, `logFile: Id<'_storage'>`, `durationMs`, `chapters` (joint and part events with times), `createdAt` |
 
 - **The log goes in file storage, not in a document.** Convex documents are capped at 1 MiB and arrays at 8192 items, and a 2-minute log is about 2 MB. Upload: mutation `replays.generateUploadUrl`, then `POST` the blob, then mutation `replays.create({ storageId, … })`, which checks the size and fields.
-- `chapters` is small and stays in the document, so the replay list can show "joined buckle at 0:42" without downloading the log.
+- `chapters` is small and stays in the document, so the replay list can show "hooked onto tag at 0:42" without downloading the log.
 - `replays.list({ ownerKey })` is a reactive query. A replay appears in the learner's list the moment the helper's throw-back finishes, with no polling. Show that in the Convex pitch.
 - No accounts: `ownerKey` is a random id in `localStorage`, checked in every query and mutation. That's enough for the demo, but not real auth.
 - Stretch: a Convex action calls Claude to propose a profile from a photo plus the SAM masks (the classifier in "Object pipeline"). It writes a draft, which a person reviews.
