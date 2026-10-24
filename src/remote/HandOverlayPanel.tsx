@@ -49,6 +49,7 @@ export function HandAdvanced({ enabled, onEnabled, placement, onPlacement, remot
       <div className="scene-row"><label><input type="checkbox" checked={enabled} onChange={e => onEnabled(e.target.checked)} /> Show the helper hand on the camera view</label></div>
       <div className="slider-grid">
         <Slider label="Hand size" value={placement.size} min={0.15} max={0.7} step={0.01} onChange={size => set({ size })} />
+        <Slider label="Depth effect" value={placement.depth} min={0} max={2} step={0.1} onChange={depth => set({ depth })} />
         <Slider label="Reach" value={placement.reach} min={0.4} max={1} step={0.05} onChange={reach => set({ reach })} />
         {placement.mode === 'pinned' && <Slider label="Motion gain" value={placement.gain} min={0.5} max={3} step={0.1} onChange={gain => set({ gain })} />}
       </div>

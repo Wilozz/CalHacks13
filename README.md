@@ -159,3 +159,11 @@ The core product path: the helper's tracked hand is sent as compact binary frame
 Solo demo: the page encodes your own hand, sends it through `LoopbackChannel` (adjustable latency, jitter and loss) and draws it on your own camera view through the same decoder a remote helper's hand would use. `RtcHandChannel` is the real-transport adapter (`createHandDataChannel(pc)` on the offering side, wrap the channel from `ondatachannel` on the other); it is not yet connected to the call code and has not been run in a browser.
 
 Placement puts the hand on the feed. It does not align it to a real component: monocular landmarks do not know where an object is.
+
+## 3D copy of the object (corner box)
+
+Scan (Hand tools → AI scan) a camera view, or in a call your friend's view, and pick an object. Claude builds a small parametric 3D model of it, and a grey box in the bottom-right corner shows that copy with the helper's hand on it: the helper's fingertip is mapped from the feed into the object's box (`src/remote/twinPlacement.ts`) and onto the model, sized as the hand is on the feed. The object (label, box, model) is shared over a reliable `control` data channel so both screens show the same box; the hand rides the unreliable `hand` channel. While the box is up, the full-screen hand is hidden on the recipient's screen. The view is fixed on purpose: spinning the object would break the meaning of "the hand is here on the object".
+
+### Moving the copy
+
+Pinch (thumb to index) with the fingertip on the 3D copy to grab it; while pinched it follows the hand, and letting go leaves it where it was dropped. The ↺ button puts it back. A ring on the fingertip closes as the fingers meet, the object is outlined when in reach and yellow while held, and a ghost outline plus dashed line show where it started. Logic: `src/remote/pinch.ts` (hysteresis, palm-relative so it ignores distance) and `src/remote/twinMove.ts`. The helper's screen computes the movement and sends the pose over the control channel; the recipient's screen only displays it. "Rip" and other interactions are not built yet.

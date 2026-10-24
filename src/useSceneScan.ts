@@ -26,9 +26,11 @@ export function useSceneScan(video: RefObject<HTMLVideoElement>, cameraOn: boole
   const prior = useRef<SceneObject[]>([]);
   prior.current = objects;
 
-  const scan = useCallback(async () => {
-    if (busy.current || !video.current) return;
-    const imageBase64 = captureFrame(video.current);
+  /** Scans `source` (e.g. the friend's video) or, by default, the tracking camera. */
+  const scan = useCallback(async (source?: HTMLVideoElement | null) => {
+    const v = source ?? video.current;
+    if (busy.current || !v) return;
+    const imageBase64 = captureFrame(v);
     if (!imageBase64) { setError('The camera is not ready yet.'); return; }
     busy.current = true; setScanning(true); setError('');
     const started = performance.now();

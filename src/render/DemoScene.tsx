@@ -10,12 +10,12 @@ import { directionVector, LOOP_SECONDS, poseAt, toScene, travelUnits, twinKindFo
 
 const GHOST = '#64f5ed';
 
-const edgeGeometry = {
+export const edgeGeometry = {
   cylinder: new THREE.EdgesGeometry(new THREE.CylinderGeometry(0.5, 0.5, 1, 24), 30), box: new THREE.EdgesGeometry(new THREE.BoxGeometry(1, 1, 1)),
   sphere: new THREE.EdgesGeometry(new THREE.SphereGeometry(0.5, 12, 8), 30), cone: new THREE.EdgesGeometry(new THREE.ConeGeometry(0.5, 1, 24), 30),
 };
 
-function PartMesh({ part, offset = [0, 0, 0] as [number, number, number] }: { part: ModelPart; offset?: [number, number, number] }) {
+export function PartMesh({ part, offset = [0, 0, 0] as [number, number, number], solid = false }: { part: ModelPart; offset?: [number, number, number]; solid?: boolean }) {
   const geometry = {
     cylinder: <cylinderGeometry args={[0.5, 0.5, 1, 32]} />, box: <boxGeometry args={[1, 1, 1]} />,
     sphere: <sphereGeometry args={[0.5, 24, 24]} />, cone: <coneGeometry args={[0.5, 1, 32]} />,
@@ -24,7 +24,7 @@ function PartMesh({ part, offset = [0, 0, 0] as [number, number, number] }: { pa
   return <mesh position={[x - offset[0], y - offset[1], z - offset[2]]} scale={part.size}>
     {geometry}
     {/* Cyan emissive plus an outline keep dark objects (a black box) readable on a dark view. */}
-    <meshStandardMaterial color={part.color} emissive={GHOST} emissiveIntensity={part.moving ? 0.3 : 0.18} transparent opacity={part.moving ? 0.92 : 0.7} roughness={0.5} depthWrite={false} />
+    <meshStandardMaterial color={part.color} emissive={GHOST} emissiveIntensity={solid ? 0.08 : part.moving ? 0.3 : 0.18} transparent opacity={solid ? 1 : part.moving ? 0.92 : 0.7} roughness={0.5} depthWrite={solid} />
     <lineSegments geometry={edgeGeometry[part.shape]}><lineBasicMaterial color={GHOST} transparent opacity={0.55} /></lineSegments>
   </mesh>;
 }

@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import type { HandFrame } from '../coordinates';
 import { decodeHand, encodeHand } from './handWire';
-import { DEFAULT_PLACEMENT, HandPlacer, mapToFeed, type Placement } from './placement';
+import { apparentScale, DEFAULT_PLACEMENT, HandPlacer, mapToFeed, type Placement } from './placement';
 import { LoopbackChannel, RemoteHandState } from './remoteHand';
 
 function hand(tip = { x: 0.4, y: 0.3 }, world = true): HandFrame {
@@ -75,12 +75,12 @@ test('follow: fingertip lands at the mapped point; flip mirrors x; reach magnifi
 
 test('hand size follows the rigid palm, so curling fingers does not change it', () => {
   for (const world of [true, false]) {
-    const open = new HandPlacer().place(hand(undefined, world), pl({ size: 0.3 }), 1.5)!;
+    const open = new HandPlacer().place(hand(undefined, world), pl({ size: 0.3, depth: 0 }), 1.5)!;
     const palm = Math.hypot(open[9][0] - open[0][0], open[9][1] - open[0][1], world ? open[9][2] - open[0][2] : 0);
     assert.ok(Math.abs(palm * 1.95 - 0.3) < 1e-6, `world=${world} got ${palm * 1.95}`);
     const curled = hand(undefined, world);
     for (const src of [curled.landmarks, curled.worldLandmarks]) if (src.length) { src[12] = { ...src[0] }; src[11] = { ...src[0] }; }
-    const c = new HandPlacer().place(curled, pl({ size: 0.3 }), 1.5)!;
+    const c = new HandPlacer().place(curled, pl({ size: 0.3, depth: 0 }), 1.5)!;
     const palmC = Math.hypot(c[9][0] - c[0][0], c[9][1] - c[0][1], world ? c[9][2] - c[0][2] : 0);
     assert.ok(Math.abs(palmC - palm) < 1e-9);
   }
@@ -105,4 +105,23 @@ test('pinned: first frame puts the fingertip on the pin, then motion is relative
 
 test('invalid frames place nothing', () => {
   assert.equal(new HandPlacer().place({ ...hand(), landmarks: [] }, pl(), 1), null);
+});
+
+test('a hand closer to the helper\'s camera is drawn larger, a farther one smaller, and depth 0 turns it off', () => {
+  const scaled = (f: number) => {
+    const h = hand(); const w = h.landmarks[0];
+    return { ...h, landmarks: h.landmarks.map(p => ({ x: w.x + (p.x - w.x) * f, y: w.y + (p.y - w.y) * f, z: p.z * f })) };
+  };
+  const palm = (frame: HandFrame, depth: number) => { const p = new HandPlacer().place(frame, pl({ depth }), 1)!; return Math.hypot(p[9][0] - p[0][0], p[9][1] - p[0][1], p[9][2] - p[0][2]); };
+  const near = palm(scaled(1.3), 1), mid = palm(scaled(1), 1), far = palm(scaled(0.7), 1);
+  assert.ok(near > mid && mid > far, `near ${near} mid ${mid} far ${far}`);
+  assert.ok(Math.abs(palm(scaled(1.3), 0) - palm(scaled(0.7), 0)) < 1e-9);
+  assert.ok(Math.abs(near / mid - 1.3) < 0.02);
+});
+
+test('tilting the palm does not read as moving away', () => {
+  const flat = hand();
+  const tilted = { ...flat, landmarks: flat.landmarks.map(p => ({ ...p, z: p.z + (p.x - 0.5) * 0.8 })) }; // same x,y, z grows with x
+  const a = apparentScale(tilted.landmarks), b = apparentScale(flat.landmarks);
+  assert.ok(a >= b - 1e-9);
 });
