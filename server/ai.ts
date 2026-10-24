@@ -11,7 +11,7 @@ try { process.loadEnvFile('.env'); } catch { /* no .env: rely on the environment
 const PARSE_MODEL = process.env.GHOST_PARSE_MODEL ?? 'claude-haiku-5-5';
 const CONTEXT_MODEL = process.env.GHOST_CONTEXT_MODEL ?? 'claude-haiku-5-5';
 const SCENE_MODEL = process.env.GHOST_SCENE_MODEL ?? 'claude-sonnet-5-5';
-const PORT = Number(process.env.GHOST_AI_PORT ?? 8787);
+const PORT = Number(process.env.GHOST_AI_PORT ?? 8790);
 const MAX_BODY = 4_000_000;
 
 if (!process.env.ANTHROPIC_API_KEY) console.warn('ANTHROPIC_API_KEY is not set: AI endpoints will return 503 and the client will use its offline fallback.');

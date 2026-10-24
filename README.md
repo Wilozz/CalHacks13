@@ -1,6 +1,13 @@
 # GHOST — hand tracking prototype
 
-A local browser proof of concept: webcam on the left, a live cyan 21-joint skeleton on the right. Includes a two-person WebRTC audio/video call panel. No simulated hand movement, accounts, signaling backend, or recorded video uploads.
+A local browser proof of concept: webcam on the left, a live cyan 21-joint skeleton on the right. Includes a two-person WebRTC audio/video call panel. Includes a small shared signaling server; no simulated hand movement, accounts, or recorded video uploads.
+
+## Docs
+
+- [AGENTS.md](AGENTS.md): commands, file map, invariants (for coding agents and contributors)
+- [docs/GOALS.md](docs/GOALS.md): goals and status
+- [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md): how tracking and calling work
+- [deploy/README.md](deploy/README.md): public server and TURN relay
 
 ## Run
 
@@ -23,10 +30,7 @@ MediaPipe 0.10.32's runtime and WASM are copied from the installed npm package i
 
 ## Pipeline
 
-1. `App.tsx` acquires a 640×480 preferred front-facing stream, with a front/rear switch. The old stream is stopped before switching. Each new video frame becomes a transferable ImageBitmap. At most one frame is in flight: slow inference drops intermediate frames instead of building a queue.
-2. `public/tracking.worker.js` initializes MediaPipe Hand Landmarker in VIDEO mode for one hand. CPU/WASM inference runs off the UI thread. It returns 21 normalized image landmarks, estimated world landmarks, handedness, and inference timing. The transferred bitmap is always closed.
-3. `coordinates.ts` defines a plain serializable `HandFrame` boundary for a future WebRTC transport. World points are wrist-relative and uniformly scaled from meters to scene units. X is mirrored for the front selfie camera and unmirrored for the rear camera, Y is flipped for Three.js, and Z is flipped so negative MediaPipe camera-relative depth points toward the viewer. Image wrist XY positions the skeleton on screen. No independent finger scaling, synthesized pose, or removal of wrist rotation is applied. Image-space coordinates provide a less accurate fallback when world points are unavailable.
-4. `HandScene.tsx` updates spheres and cylinder bones directly in React Three Fiber's frame loop. Exponential smoothing is frame-rate independent (roughly 42 ms time constant), and resets on reacquisition. The scene hides on tracking loss or stale results after 350 ms. React UI metrics refresh only four times per second.
+See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the tracking pipeline and calling flow.
 
 ## Performance and limitations
 
@@ -83,27 +87,54 @@ Open **`https://192.168.1.42:5173`** on the phone, using your actual IP. It shou
 
 ## Laptop-to-laptop video calls
 
-Each person runs their own copy (`npm install`, then `npm run dev`) and opens their own `http://127.0.0.1:5173` in Chrome or Edge. No phone certificate or shared LAN URL is required. Both laptops need internet access for public STUN discovery. This is a WebRTC browser call, separate from Apple's FaceTime service.
+Calling now uses **one six-character room code**, automatic WebSocket signaling, and trickle ICE. The invitation/reply text exchange has been removed.
 
-1. On laptop A, click **Create invitation**, allow camera and microphone, then **Copy invitation code**. Send the entire code to B in your existing chat app.
-2. On laptop B, paste that code under **Have an invitation?**, then click **Join friend's call** and allow camera and microphone.
-3. B clicks **Copy reply code** and sends it back to A. Keep B's tab open.
-4. A pastes that reply under **Paste your friend's reply code**, then clicks **Connect call**. Exchange the reply within two minutes; otherwise end and create fresh codes.
-5. Both participants see live video and hear each other. Use **Mute microphone**, **Turn camera off**, and **End call**. If autoplay is blocked, click **Play friend's audio & video**. Headphones avoid feedback.
+### Local test on one laptop
 
-The call acquires its own media and can run without MediaPipe/model downloads. If tracking is already using the camera, the call clones its video track and separately requests microphone permission. Ending a call releases its tracks and peer connection; tracking continues if enabled. Stopping tracking does not stop an active call's cloned camera track. Thus the camera indicator stays on until both tracking and calling stop. Closing/leaving the page releases both. Camera-off disables the call track but leaves its session active; End call releases it. Tracking remains below the call panel and does not send remote landmarks or overlays.
+```sh
+npm install
+npm run dev
+```
 
-Connection codes exchange complete SDP/ICE descriptions manually, avoiding a hosted signaling backend. Codes contain connection metadata: send them only to your intended friend. Media is encrypted in transit by WebRTC. A public Google STUN server discovers connection candidates; it does not relay media. Neither codes nor media are stored by GHOST.
+This starts Vite on localhost:5173 and a signaling server on localhost:8787. Open two browser windows (or separate Chrome profiles), click **Create room** in one, and enter its code under **Have a room code? → Join room** in the other. Allow camera and microphone in both. Both sides connect automatically; no reply code is needed. Use headphones.
 
-### Restricted networks
+A host can wait up to 30 minutes without a media connection timer. The 60-second connection timer starts only after **both** participants have accepted camera/microphone permissions and are ready. Rooms have capacity two; ending/leaving the call invalidates the room. A broken signaling connection ends the call; start a new room to retry.
 
-Running localhost avoids the event Wi-Fi's block on opening a friend's web server, but **does not guarantee the peer media connection**. Some event Wi-Fi/NAT/firewalls block direct WebRTC too. Reliable calls there require an internet-reachable TURN relay; no working relay is bundled. This follows the [WebRTC connectivity guidance](https://webrtc.org/getting-started/peer-connections).
+### Calling between separate laptops
 
-If you already have a TURN server, copy `.env.example` to `.env.local`, fill in `VITE_TURN_URL`, `VITE_TURN_USERNAME`, and `VITE_TURN_CREDENTIAL`, and restart Vite on **both laptops** before creating new codes. Prefer TURN over TLS/TCP on port 443 where UDP is blocked, if your relay supports it. Vite variables are public browser configuration: use short-lived development credentials rather than privileged long-lived secrets. Otherwise use a network that permits direct WebRTC; a public website URL alone will not solve a blocked media path.
+**Both laptops must connect to the same signaling server.** Running a separate default `npm run dev` on each laptop creates two independent sets of rooms, so codes will not be found across laptops until a shared server URL is configured.
 
-### Call validation
+The easiest deployed arrangement is one public HTTPS site serving the app and signaling. Both people open it, create/join, and allow camera/microphone. Or run the frontend locally on each laptop and put the **same** `VITE_SIGNALING_URL=wss://your-shared-server.example/signal` in `.env.local` on each laptop before restarting Vite. The server must allow both localhost Origins.
 
-Automated tests cover connection-code validation, offer/answer roles, complete ICE gathering, and cancellation, alongside the hand coordinate tests. Build checks do not establish real camera/microphone or network interoperability.
+There is **no public server or TURN relay already activated** in this repository. Follow [deployment and TURN setup](deploy/README.md) to provision them. Local calling works without TURN on networks that allow direct WebRTC, but reliable calling on event Wi-Fi requires an internet-reachable relay. A local relay behind the event firewall cannot fix that. The relay must support the transports permitted by that network; TLS/TCP 443 is included in the example configuration.
+
+### TURN relay integration
+
+For the easiest managed setup, see **Render + managed TURN** in the [deployment guide](deploy/README.md): provider-issued `TURN_USERNAME` and `TURN_PASSWORD` are supported alongside `TURN_URLS`. Provider-managed credential expiry follows that provider’s settings.
+
+For self-hosted coturn, on the **server**, copy `.env.example` to `.env` and configure `TURN_URLS` and `TURN_SHARED_SECRET` to match coturn's `use-auth-secret` configuration. Credentials are generated server-side, expire after 24 hours, and are delivered only to room participants. The shared secret never goes into a frontend `VITE_` variable. With relay settings present, the server defaults to **relay-only** ICE so a broken TURN service cannot be masked by a direct connection. Set `RELAY_ONLY=false` for automatic direct/relay selection.
+
+The UI distinguishes configured relay settings from the actual selected candidate route. **TURN relay** after connection comes from WebRTC connection statistics, not just an environment flag. See [.env.example](.env.example), [coturn configuration](deploy/turnserver.conf.example), and [deployment guide](deploy/README.md). This implements [coturn's credential flow](https://github.com/coturn/coturn/wiki/turnserver); it does not create a public relay account or host for you.
+
+### Media and cleanup
+
+Mute, camera off/on, playback recovery, and End call work independently of hand tracking. Calls clone an existing tracking video track when available and request microphone permission separately. Stopping tracking does not stop the call; ending the call does not stop tracking. The camera indicator stays on while either still uses it. Camera-off disables the outgoing call video track; End call releases tracks, peer connection, signaling socket, and timers. Cancelling during a permission prompt also stops any media returned afterward. Leaving the page releases calling resources.
+
+Camera/microphone media is encrypted by WebRTC. The signaling server handles room membership and connection metadata, not media. A configured TURN server forwards encrypted media when used. Hand landmarks/3D overlays are not sent to the friend. No recordings are stored. Room codes are invitations: share only with the intended friend. Rooms are in-memory and do not survive a signaling server restart.
+
+### Tests
+
+```sh
+npm test                       # coordinate, room protocol, TURN HMAC and cleanup tests
+npm run build                  # TypeScript + production build
+npx playwright install chromium # one-time browser-test setup
+npm run test:e2e                # real Chromium peers with synthetic media
+npm run test:e2e:relay          # actual local coturn + relay-only calls over UDP and TCP
+```
+
+The relay test needs the free `turnserver` binary (`brew install coturn` on macOS or your OS package manager). It starts a temporary loopback-only test relay, and shuts it down afterward; no public relay is provisioned. `GHOST_TEST_TURN_BINARY` can point to an existing binary. Normal app use does not need coturn installed on each laptop.
+
+Browser tests use synthetic audio/video to check actual peer connections, received audio/video RTP data, decoded video frames, media tracks, controls, resource release, permission errors, waiting beyond the old timeout, and delayed permission acceptance. Relay tests additionally require selected-candidate stats to report **TURN relay**. These local checks cannot prove a public provider's availability, physical camera/microphone behavior, or event-network connectivity: perform a two-laptop relay-only test on the actual network after deployment.
 
 For a real call, follow the two-laptop sequence above and check both audio directions, both video directions, mute/unmute, camera off/on, tracking before/during the call, stop tracking while a call continues, end call from either laptop, cancel while permissions are pending, malformed codes, denied microphone access, and a blocked-network failure. Test two tabs on one laptop first if a second laptop is unavailable (wear headphones); a successful same-device test does not prove event-Wi-Fi connectivity.
 
@@ -113,7 +144,7 @@ Implements the pipeline in `ai-integration.md`: hand history (2 s) and pointing 
 
 ```sh
 cp .env.example .env   # set ANTHROPIC_API_KEY
-npm run ai             # AI server on :8787 (Vite proxies /ai to it)
+npm run ai             # AI server on :8790 (Vite proxies /ai to it; 8787 is the signaling server)
 npm run dev
 ```
 
