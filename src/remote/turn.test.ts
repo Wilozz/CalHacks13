@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import type { HandFrame } from '../coordinates';
+import PHOTOS from './handPhotos.json';
 import { GraspDetector, grabPoint, graspRatios, twistAngle } from './grasp';
 import type { P3 } from './placement';
 import { palmQuat, qAngle, qAxisAngle, qFromBasis, qInv, qMul, qRotate, type Q, QI } from './quat';
@@ -34,21 +35,27 @@ test('palm orientation follows the hand: identity when flat to the viewer, turns
 
 // ---- grasp detection ----
 function frame(pinchGap: number, middleGap: number): HandFrame {
-  const world = Array.from({ length: 21 }, () => ({ x: 0, y: 0, z: 0 }));
-  world[9] = { x: 0, y: -0.09, z: 0 };               // palm 0.09 m
-  world[4] = { x: 0, y: -0.15, z: 0 };
-  world[8] = { x: pinchGap * 0.09, y: -0.15, z: 0 };
-  world[12] = { x: middleGap * 0.09, y: -0.16, z: 0 };
-  const lm = Array.from({ length: 21 }, (_, i) => ({ x: 0.5 + 0.001 * i, y: 0.8 - 0.01 * i, z: 0 }));
-  lm[4] = { x: 0.5, y: 0.4, z: 0 }; lm[8] = { x: 0.52, y: 0.4, z: 0 }; lm[12] = { x: 0.53, y: 0.42, z: 0 };
-  return { timestamp: 0, landmarks: lm, worldLandmarks: world, handedness: 'Right', inferenceMs: 1 };
+  // Image landmarks: palm 0.15 long (wrist to middle knuckle), narrower across; gaps are in palm lengths.
+  const lm = Array.from({ length: 21 }, () => ({ x: 0.5, y: 0.8, z: 0 }));
+  lm[9] = { x: 0.5, y: 0.65, z: 0 }; lm[5] = { x: 0.53, y: 0.66, z: 0 }; lm[17] = { x: 0.47, y: 0.68, z: 0 };
+  lm[4] = { x: 0.5, y: 0.5, z: 0 };
+  lm[8] = { x: 0.5 + pinchGap * 0.15 * 0.75, y: 0.5, z: 0 };
+  lm[12] = { x: 0.5 + middleGap * 0.15 * 0.75, y: 0.5, z: 0 };
+  return { timestamp: 0, landmarks: lm, worldLandmarks: [], handedness: 'Right', inferenceMs: 1 };
 }
+
+test('on real hand photos: touching fingertips pinch, a fist grips, open and pointing hands hold nothing', () => {
+  const photo = (k: keyof typeof PHOTOS): HandFrame => ({ timestamp: 0, landmarks: PHOTOS[k].map(([x, y]) => ({ x, y, z: 0 })), worldLandmarks: [], handedness: '', inferenceMs: 0 });
+  const kind = (k: keyof typeof PHOTOS) => { const d = new GraspDetector(); d.update(photo(k)); return d.update(photo(k)); };
+  assert.equal(kind('pinched'), 'pinch'); assert.equal(kind('pinchedOk'), 'pinch'); assert.equal(kind('fist'), 'grip');
+  for (const k of ['open', 'openOther', 'pointing', 'victory', 'thumbUp'] as const) assert.equal(kind(k), 'none', k);
+});
 
 test('pinch vs grip: the middle finger joining makes it a grip', () => {
   const r = graspRatios(frame(0.2, 0.9))!;
   near(r.pinch, 0.2); near(r.middle, 0.9, 0.02);
   const d = new GraspDetector();
-  const run = (f: HandFrame, n = 2) => { let k = d.kind; for (let i = 0; i < n; i++) k = d.update(f); return k; };
+  const run = (f: HandFrame, n = 2) => { let k = d.kind; for (let i = 0; i < n; i++) k = d.update({ ...f }); return k; };
   assert.equal(run(frame(1.2, 1.4)), 'none');
   assert.equal(run(frame(0.2, 0.9)), 'pinch');
   assert.equal(run(frame(0.2, 0.3)), 'grip');
@@ -68,7 +75,8 @@ test('one noisy frame does not change the gesture; losing the hand ends it', () 
 
 test('the grab point is between the fingers that hold', () => {
   const f = frame(0.2, 0.3);
-  near(grabPoint(f, 'pinch').x, 0.51); near(grabPoint(f, 'grip').x, (0.5 + 0.52 + 0.53) / 3); near(grabPoint(f, 'none').x, 0.52);
+  const [t, i, m] = [4, 8, 12].map(k => f.landmarks[k].x);
+  near(grabPoint(f, 'pinch').x, (t + i) / 2); near(grabPoint(f, 'grip').x, (t + i + m) / 3); near(grabPoint(f, 'none').x, i);
 });
 
 test('twist angle is the palm direction on screen, and opening the fingers does not change it', () => {

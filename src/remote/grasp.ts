@@ -1,22 +1,19 @@
 import type { HandFrame } from '../coordinates';
+import { CAMERA_ASPECT, palmSize, pinchRatio } from './pinch';
 import type { V3 } from './quat';
 
 export type GraspKind = 'none' | 'pinch' | 'grip';
 
-const dist = (a: { x: number; y: number; z: number }, b: { x: number; y: number; z: number }) => Math.hypot(a.x - b.x, a.y - b.y, a.z - b.z);
-
 /**
- * How closed the fingers are, relative to the rigid palm so distance to the camera does not matter:
- * thumb tip to index tip (pinch), and thumb tip to middle tip (grip, which also needs the middle finger in).
+ * How closed the fingers are, relative to the palm so distance to the camera does not matter: thumb tip to index
+ * tip (pinch), and thumb tip to middle tip (grip, which also needs the middle finger in). Measured on the 2D image
+ * landmarks like `pinchRatio`: the 3D world landmarks' depth guess pushes touching fingertips apart. On real photos
+ * (handPhotos.json) a pinch is 0.05-0.15 / middle 0.88-1.14, a fist 0.2 / 0.29, open hands 1.0+ on pinch.
  */
 export function graspRatios(frame: HandFrame): { pinch: number; middle: number } | null {
-  const world = frame.worldLandmarks.length === 21;
-  const lm = world ? frame.worldLandmarks : frame.landmarks;
-  if (lm.length !== 21) return null;
-  const d = world ? dist : (a: any, b: any) => Math.hypot(a.x - b.x, a.y - b.y);
-  const palm = d(lm[0], lm[9]);
-  if (!(palm > 1e-6)) return null;
-  return { pinch: d(lm[4], lm[8]) / palm, middle: d(lm[4], lm[12]) / palm };
+  const palm = palmSize(frame), pinch = pinchRatio(frame), l = frame.landmarks;
+  if (palm === null || pinch === null) return null;
+  return { pinch, middle: Math.hypot((l[4].x - l[12].x) * CAMERA_ASPECT, l[4].y - l[12].y) / palm };
 }
 
 /**
@@ -27,9 +24,13 @@ export class GraspDetector {
   kind: GraspKind = 'none';
   ratios: { pinch: number; middle: number } | null = null;
   private streak = 0;
-  constructor(private readonly t = { pinchOn: 0.4, pinchOff: 0.62, gripOn: 0.5, gripOff: 0.8 }, private readonly confirm = 2) {}
+  private last: HandFrame | null = null;
+  constructor(private readonly t = { pinchOn: 0.32, pinchOff: 0.55, gripOn: 0.5, gripOff: 0.75 }, private readonly confirm = 2) {}
 
+  /** Only new tracker frames count: the same frame passed on every render would make the confirmation a no-op. */
   update(frame: HandFrame | null): GraspKind {
+    if (frame && frame === this.last) return this.kind;
+    this.last = frame;
     this.ratios = frame ? graspRatios(frame) : null;
     if (!this.ratios) { this.reset(); return 'none'; }
     const { pinch, middle } = this.ratios, t = this.t;
@@ -40,7 +41,7 @@ export class GraspDetector {
     if (++this.streak >= this.confirm) { this.kind = want; this.streak = 0; }
     return this.kind;
   }
-  reset() { this.kind = 'none'; this.streak = 0; }
+  reset() { this.kind = 'none'; this.streak = 0; this.last = null; }
 }
 
 /** Where the fingers are holding, in image coordinates: between thumb and index, or among thumb, index and middle. */

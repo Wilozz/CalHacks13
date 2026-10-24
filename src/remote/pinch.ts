@@ -1,7 +1,7 @@
 import type { HandFrame } from '../coordinates';
 
 type XY = { x: number; y: number };
-const CAMERA_ASPECT = 4 / 3; // landmarks are normalized per axis; the trackers ask for 640x480
+export const CAMERA_ASPECT = 4 / 3; // landmarks are normalized per axis; the trackers ask for 640x480
 const d2 = (a: XY, b: XY, aspect: number) => Math.hypot((a.x - b.x) * aspect, a.y - b.y);
 
 /** Palm size on the image: the larger of its length and width, so tilting the hand toward the camera does not shrink it to nothing. */
