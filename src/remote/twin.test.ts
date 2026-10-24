@@ -4,8 +4,7 @@ import type { HandFrame } from '../coordinates';
 import { BUILTIN_MODELS, sanitizeModel } from '../ai/modelSpec';
 import { DEFAULT_PLACEMENT, HandPlacer, type Placement } from './placement';
 import { fingertipOnTwin, modelBounds, placeHandOnTwin } from './twinPlacement';
-import { PinchDetector, pinchCloseness, pinchRatio } from './pinch';
-import { TwinMover } from './twinMove';
+import { pinchCloseness, pinchRatio } from './pinch';
 import { decodePose, decodeTwin, encodePose, encodeTwin, type TwinInfo } from './twinWire';
 
 const pl = (o: Partial<Placement> = {}): Placement => ({ ...DEFAULT_PLACEMENT, depth: 0, ...o });
@@ -107,60 +106,6 @@ test('pinch ratio is relative to the palm, so it is independent of hand distance
   assert.equal(pinchCloseness(0.2), 1); assert.equal(pinchCloseness(1.2), 0);
 });
 
-test('pinch has hysteresis and needs two confirming frames', () => {
-  const d = new PinchDetector();
-  assert.equal(d.update(pinched(0.2)), false);  // one frame is not enough
-  assert.equal(d.update(pinched(0.2)), true);
-  assert.equal(d.update(pinched(0.5)), true);   // between engage and release: stays pinched
-  assert.equal(d.update(pinched(0.9)), true);   // first open frame
-  assert.equal(d.update(pinched(0.9)), false);
-  assert.equal(d.update(pinched(0.5)), false);  // between the thresholds: stays open
-  d.update(pinched(0.2)); d.update(pinched(0.2));
-  assert.equal(d.update(null), false);          // hand lost
-});
-
-const bounds = { lo: [-0.2, -0.5, -0.2] as [number, number, number], hi: [0.2, 0.5, 0.2] as [number, number, number] };
-const at = (x: number, y: number): [number, number, number] => [x, y, 0.24];
-
-test('pinching on the object grabs it and it follows the fingertip; releasing leaves it there', () => {
-  const m = new TwinMover(bounds);
-  assert.equal(m.update({ tip: at(0, 0), pinching: false, depth: 1 }).hover, true);
-  assert.equal(m.update({ tip: at(0, 0), pinching: true, depth: 1 }).grabbing, true);
-  const s = m.update({ tip: at(0.3, -0.2), pinching: true, depth: 1 });
-  assert.ok(Math.abs(s.offset[0] - 0.3) < 1e-9 && Math.abs(s.offset[1] + 0.2) < 1e-9);
-  const dropped = m.update({ tip: at(0.3, -0.2), pinching: false, depth: 1 });
-  assert.equal(dropped.grabbing, false);
-  assert.ok(Math.abs(dropped.offset[0] - 0.3) < 1e-9);
-  m.update({ tip: at(0.5, 0.5), pinching: false, depth: 1 }); // moving an open hand does not move it
-  assert.ok(Math.abs(m.offset[0] - 0.3) < 1e-9);
-});
-
-test('pinching away from the object grabs nothing, even if the pinch is held while moving onto it', () => {
-  const m = new TwinMover(bounds);
-  assert.equal(m.update({ tip: at(1.5, 0), pinching: true, depth: 1 }).grabbing, false);
-  assert.equal(m.update({ tip: at(0, 0), pinching: true, depth: 1 }).grabbing, true); // sweeping onto it with a pinch does grab
-});
-
-test('a moved object is grabbed where it is now, and grabbing keeps the held point under the fingertip', () => {
-  const m = new TwinMover(bounds);
-  m.update({ tip: at(0, 0), pinching: true, depth: 1 }); m.update({ tip: at(0.5, 0), pinching: true, depth: 1 }); m.update({ tip: at(0.5, 0), pinching: false, depth: 1 });
-  assert.equal(m.update({ tip: at(0, 0), pinching: true, depth: 1 }).grabbing, false); // old spot is empty now
-  const g = m.update({ tip: at(0.5, 0.1), pinching: true, depth: 1 });
-  assert.equal(g.grabbing, true);
-  assert.ok(Math.abs(g.hold![0] - 0) < 1e-9 && Math.abs(g.hold![1] - 0.1) < 1e-9, 'hold is in object coordinates');
-});
-
-test('movement is limited so the object stays in view, closer hand pulls it toward the viewer, reset recenters', () => {
-  const m = new TwinMover(bounds);
-  m.update({ tip: at(0, 0), pinching: true, depth: 1 });
-  const s = m.update({ tip: at(5, -5), pinching: true, depth: 2 });
-  assert.deepEqual(s.offset, [0.7, -0.7, 0.5]);
-  assert.equal(s.atLimit, true);
-  m.update(null);
-  assert.equal(m.grabbing, false); assert.deepEqual(m.offset, [0.7, -0.7, 0.5]); // losing the hand keeps the object
-  m.reset(); assert.deepEqual(m.offset, [0, 0, 0]);
-});
-
 test('fingertipOnTwin exposes the target used to move the copy', () => {
   const t = fingertipOnTwin(hand({ x: 0.5, y: 0.4 }), pl({ flipX: false }), model, bbox, 4 / 3, false)!;
   assert.ok(t.onObject && t.length >= 0.5 && t.length <= 1.6);
@@ -169,11 +114,24 @@ test('fingertipOnTwin exposes the target used to move the copy', () => {
 });
 
 test('pose messages roundtrip, and malformed or wild ones are clamped or rejected', () => {
-  const p = decodePose(encodePose({ offset: [0.3, -0.2, 0.1], grabbing: true, hold: [0, 0.1, 0.2] }))!;
-  assert.deepEqual(p.offset, [0.3, -0.2, 0.1]); assert.equal(p.grabbing, true); assert.deepEqual(p.hold, [0, 0.1, 0.2]);
-  assert.equal(decodePose(encodePose({ offset: [0, 0, 0], grabbing: false, hold: null }))!.hold, null);
+  const p = decodePose(encodePose({ offset: [0.3, -0.2, 0.1], rotation: [0, 0.7071, 0, 0.7071], grabbing: true, kind: 'grip', anchor: [0, 0.1, 0.2] }))!;
+  assert.deepEqual(p.offset, [0.3, -0.2, 0.1]); assert.equal(p.grabbing, true); assert.equal(p.kind, 'grip'); assert.deepEqual(p.anchor, [0, 0.1, 0.2]);
+  assert.ok(Math.abs(p.rotation[1] - 0.7071) < 1e-3);
+  assert.equal(decodePose(encodePose({ offset: [0, 0, 0], rotation: [0, 0, 0, 1], grabbing: false, kind: 'none', anchor: null }))!.anchor, null);
   assert.equal(decodePose('nope'), null);
   assert.equal(decodePose(JSON.stringify({ type: 'twin-pose', o: [1, 2] })), null);
   assert.deepEqual(decodePose(JSON.stringify({ type: 'twin-pose', o: [99, -99, 'x'], g: 1, h: null }))!.offset, [2, -2, 0]);
-  assert.equal(decodePose('x'.repeat(500)), null);
+  assert.equal(decodePose('x'.repeat(600)), null);
+  // a hostile rotation is made safe: not a number, not unit length, all zero, wrong length
+  assert.deepEqual(decodePose(JSON.stringify({ type: 'twin-pose', o: [0, 0, 0], q: [0, 0, 0, 0] }))!.rotation, [0, 0, 0, 1]);
+  assert.deepEqual(decodePose(JSON.stringify({ type: 'twin-pose', o: [0, 0, 0], q: [1, 2] }))!.rotation, [0, 0, 0, 1]);
+  const big = decodePose(JSON.stringify({ type: 'twin-pose', o: [0, 0, 0], q: [0, 50, 0, 50], k: 9 }))!;
+  assert.ok(Math.abs(Math.hypot(...big.rotation) - 1) < 1e-9); assert.equal(big.kind, 'none');
+});
+
+test('spoken sentences roundtrip and are bounded', async () => {
+  const { encodeSay, decodeSay } = await import('./twinWire');
+  assert.equal(decodeSay(encodeSay('look at the bottle')), 'look at the bottle');
+  assert.equal(decodeSay(encodeSay('x'.repeat(5000)))!.length, 600);
+  for (const bad of ['nope', JSON.stringify({ type: 'say' }), JSON.stringify({ type: 'say', text: '  ' }), JSON.stringify({ type: 'twin' }), 'x'.repeat(2000)]) assert.equal(decodeSay(bad), null);
 });

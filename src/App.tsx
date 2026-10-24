@@ -10,6 +10,13 @@ import { isPointingPose } from './ai/handHistory';
 import { SceneCache } from './ai/sceneCache';
 import { SceneOverlay, ScenePanel } from './render/SceneUi';
 import { useSceneScan } from './useSceneScan';
+import { httpAiClient } from './ai/client';
+import type { SceneObject } from './ai/types';
+import { VoiceAgent, type Heard } from './voice/agent';
+import type { FocusDecision } from './voice/referent';
+import { useVoice } from './voice/useVoice';
+import { VoiceBar } from './voice/VoiceBar';
+import { mapToFeed } from './remote/placement';
 import { HandOverlay } from './remote/HandOverlay';
 import { HandAdvanced, HandQuickControls } from './remote/HandOverlayPanel';
 import { DEFAULT_PLACEMENT, type Placement } from './remote/placement';
@@ -17,7 +24,7 @@ import { LoopbackChannel, RemoteHandState, RtcHandChannel } from './remote/remot
 import { DemoPanel } from './render/DemoPanel';
 import { TwinBox } from './render/TwinBox';
 import { twinKindForLabel } from './render/motion';
-import { decodePose, decodeTwin, encodePose, encodeTwin, type TwinInfo, type TwinPose } from './remote/twinWire';
+import { decodePose, decodeSay, decodeTwin, encodePose, encodeSay, encodeTwin, REST_POSE, type TwinInfo, type TwinPose } from './remote/twinWire';
 type Facing = 'user' | 'environment';
 type Phase = 'idle' | 'loading' | 'running' | 'error';
 export default function App() {
@@ -48,6 +55,7 @@ export default function App() {
   const peerHand = useRef(new RemoteHandState());
   const rtc = useRef<RtcHandChannel|null>(null);
   const [friendAspect,setFriendAspect] = useState(4/3);
+  const friendAspectRef = useRef(4/3); friendAspectRef.current = friendAspect;
   // While a friend's hand is arriving, their guidance is the point: show my own camera big, with their hand on it.
   const [guided,setGuided] = useState(false);
   const lastPeerHand = useRef(0);
@@ -73,7 +81,15 @@ export default function App() {
     return () => { ch.close(); loop.current = null; };
   }, []);
   useEffect(() => { handOnRef.current = handOn; if (!handOn) { myHand.current.reset(); rtc.current?.send(null); } }, [handOn]);
-  const dwell = useRef({id:null as string|null,n:0});
+  // The listening agent: hears the conversation, follows what is pointed at, decides which object to show.
+  const aiClient = useRef(httpAiClient()).current;
+  const agent = useRef<VoiceAgent|null>(null);
+  const objectsRef = useRef<SceneObject[]>([]);
+  const placementRef = useRef<Placement>(DEFAULT_PLACEMENT);
+  const helperRef = useRef(false);
+  const [focusInfo,setFocusInfo] = useState<FocusDecision|null>(null);
+  const [topic,setTopic] = useState('');
+  const [heard,setHeard] = useState<Heard|null>(null);
   const [phase,setPhase] = useState<Phase>('idle');
   const [message,setMessage] = useState('');
   const [showOverlay,setShowOverlay] = useState(false);
@@ -81,12 +97,16 @@ export default function App() {
   useEffect(() => {
     const timer = window.setInterval(() => {
       const {frame,receivedAt,renderFps} = live.current;
-      const f = live.current.frame;
+      // Whose hand is pointing: mine when I am showing it, otherwise the friend's, as it arrives.
+      const nowPt = performance.now();
+      const pf = (!inCallRef.current || helperRef.current) ? (live.current.frame && nowPt-receivedAt<350 ? live.current.frame : null) : peerHand.current.current(nowPt);
       let hover: string|null = null;
-      if (f && performance.now()-receivedAt<350 && isPointingPose(f.landmarks)) hover = sceneCache.current.candidatesAt(f.landmarks[8],0.03,1)[0]?.object.objectId ?? null;
-      const d = dwell.current;
-      if (inCallRef.current) { d.id=null; d.n=0; }
-      else if (hover && hover===d.id) { if (++d.n===3) setSelectedId(hover); } else { d.id=hover; d.n=hover?1:0; }
+      if (pf && isPointingPose(pf.landmarks)) {
+        // In a call the fingertip is mapped into the other camera's frame; alone it shares the camera's frame.
+        const tip = inCallRef.current ? mapToFeed(pf.landmarks[8], placementRef.current) : pf.landmarks[8];
+        hover = sceneCache.current.candidatesAt(tip,0.03,1)[0]?.object.objectId ?? null;
+      }
+      agent.current?.point(hover); agent.current?.tick();
       setHoverId(hover);
       const nowMs = performance.now();
       if (peerHand.current.current(nowMs)) lastPeerHand.current = nowMs;
@@ -223,8 +243,39 @@ export default function App() {
     } catch(error) { fail(error); }
   }
   const active=phase==='running';
-  const scene = useSceneScan(video, active);
+  const screen = call.status==='idle' ? 'home' : call.status==='connected'||call.status==='disconnected' ? 'incall' : 'calling';
+  // Whoever is showing a hand drives the copy; the other screen displays what they send.
+  const helperMode = handOn && active && !guided;
+  helperRef.current = helperMode; placementRef.current = placement;
+
+  if (!agent.current) agent.current = new VoiceAgent({
+    client: aiClient, now: () => performance.now(), getObjects: () => objectsRef.current,
+    onFocus: d => { setFocusInfo(d); if (d.objectId) setSelectedId(d.objectId); },
+    onTopic: setTopic, onHeard: setHeard,
+  });
+  useEffect(() => () => agent.current?.dispose(), []);
+
+  // What I say goes to my agent and, as text only, to my friend's.
+  const sayRef = useRef<(text:string)=>void>(() => {});
+  const voice = useVoice({
+    client: aiClient,
+    // In a call the call's own microphone is used, so muting the call also stops the transcript.
+    getStream: async () => {
+      const mic = call.local?.getAudioTracks().filter(t => t.readyState==='live') ?? [];
+      return mic.length ? { stream: new MediaStream(mic), owned: false }
+        : { stream: await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true } }), owned: true };
+    },
+    onFinal: text => { agent.current?.hear('me', text); sayRef.current(text); },
+  });
+
+  const scene = useSceneScan(video, active, {
+    // While listening, look again whenever the view changes; helpers watch their friend's camera, everyone else their own.
+    watch: voice.state==='listening' && (active || screen==='incall'),
+    getSource: () => (inCallRef.current && helperRef.current ? call.friendVideo.current : video.current),
+    beforeScan: src => { const friend = !!src && src===call.friendVideo.current; scanAspect.current = friend ? friendAspectRef.current : live.current.aspect; setScannedFrom(friend ? 'friend' : 'mine'); },
+  });
   useEffect(() => {
+    objectsRef.current = scene.objects;
     sceneCache.current.clear(); sceneCache.current.update(scene.objects, performance.now()/1000);
     setSelectedId(id => scene.objects.some(o => o.objectId===id) ? id : null);
   }, [scene.objects]);
@@ -238,7 +289,6 @@ export default function App() {
     setShowOverlay(on); debug.current=on;
     if(!on) overlay.current.getContext('2d')?.clearRect(0,0,overlay.current.width,overlay.current.height);
   }
-  const screen = call.status==='idle' ? 'home' : call.status==='connected'||call.status==='disconnected' ? 'incall' : 'calling';
   const cameraOn = phase==='loading' || active;
   // In a call without the tracking camera, the call's own stream is the self-view.
   const selfFromCall = screen!=='home' && !cameraOn;
@@ -248,10 +298,11 @@ export default function App() {
   const [twin,setTwin] = useState<TwinInfo|null>(null);
   const twinRef = useRef<TwinInfo|null>(null); twinRef.current = twin;
   const controlRef = useRef<RTCDataChannel|null>(null);
-  const remotePose = useRef<TwinPose>({offset:[0,0,0],grabbing:false,hold:null}); // where the helper has moved the copy
+  const remotePose = useRef<TwinPose>(REST_POSE); // where the helper has moved the copy
   const scanAspect = useRef(4/3);
   const [scannedFrom,setScannedFrom] = useState<'mine'|'friend'>('mine'); // outlines only make sense over the camera that was scanned
   const prevSelected = useRef<string|null>(null);
+  sayRef.current = text => { const dc = controlRef.current; if (dc?.readyState==='open') dc.send(encodeSay(text)); };
   const sendPose = (p:TwinPose) => { const dc = controlRef.current; if (dc?.readyState==='open') dc.send(encodePose(p)); };
   const sendTwin = (t:TwinInfo|null) => { const dc = controlRef.current; if (dc?.readyState==='open') dc.send(encodeTwin(t)); };
   useEffect(() => {
@@ -259,8 +310,9 @@ export default function App() {
     if (!dc) return;
     dc.onmessage = e => {
       if (typeof e.data !== 'string') return;
+      const said = decodeSay(e.data); if (said) { agent.current?.hear('friend', said); return; }
       const pose = decodePose(e.data); if (pose) { remotePose.current = pose; return; }
-      const t = decodeTwin(e.data); if (t !== undefined) { remotePose.current = {offset:[0,0,0],grabbing:false,hold:null}; setTwin(t); }
+      const t = decodeTwin(e.data); if (t !== undefined) { remotePose.current = REST_POSE; setTwin(t); }
     };
     const onOpen = () => { if (twinRef.current) dc.send(encodeTwin(twinRef.current)); };
     dc.addEventListener('open', onOpen);
@@ -274,10 +326,9 @@ export default function App() {
     setTwin(t); sendTwin(t);
   }, [selectedId, selected]);
   useEffect(() => { if (screen==='home' && !selectedId) setTwin(null); }, [screen]);
-  const scanMine = () => { scanAspect.current = live.current.aspect; setScannedFrom('mine'); void scene.scan(); };
-  const scanFriend = () => { scanAspect.current = friendAspect; setScannedFrom('friend'); void scene.scan(call.friendVideo.current); };
-  // Whoever is showing a hand drives the copy; the other screen displays what they send.
-  const helperMode = handOn && active && !guided;
+  const chooseObject = (id:string|null) => { setSelectedId(id); if (id) agent.current?.tracker.mention(id, 1, performance.now()); };
+  const scanMine = () => { void scene.scan(video.current); };
+  const scanFriend = () => { void scene.scan(call.friendVideo.current); };
   const closeTwin = () => { setTwin(null); setSelectedId(null); sendTwin(null); };
   // App re-renders every 250 ms for stats, which also ticks this clock.
   const elapsed = call.connectedAt ? Math.floor((Date.now()-call.connectedAt)/1000) : 0;
@@ -294,7 +345,7 @@ export default function App() {
     <div className={`self ${selfFromCall?'from-call':''}`}>
       <div className={`camera-stage ${facing==='user'?'mirrored':''}`} style={{'--ar':live.current.aspect} as CSSProperties}>
         <video ref={video} autoPlay playsInline muted/><canvas ref={overlay} className={showOverlay?'':'hidden'}/>
-        {active && scannedFrom==='mine' && <SceneOverlay objects={scene.objects} selectedId={selectedId} hoverId={hoverId} aspect={live.current.aspect} mirrored={facing==='user'} onSelect={setSelectedId}/>}
+        {active && scannedFrom==='mine' && <SceneOverlay objects={scene.objects} selectedId={selectedId} hoverId={hoverId} aspect={live.current.aspect} mirrored={facing==='user'} onSelect={chooseObject}/>}
       </div>
       <video ref={call.selfVideo} className="self-video" autoPlay muted playsInline/>
       {!twin && ((screen==='home' && active && handOn) || screen==='incall') && <HandOverlay cover mirrored={screen==='incall' && (selfFromCall || facing==='user')} remote={screen==='home' ? myHand : peerHand} placement={placement} aspect={active ? live.current.aspect : 4/3} onPin={pin => setPlacement(p => ({...p,pin}))}/>}
@@ -309,6 +360,8 @@ export default function App() {
       </div>}
       {screen!=='home' && call.cameraOff && <p className="self-off">Camera off</p>}
     </div>
+    {screen!=='calling' && <VoiceBar state={voice.state} engine={voice.engine} partial={voice.partial} error={voice.error} heard={heard} objects={scene.objects} focus={focusInfo} topic={topic}
+      onToggle={() => voice.state==='listening' ? voice.stop() : voice.start()} onChoose={chooseObject} onAccept={voice.accept} onDecline={voice.decline}/>}
     {twin && (screen==='home' || screen==='incall') && <TwinBox twin={twin} hand={helperMode ? myHand : peerHand} drive={helperMode ? 'local' : 'remote'} remotePose={remotePose} onPose={sendPose} placement={placement} posFlip={screen==='home' ? false : placement.flipX} onClose={closeTwin}/>}
     {screen==='home' && <section className="home-panel" aria-label="Start a call">
       <div><h1>GHOST</h1><p className="tagline">Show someone what to do with your hands.</p></div>
@@ -345,7 +398,7 @@ export default function App() {
         <HandQuickControls placement={placement} onPlacement={setPlacement} cameraOn={active} tracked={stats.tracked}/>
         <details className="more"><summary>Tune the hand <small>size, reach, mirroring, network test</small></summary><HandAdvanced enabled={handOn} onEnabled={setHandOn} placement={placement} onPlacement={setPlacement} remote={myHand} loop={loop}/></details>
         <details className="more"><summary>AI scan to 3D model <small>needs the AI server</small></summary>
-          <ScenePanel objects={scene.objects} selectedId={selectedId} onSelect={setSelectedId} cameraOn={active} inCall={screen==='incall'} scanning={scene.scanning} error={scene.error} auto={scene.auto} onAuto={scene.setAuto} onScan={scanMine} onScanFriend={scanFriend} lastMs={scene.lastMs}/>
+          <ScenePanel objects={scene.objects} selectedId={selectedId} onSelect={chooseObject} cameraOn={active} inCall={screen==='incall'} scanning={scene.scanning} error={scene.error} auto={scene.auto} onAuto={scene.setAuto} onScan={scanMine} onScanFriend={scanFriend} lastMs={scene.lastMs}/>
           <DemoPanel/>
         </details>
         <details className="more" onToggle={e => setLabOpen(e.currentTarget.open)}><summary>Hand tracking lab <small>3D skeleton, performance</small></summary>

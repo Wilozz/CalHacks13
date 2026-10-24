@@ -1,5 +1,6 @@
 import type { HandFrame } from '../coordinates';
 import type { ModelSpec } from '../ai/types';
+import type { GraspKind } from './grasp';
 import { depthScale, handShape, mapToFeed, type P3, type Placement } from './placement';
 
 export interface TwinHand {
@@ -30,13 +31,13 @@ export interface TipOnTwin { a: number; b: number; target: P3; onObject: boolean
  * length: the hand is sized as it is on the feed relative to the object, clamped so a small object does not
  * vanish under a huge hand.
  */
-export function fingertipOnTwin(frame: HandFrame, pl: Placement, model: ModelSpec, bbox: [number, number, number, number], feedAspect: number, posFlip: boolean): TipOnTwin | null {
+export function fingertipOnTwin(frame: HandFrame, pl: Placement, model: ModelSpec, bbox: [number, number, number, number], feedAspect: number, posFlip: boolean, from?: { x: number; y: number }): TipOnTwin | null {
   if (frame.landmarks.length !== 21) return null;
   const [x0, y0, x1, y1] = bbox;
   const bw = x1 - x0, bh = y1 - y0;
   if (!(bw > 0 && bh > 0)) return null;
 
-  const tip = mapToFeed(frame.landmarks[8], { ...pl, flipX: posFlip });
+  const tip = mapToFeed(from ?? frame.landmarks[8], { ...pl, flipX: posFlip });
   const a = (tip.x - x0) / bw, b = (tip.y - y0) / bh;
   const ca = Math.min(A_MAX, Math.max(A_MIN, a)), cb = Math.min(A_MAX, Math.max(A_MIN, b));
 
@@ -49,12 +50,19 @@ export function fingertipOnTwin(frame: HandFrame, pl: Placement, model: ModelSpe
   return { a, b, target, onObject: a >= 0 && a <= 1 && b >= 0 && b <= 1, length };
 }
 
-/** The hand's 21 points on the copy, with the fingertip at `anchor` (default: where they are pointing). */
-export function placeHandOnTwin(frame: HandFrame, pl: Placement, model: ModelSpec, bbox: [number, number, number, number], feedAspect: number, posFlip: boolean, anchor?: P3): TwinHand | null {
-  const tip = fingertipOnTwin(frame, pl, model, bbox, feedAspect, posFlip);
+const mean = (shape: P3[], idx: number[]): P3 => [0, 1, 2].map(i => idx.reduce((s, k) => s + shape[k][i], 0) / idx.length) as P3;
+/** Which fingertips the hold point sits between: just the index when pointing, thumb + index for a pinch, thumb + index + middle for a grip. */
+export const HOLD_FINGERS: Record<GraspKind, number[]> = { none: [8], pinch: [4, 8], grip: [4, 8, 12] };
+
+/**
+ * The hand's 21 points on the copy, with the holding fingers' meeting point at `anchor` (default: where they
+ * are pointing). `from` is the same meeting point in image coordinates, so hit-testing and drawing agree.
+ */
+export function placeHandOnTwin(frame: HandFrame, pl: Placement, model: ModelSpec, bbox: [number, number, number, number], feedAspect: number, posFlip: boolean, anchor?: P3, kind: GraspKind = 'none', from?: { x: number; y: number }): TwinHand | null {
+  const tip = fingertipOnTwin(frame, pl, model, bbox, feedAspect, posFlip, from);
   const shape = tip && handShape(frame, tip.length, pl.flipX);
   if (!tip || !shape) return null;
-  const at = anchor ?? tip.target, t = shape[8];
+  const at = anchor ?? tip.target, t = mean(shape, HOLD_FINGERS[kind]);
   return {
     points: shape.map(s => [at[0] + s[0] - t[0], at[1] + s[1] - t[1], at[2] + s[2] - t[2]] as P3),
     a: tip.a, b: tip.b, onObject: tip.onObject,

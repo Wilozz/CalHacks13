@@ -2,7 +2,7 @@ import Anthropic from '@anthropic-ai/sdk';
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import { ACTION_TOOLS, isActionType, sanitizeSpec } from '../src/ai/actionLibrary';
 import { sanitizeModel } from '../src/ai/modelSpec';
-import { ACTION_PARSER_SYSTEM, CONTEXT_SUMMARIZER_SYSTEM, SCENE_SYSTEM } from '../src/ai/prompts';
+import { ACTION_PARSER_SYSTEM, CONTEXT_SUMMARIZER_SYSTEM, FOCUS_SYSTEM, SCENE_SYSTEM } from '../src/ai/prompts';
 import type { ContextState, ParseRequest, ParseResult, SceneObject } from '../src/ai/types';
 
 try { process.loadEnvFile('.env'); } catch { /* no .env: rely on the environment */ }
@@ -11,6 +11,10 @@ try { process.loadEnvFile('.env'); } catch { /* no .env: rely on the environment
 const PARSE_MODEL = process.env.GHOST_PARSE_MODEL ?? 'claude-haiku-5-5';
 const CONTEXT_MODEL = process.env.GHOST_CONTEXT_MODEL ?? 'claude-haiku-5-5';
 const SCENE_MODEL = process.env.GHOST_SCENE_MODEL ?? 'claude-sonnet-5-5';
+const FOCUS_MODEL = process.env.GHOST_FOCUS_MODEL ?? PARSE_MODEL;
+const CARTESIA_KEY = process.env.CARTESIA_API_KEY;
+const CARTESIA_VERSION = '2026-08-14';
+const STT_MODEL = process.env.GHOST_STT_MODEL ?? 'ink-whisper';
 const PORT = Number(process.env.GHOST_AI_PORT ?? 8790);
 const MAX_BODY = 4_000_000;
 
@@ -120,21 +124,56 @@ async function scene(body: { imageBase64: string; mediaType: 'image/jpeg' | 'ima
   });
 }
 
+const FOCUS_TOOL = {
+  name: 'resolve_referent', description: 'Say which visible object the newest utterance is about.',
+  input_schema: { type: 'object', properties: {
+    objectId: { type: ['string', 'null'], description: 'an id from the visible objects, or null' },
+    confidence: { type: 'number' }, reason: { type: 'string' }, topic: { type: 'string' },
+  }, required: ['objectId', 'confidence', 'reason', 'topic'] },
+};
+
+interface FocusBody { speaker: string; utterance: string; recent: { speaker: string; text: string }[]; summary: string | null; objects: { objectId: string; label: string }[]; focusId: string | null }
+
+async function focus(body: FocusBody) {
+  const objects = (Array.isArray(body.objects) ? body.objects : []).slice(0, 20).map(o => ({ objectId: String(o.objectId).slice(0, 40), label: String(o.label).slice(0, 60) }));
+  const { input } = await toolCall(FOCUS_MODEL, FOCUS_SYSTEM, [FOCUS_TOOL], JSON.stringify({
+    speaker: body.speaker, utterance: String(body.utterance ?? '').slice(0, 600),
+    recent: (Array.isArray(body.recent) ? body.recent : []).slice(-12).map(t => ({ speaker: t.speaker, text: String(t.text).slice(0, 300) })),
+    summary: body.summary, visibleObjects: objects, currentFocusId: body.focusId,
+  }), 300);
+  const id = typeof input.objectId === 'string' && objects.some(o => o.objectId === input.objectId) ? input.objectId : null;
+  return { objectId: id, confidence: id ? Math.min(1, Math.max(0, Number(input.confidence) || 0)) : 0, reason: String(input.reason ?? '').slice(0, 200), topic: String(input.topic ?? '').slice(0, 120) };
+}
+
+/** Short-lived Cartesia token for the browser, so the real API key never leaves this server. */
+async function voiceToken() {
+  if (!CARTESIA_KEY) throw Object.assign(new Error('CARTESIA_API_KEY is not set'), { status: 503 });
+  const res = await fetch('https://api.cartesia.ai/access-token', {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${CARTESIA_KEY}`, 'Cartesia-Version': CARTESIA_VERSION, 'content-type': 'application/json' },
+    body: JSON.stringify({ grants: { stt: true }, expires_in: 600 }),
+  });
+  if (!res.ok) throw Object.assign(new Error(`Cartesia token request failed: ${res.status}`), { status: 502 });
+  const data = await res.json() as { token?: string };
+  if (!data.token) throw Object.assign(new Error('Cartesia returned no token'), { status: 502 });
+  return { token: data.token, model: STT_MODEL, version: CARTESIA_VERSION, expiresIn: 600 };
+}
+
 async function readJson(req: IncomingMessage): Promise<any> {
   let size = 0; const chunks: Buffer[] = [];
   for await (const c of req) { size += c.length; if (size > MAX_BODY) throw Object.assign(new Error('body too large'), { status: 413 }); chunks.push(c); }
   try { return JSON.parse(Buffer.concat(chunks).toString('utf8')); } catch { throw Object.assign(new Error('invalid JSON'), { status: 400 }); }
 }
 
-const routes: Record<string, (b: any) => Promise<unknown>> = { '/parse': parse, '/context': context, '/scene': scene };
+const routes: Record<string, (b: any) => Promise<unknown>> = { '/parse': parse, '/context': context, '/scene': scene, '/focus': focus, '/voice-token': voiceToken };
 
 createServer(async (req: IncomingMessage, res: ServerResponse) => {
   const send = (status: number, body: unknown) => { res.writeHead(status, { 'content-type': 'application/json' }); res.end(JSON.stringify(body)); };
   const path = (req.url ?? '').replace(/^\/ai/, '').split('?')[0];
   const handler = routes[path];
-  if (req.method === 'GET' && path === '/health') return send(200, { ok: true, ai: !!anthropic });
+  if (req.method === 'GET' && path === '/health') return send(200, { ok: true, ai: !!anthropic, voice: !!CARTESIA_KEY });
   if (req.method !== 'POST' || !handler) return send(404, { error: 'not found' });
-  if (!anthropic) return send(503, { error: 'ANTHROPIC_API_KEY is not set' });
+  if (!anthropic && path !== '/voice-token') return send(503, { error: 'ANTHROPIC_API_KEY is not set' });
   try { send(200, await handler(await readJson(req))); }
-  catch (e: any) { console.error(path, e?.message ?? e); send(e?.status && e.status < 500 ? e.status : 502, { error: String(e?.message ?? e).slice(0, 200) }); }
+  catch (e: any) { console.error(path, e?.message ?? e); send(e?.status && (e.status < 500 || e.status === 503) ? e.status : 502, { error: String(e?.message ?? e).slice(0, 200) }); }
 }).listen(PORT, '127.0.0.1', () => console.log(`GHOST AI server on http://127.0.0.1:${PORT}`));

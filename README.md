@@ -167,3 +167,23 @@ Scan (Hand tools → AI scan) a camera view, or in a call your friend's view, an
 ### Moving the copy
 
 Pinch (thumb to index) with the fingertip on the 3D copy to grab it; while pinched it follows the hand, and letting go leaves it where it was dropped. The ↺ button puts it back. A ring on the fingertip closes as the fingers meet, the object is outlined when in reach and yellow while held, and a ghost outline plus dashed line show where it started. Logic: `src/remote/pinch.ts` (hysteresis, palm-relative so it ignores distance) and `src/remote/twinMove.ts`. The helper's screen computes the movement and sends the pose over the control channel; the recipient's screen only displays it. "Rip" and other interactions are not built yet.
+
+## Voice: the listening agent (`src/voice/`)
+
+GHOST listens to the whole conversation and uses it to decide which object to show.
+
+- **Speech to text:** `cartesia.ts` streams the mic to Cartesia's STT WebSocket (`ink-whisper`, 16 kHz PCM) using a short-lived token from `POST /ai/voice-token` (set `CARTESIA_API_KEY` in `.env`). Audio is only sent around speech (an energy detector gates it, with a 300 ms pre-roll), which keeps credits down. With no key it falls back to the browser's recognizer. The first start asks for consent.
+- **Both sides of the call:** each person's device transcribes its own mic and sends the *text* to the other over the control channel, so both agents hear everything and no audio is relayed.
+- **Which object:** `referent.ts` matches names and synonyms locally (instant) and `FocusTracker` combines that with pointing. Say an object's name and it is shown and remembered with no time limit; point at something (steady ~0.45 s) and that takes over; naming a different object after you began pointing takes over again; moving your hand away keeps the last focus. Ambiguous or descriptive sentences ("the thing with the screen", "it") go to Claude (`/ai/focus`) with the conversation and the visible objects.
+- **Render everything first:** while listening, the view is re-scanned whenever it changes (not on a timer), so every visible object already has its 3D model before you mention it; the box then shows whichever one you mean. Chips above the camera list what was spotted; tapping one is the strongest signal.
+
+Cartesia protocol details are from its docs (`wss://api.cartesia.ai/stt/websocket`, `cartesia_version=2026-08-14`, `access_token` for browsers). The live Cartesia connection has not been exercised without a key; the protocol is covered by tests against a fake socket and by a browser run against a mocked Cartesia endpoint.
+
+### Turning the copy: pinch and grip
+
+- **Pinch** (thumb + index): grabs at the point between the two fingertips. The copy follows your hand, and turning your hand like a knob spins it about its vertical axis. Opening your fingers never spins it (the twist is read from the palm, not the thumb-to-index line).
+- **Grip** (thumb + index + middle together): a firmer hold. The copy follows your whole hand's orientation in 3D: roll, tilt or turn your wrist and it turns with you.
+- It turns about the spot you are holding, so that spot stays under your fingers. Switching between pinch and grip mid-hold does not make it jump. Letting go keeps the turn; ↺ puts it back.
+- The box shows a PINCH or GRIP badge, lights the fingertips that hold, and outlines the object (yellow for pinch, orange for grip). The other person's box shows the same turn.
+
+Logic: `src/remote/grasp.ts` (detection with hysteresis), `src/remote/twinMove.ts` (grab, move, turn), `src/remote/quat.ts` (rotation math). Gains and thresholds are first guesses to tune on real hands.

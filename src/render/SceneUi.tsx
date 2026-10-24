@@ -18,7 +18,7 @@ export function SceneOverlay({ objects, selectedId, hoverId, aspect, mirrored, o
 }
 
 export function ScenePanel({ objects, selectedId, onSelect, cameraOn, inCall, scanning, error, auto, onAuto, onScan, onScanFriend, lastMs }: {
-  objects: SceneObject[]; selectedId: string | null; onSelect: (id: string | null) => void;
+  objects: SceneObject[]; selectedId: string | null; onSelect: (id: string) => void;
   cameraOn: boolean; inCall: boolean; scanning: boolean; error: string; auto: boolean; onAuto: (v: boolean) => void;
   onScan: () => void; onScanFriend: () => void; lastMs: number | null;
 }) {
@@ -36,7 +36,7 @@ export function ScenePanel({ objects, selectedId, onSelect, cameraOn, inCall, sc
       {!!objects.length && <>
         <p className="scene-hint">Choose the object to show. {inCall ? '' : 'You can also point at it with your index finger and hold for a moment.'}</p>
         <div className="scene-row" role="group" aria-label="Detected objects">
-          {objects.map(o => <button key={o.objectId} className={o.objectId === selectedId ? '' : 'secondary'} aria-pressed={o.objectId === selectedId} onClick={() => onSelect(o.objectId === selectedId ? null : o.objectId)}>{o.label}{o.model ? '' : ' (basic shape)'}</button>)}
+          {objects.map(o => <button key={o.objectId} className={o.objectId === selectedId ? '' : 'secondary'} aria-pressed={o.objectId === selectedId} onClick={() => onSelect(o.objectId)}>{o.label}{o.model ? '' : ' (basic shape)'}</button>)}
         </div>
       </>}
     </div>

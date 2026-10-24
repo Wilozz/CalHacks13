@@ -119,6 +119,8 @@ function setup(client: Partial<AiClient>, now = { t: 5 }) {
   const tr = new Transcript();
   const full: AiClient = {
     parseAction: async () => action(spec()),
+    resolveFocus: async () => ({ objectId: null, confidence: 0, reason: '', topic: '' }),
+    voiceToken: async () => ({ token: 't', model: 'm', version: 'v', expiresIn: 1 }),
     summarize: async () => ({ taskSummary: 's', mentionedObjects: [], currentStep: '', language: 'en', updatedAt: 0 }),
     analyzeScene: async () => [],
     ...client,

@@ -1,6 +1,12 @@
 import type { ContextState, ParseRequest, ParseResult, SceneObject, Utterance } from './types';
 
+export interface FocusRequest { speaker: string; utterance: string; recent: { speaker: string; text: string }[]; summary: string | null; objects: { objectId: string; label: string }[]; focusId: string | null }
+export interface FocusResult { objectId: string | null; confidence: number; reason: string; topic: string }
+export interface VoiceToken { token: string; model: string; version: string; expiresIn: number }
+
 export interface AiClient {
+  resolveFocus(req: FocusRequest, signal?: AbortSignal): Promise<FocusResult>;
+  voiceToken(signal?: AbortSignal): Promise<VoiceToken>;
   parseAction(req: ParseRequest, signal?: AbortSignal): Promise<ParseResult>;
   summarize(input: { previous: ContextState | null; turns: Utterance[]; objects: SceneObject[]; viewerLanguage: string }, signal?: AbortSignal): Promise<ContextState>;
   analyzeScene(input: { imageBase64: string; mediaType: 'image/jpeg' | 'image/png'; now: number; prior: SceneObject[] }, signal?: AbortSignal): Promise<SceneObject[]>;
@@ -16,6 +22,8 @@ async function post<T>(base: string, path: string, body: unknown, signal?: Abort
 export function httpAiClient(base = import.meta.env.VITE_AI_URL ?? '/ai'): AiClient {
   return {
     parseAction: (req, signal) => post(base, '/parse', req, signal),
+    resolveFocus: (req, signal) => post(base, '/focus', req, signal),
+    voiceToken: signal => post(base, '/voice-token', {}, signal),
     summarize: (input, signal) => post(base, '/context', input, signal),
     analyzeScene: (input, signal) => post(base, '/scene', input, signal),
   };
