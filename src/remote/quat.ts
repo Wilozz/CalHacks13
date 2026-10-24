@@ -18,6 +18,11 @@ export function qRotate(q: Q, v: V3): V3 {
   return [vx + w * tx + (y * tz - z * ty), vy + w * ty + (z * tx - x * tz), vz + w * tz + (x * ty - y * tx)];
 }
 
+/** The same turn, `t` times as far (t = 2: twice the angle about the same axis). */
+export const qPow = (q: Q, t: number): Q => {
+  const n = q[3] < 0 ? q.map(v => -v) as Q : q, a = 2 * Math.acos(Math.min(1, n[3])), s = Math.sin(a / 2);
+  return s < 1e-9 ? QI : qAxisAngle([n[0] / s, n[1] / s, n[2] / s], a * t);
+};
 /** Angle between two rotations, 0..PI. */
 export const qAngle = (a: Q, b: Q) => 2 * Math.acos(Math.min(1, Math.abs(qMul(qInv(a), b)[3])));
 

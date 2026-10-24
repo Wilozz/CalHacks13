@@ -94,7 +94,9 @@ const view = () => ({ pos: new THREE.Vector3(), quat: new THREE.Quaternion(), wa
  * When the other person is the helper, this only displays the pose they send.
  */
 export function TwinScene({ mirror, twin, hand, placement, posFlip, drive, remotePose, onPose, status, resetToken, mesh, recorder }: SceneProps) {
-  const rig = useMemo(() => new TwinRig(twin.model), [twin.model]);
+  // With a scanned mesh, the hands work on the mesh's own shape (see fitToModel), so they land on what you see.
+  const model = mesh?.model ?? twin.model;
+  const rig = useMemo(() => new TwinRig(model), [model]);
   const comps = rig.components;
   const grasps = useMemo(() => SLOTS.map(() => new GraspDetector()), []);
   const gates = useMemo(() => SLOTS.map(() => new GrabGate()), []);
@@ -114,9 +116,9 @@ export function TwinScene({ mirror, twin, hand, placement, posFlip, drive, remot
     last: [null, null] as (MoveInput | null)[], lastAt: [0, 0],
   });
   const mats = useMemo(() => SLOTS.map(sl => ({ joint: new THREE.MeshBasicMaterial({ color: HAND_COLORS[sl].joint, transparent: true }), bone: new THREE.MeshBasicMaterial({ color: HAND_COLORS[sl].bone, transparent: true }), tip: new THREE.MeshBasicMaterial({ color: '#ffffff' }), ring: new THREE.MeshBasicMaterial({ color: CYAN, transparent: true, side: THREE.DoubleSide }) })), []);
-  const geoms = useMemo(() => twin.model.parts.map(p => shapeGeometry(p.shape)), [twin.model]);
-  const owner = useMemo(() => twin.model.parts.map((_, i) => comps.findIndex(c => c.parts.includes(i))), [twin.model, comps]); // -1: part of the body
-  const bottom = useMemo(() => Math.min(...twin.model.parts.map(p => p.position[1] - p.size[1] / 2)), [twin.model]);
+  const geoms = useMemo(() => model.parts.map(p => shapeGeometry(p.shape)), [model]);
+  const owner = useMemo(() => model.parts.map((_, i) => comps.findIndex(c => c.parts.includes(i))), [model, comps]); // -1: part of the body
+  const bottom = useMemo(() => Math.min(...model.parts.map(p => p.position[1] - p.size[1] / 2)), [model]);
   const nameOf = (t: Target | null) => t === null ? '' : t === 'whole' ? 'whole' : comps[t]?.name ?? 'part';
 
   useEffect(() => {
@@ -141,7 +143,7 @@ export function TwinScene({ mirror, twin, hand, placement, posFlip, drive, remot
     // flips the hand: flipping the shape too would draw your right hand as a left hand.
     const shapePl = mirror ? { ...placement.current, flipX: false } : placement.current;
     const place = (f: HandFrame, at: P3 | undefined, from: { x: number; y: number }) =>
-      placeHandOnTwin(f, shapePl, twin.model, twin.bbox, twin.feedAspect, posFlip, at, 'none', from)?.points ?? null;
+      placeHandOnTwin(f, shapePl, model, twin.bbox, twin.feedAspect, posFlip, at, 'none', from)?.points ?? null;
 
     if (drive === 'local') {
       const inputs: [MoveInput | null, MoveInput | null] = [null, null];
@@ -151,7 +153,7 @@ export function TwinScene({ mirror, twin, hand, placement, posFlip, drive, remot
         if (!frame && v.holding[sl] && v.last[sl] && now - v.lastAt[sl] < HOLD_GRACE_MS) { inputs[sl] = v.last[sl]; return; }
         const raw = grasps[sl].update(frame);
         const from = frame ? grabPoint(frame, raw) : undefined; froms[sl] = from;
-        const tip = frame && from ? fingertipOnTwin(frame, placement.current, twin.model, twin.bbox, twin.feedAspect, posFlip, from) : null;
+        const tip = frame && from ? fingertipOnTwin(frame, placement.current, model, twin.bbox, twin.feedAspect, posFlip, from) : null;
         closeness[sl] = pinchCloseness(grasps[sl].ratios?.pinch ?? null);
         if (!frame || !tip || !from) { v.firm[sl] = null; v.last[sl] = null; gates[sl].reset(); smooth[sl].x.reset(); smooth[sl].y.reset(); return; }
         // Steady the fingertip a little (heavier when still, lighter when moving fast).
@@ -285,9 +287,9 @@ export function TwinScene({ mirror, twin, hand, placement, posFlip, drive, remot
     };
   });
 
-  const partMesh = (i: number, offset?: P3) => <PartMesh key={i} part={twin.model.parts[i]} offset={offset} solid />;
+  const partMesh = (i: number, offset?: P3) => <PartMesh key={i} part={model.parts[i]} offset={offset} solid />;
   const outline = (i: number, offset?: P3) => {
-    const p = twin.model.parts[i], o = offset ?? [0, 0, 0];
+    const p = model.parts[i], o = offset ?? [0, 0, 0];
     return <mesh key={`h${i}`} position={[p.position[0] - o[0], p.position[1] - o[1], p.position[2] - o[2]]} scale={[p.size[0] * 1.08, p.size[1] * 1.08, p.size[2] * 1.08]} geometry={geoms[i]}>
       <meshBasicMaterial ref={m => { if (m) outlineMats.current[i] = m; }} color="#fff36b" side={THREE.BackSide} transparent opacity={0} depthWrite={false} />
     </mesh>;
@@ -295,11 +297,11 @@ export function TwinScene({ mirror, twin, hand, placement, posFlip, drive, remot
   return <>
     <mesh ref={shadow} rotation={[-Math.PI / 2, 0, 0]}><circleGeometry args={[0.38, 32]} /><meshBasicMaterial color="#000" transparent opacity={0.28} depthWrite={false} /></mesh>
     {/* Where everything started, as outlines, with a dashed line to where the whole is now. */}
-    {twin.model.parts.map((p, i) => <lineSegments key={`o${i}`} ref={el => { ghosts.current[i] = el; }} geometry={edgeGeometry[p.shape]} position={p.position} scale={p.size}><lineBasicMaterial color="#ffffff" transparent opacity={0.4} /></lineSegments>)}
+    {model.parts.map((p, i) => <lineSegments key={`o${i}`} ref={el => { ghosts.current[i] = el; }} geometry={edgeGeometry[p.shape]} position={p.position} scale={p.size}><lineBasicMaterial color="#ffffff" transparent opacity={0.4} /></lineSegments>)}
     <primitive object={trail} />
     <group ref={rootGroup}>
       {mesh ? <MeshView piece={mesh.body} onMat={m => { if (m) meshMats.current.set(-1, m); else meshMats.current.delete(-1); }} />
-        : twin.model.parts.map((_, i) => owner[i] < 0 ? <group key={i}>{partMesh(i)}{outline(i)}</group> : null)}
+        : model.parts.map((_, i) => owner[i] < 0 ? <group key={i}>{partMesh(i)}{outline(i)}</group> : null)}
       {comps.map((c, ci) => <group key={`c${ci}`} ref={el => { compGroups.current[ci] = el; }} position={c.center}>
         {mesh?.pieces[ci] ? <MeshView piece={mesh.pieces[ci]!} onMat={m => { if (m) meshMats.current.set(ci, m); else meshMats.current.delete(ci); }} />
           : c.parts.map(i => <group key={i}>{partMesh(i, c.center)}{outline(i, c.center)}</group>)}
@@ -369,13 +371,13 @@ export function TwinBox({ twin, hand, placement, posFlip, mirror = false, drive,
   // Short on purpose: the small box is only ~30 characters wide.
   const what = ui.target === 'whole' ? 'the whole' : `the ${ui.target}`;
   const both = holding && ui.kind2 !== 'none';
-  // A screwed-on piece in hand: say how far it is unscrewed, since pulling does nothing until it is loose.
+  // A screwed-on piece in hand: say it comes off with a pull (twisting works too, and shows how far it has gone).
   const screwing = ui.unscrew >= 0 && ui.unscrew < 100 && (holding || ui.mode === 'hover');
   const piece = partNames.find(n => n === ui.target || n === ui.target2) ?? 'cap';
   const text = ui.remote
     ? (both ? 'friend uses both hands' : holding ? `friend holds ${what}` : changed && ui.mode !== 'waiting' ? 'moved by your friend' : ui.mode === 'waiting' ? 'waiting for hand' : 'friend is pointing')
-    : screwing ? (holding ? `twist to unscrew · ${ui.unscrew}%` : `pinch the ${piece} and twist`)
-    : holding && ui.unscrew === 100 && ui.partLift < 30 ? `${piece} is loose · pull it off`
+    : screwing ? (holding ? (ui.unscrew > 0 ? `pull it off, or twist · ${ui.unscrew}%` : 'pull up to take it off') : `pinch the ${piece}, pull it off`)
+    : holding && ui.unscrew === 100 && ui.partLift < 15 ? `${piece} is loose · pull it off`
     : both ? `both hands: ${what} + ${ui.target2 === 'whole' ? 'the whole' : `the ${ui.target2}`}`
     : holding ? `${ui.kind === 'grip' ? 'gripping' : 'pinching'} ${what}`
     : ui.mode === 'hover' ? `pinch ${what}` : ui.mode === 'idle' && changed ? 'moved · pinch to move again' : ui.mode === 'waiting' ? 'waiting for hand' : partNames.length ? `pinch the ${partNames[0]} or the whole` : 'point at it, then pinch';

@@ -6,7 +6,7 @@ import { componentsOf } from './components';
 import type { P3 } from './placement';
 import { qAngle, QI, qRotate } from './quat';
 import { rayBoxDistance, TwinRig } from './twinRig';
-import type { MoveInput } from './twinMove';
+import { GRIP_GAIN, type MoveInput } from './twinMove';
 
 const near = (a: number, b: number, e = 1e-6) => assert.ok(Math.abs(a - b) < e, `${a} vs ${b}`);
 const nearV = (a: number[], b: number[], e = 1e-6) => a.forEach((v, i) => near(v, b[i], e));
@@ -27,7 +27,7 @@ const unscrew = (r: TwinRig, where: P3 = cap) => {
 test('a bottle splits into the cap and the whole; objects with no separate moving part, or where everything moves, do not split', () => {
   const cs = componentsOf(bottle);
   assert.equal(cs.length, 1); assert.equal(cs[0].name, 'cap');
-  assert.ok(cs[0].parts.every(i => bottle.parts[i].moving));
+  assert.ok(cs[0].parts.every(i => bottle.parts[i].moving), 'the cap is made of moving parts');
   assert.ok(cs[0].center[1] > 0.3, 'the cap is at the top');
   const fixed: ModelSpec = { pivot: [0, 0, 0], parts: bottle.parts.map(p => ({ ...p, moving: false })) };
   const allMoving: ModelSpec = { pivot: [0, 0, 0], parts: bottle.parts.map(p => ({ ...p, moving: true })) };
@@ -82,10 +82,19 @@ test('TWISTING THE CAP spins just the cap about its own centre; it stays where i
   near(s.parts[0].offset[1], (capH / FREE) * 0.9 * 1.2, 1e-6);                 // and climbs its thread as it turns
 });
 
-test('a screwed-on cap cannot be pulled or dragged off; once twisted loose it can, and stays off when you let go', () => {
+test('a screwed-on cap ignores a shaky hand, but a firm pull pops it straight off, no twisting needed', () => {
   const r = new TwinRig(bottle);
-  r.update(inp(cap, 'pinch')); const pulled = r.update(inp(at(cap, 0.3, 0.5), 'pinch')); r.update(inp(cap, 'none'));
-  assert.deepEqual(pulled.parts[0].offset, [0, 0, 0], 'still screwed on');
+  r.update(inp(cap, 'pinch')); const nudged = r.update(inp(at(cap, 0.05, 0.06), 'pinch'));
+  assert.deepEqual(nudged.parts[0].offset, [0, 0, 0], 'a small tug: still on');
+  const pulled = r.update(inp(at(cap, 0.1, 0.4), 'pinch'));
+  assert.equal(r.loosened()[0], 1, 'pulled off');
+  near(pulled.parts[0].offset[0], 0.1); near(pulled.parts[0].offset[1], 0.4);   // it catches up with the hand at once
+  near(r.update(inp(at(cap, 0.1, 0.45), 'pinch')).parts[0].offset[1], 0.45);       // and follows it from there
+  r.update(inp(cap, 'none'));
+});
+
+test('once twisted loose the cap can be lifted away, and stays off when you let go', () => {
+  const r = new TwinRig(bottle);
   const y = unscrew(r);
   r.update(inp(at(cap, 0, y), 'pinch')); r.update(inp(at(cap, 0, y + 0.4), 'pinch'));
   const dropped = r.update(inp(at(cap, 0, y + 0.4), 'none'));
@@ -109,7 +118,7 @@ test('after moving the whole bottle, the cap is still the cap: it is grabbed whe
   const y = unscrew(r, at(cap, 0.3, 0));
   const s1 = r.update(inp(at(cap, 0.3, y), 'pinch'));
   const s2 = r.update(inp(at(cap, 0.3, y + 0.2), 'pinch'));
-  assert.equal(s2.target, 0); near(s2.parts[0].offset[1], y + 0.2); assert.ok(s1.target === 0);
+  assert.equal(s2.target, 0); near(s2.parts[0].offset[1], y + 0.2); assert.ok(s1.target === 0, 'the first frame already holds the cap');
   near(s2.root.offset[0], 0.3);                                                  // the bottle did not move again
 });
 
@@ -138,7 +147,7 @@ test('a tilted bottle: the cap still spins about the bottle\'s own axis', () => 
   assert.equal(r.update(inp(where, 'pinch', { twist: 0 })).target, 0);
   const s = r.update(inp(where, 'pinch', { twist: 0.5 }));
   nearV(qRotate(s.parts[0].rotation, [0, 1, 0]), [0, 1, 0]);                      // spun about the bottle's axis, in the bottle's own frame
-  near(qAngle(s.root.rotation, QI), 0.8, 1e-6);
+  near(qAngle(s.root.rotation, QI), 0.8 * GRIP_GAIN, 1e-6);
 });
 
 test('reset puts everything back', () => {
@@ -168,7 +177,7 @@ test('UNSCREWING: twisting the cap raises it like a thread (either way), it cann
   // twisting never pushes it below where it sits
   const fresh = new TwinRig(bottle);
   fresh.update(inp(cap, 'pinch', { twist: 0 }));
-  assert.ok(fresh.update(inp(at(cap, 0, -0.3), 'pinch', { twist: 0.2 })).parts[0].offset[1] >= 0);
+  assert.ok(fresh.update(inp(at(cap, 0, -0.08), 'pinch', { twist: 0.2 })).parts[0].offset[1] >= 0, 'pressed down while twisting: stays on its seat');
 });
 
 test('coming loose mid-twist does not make the cap jump: from there it follows the hand', () => {
@@ -233,7 +242,7 @@ test('TWO HANDS: the hand steadying the bottle does not turn it while the other 
   near(s.root.offset[0], 0.05);
   r.step(two(inp(at(body, 0.05, 0), 'grip', { palm: tilt(0.5) }), inp(cap, 'none')));   // cap hand lets go
   const t = r.step(two(inp(at(body, 0.05, 0), 'grip', { palm: tilt(0.9) }), null));
-  near(qAngle(t.root.rotation, QI), 0.4, 1e-6);                                         // alone again, it turns with the hand, without a jump
+  near(qAngle(t.root.rotation, QI), 0.4 * GRIP_GAIN, 1e-6);                                         // alone again, it turns with the hand, without a jump
 });
 
 test('TELLING BOTTLE FROM CAP: a fist on the neck or shoulder takes the bottle; fingertips on or just around the cap take the cap', () => {
@@ -296,11 +305,11 @@ test('single-hand callers still see the first hand under the old names', () => {
 test('A TIPPED BOTTLE: where the cap appears on screen is where the cap is grabbed, however the bottle is turned in 3D', () => {
   for (const axis of [[1, 0, 0], [0, 1, 0], [0.6, 0.3, 0.74]] as P3[]) {
     const r = new TwinRig(bottle);
-    const n = Math.hypot(...axis), a = 1.0, s = Math.sin(a / 2);
+    const n = Math.hypot(...axis), a = 1.0 / GRIP_GAIN, s = Math.sin(a / 2); // the hand turns this far; the bottle ends up tipped 1 rad
     const q: [number, number, number, number] = [axis[0] / n * s, axis[1] / n * s, axis[2] / n * s, Math.cos(a / 2)];
     r.update(inp(body, 'grip', { palm: QI })); r.update(inp(body, 'grip', { palm: q })); r.update(inp(body, 'none'));
     const st = r.update(inp([9, 9, 9], 'none'));
-    near(qAngle(st.root.rotation, QI), a, 1e-6);
+    near(qAngle(st.root.rotation, QI), a * GRIP_GAIN, 1e-6);
     // the cap's centre as seen on screen (straight down the view axis), with the fingertip at its usual depth in front
     const c = qRotate(st.root.rotation, comp.center), seen: P3 = [c[0] + st.root.offset[0], c[1] + st.root.offset[1], 0.3];
     assert.equal(r.hoverAt(seen, 0, 'pinch'), 0, `tipped about ${axis}: the cap under the finger is the cap`);

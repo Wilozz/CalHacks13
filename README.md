@@ -210,7 +210,7 @@ Cartesia protocol details are from its docs (`wss://api.cartesia.ai/stt/websocke
 ### Turning the copy: pinch and grip
 
 - **Pinch** (thumb + index): grabs at the point between the two fingertips. The copy follows your hand, and turning your hand like a knob spins it about its vertical axis. Opening your fingers never spins it (the twist is read from the palm, not the thumb-to-index line).
-- **Grip** (thumb + index + middle together): a firmer hold. The copy follows your whole hand's orientation in 3D: roll, tilt or turn your wrist and it turns with you.
+- **Grip** (thumb + index + middle together): a firmer hold. The copy follows your whole hand's orientation in 3D: roll, tilt or turn your wrist and it turns with you, 1.4 times as far (a wrist only turns so far, and the camera sees less of the turn than there is).
 - It turns about the spot you are holding, so that spot stays under your fingers. Switching between pinch and grip mid-hold does not make it jump. Letting go keeps the turn; ↺ puts it back.
 - The box shows a PINCH or GRIP badge, lights the fingertips that hold, and outlines the object (yellow for pinch, orange for grip). The other person's box shows the same turn.
 
@@ -222,7 +222,7 @@ An object is a **whole plus separately movable pieces**: Claude marks and names 
 
 The box also has a **magnify** button (top right) and, when you are alone, shows a **mirrored** view so the hand moves the way your mirrored video does.
 
-**Why a part is reachable:** vision lists a bottle and its cap as two objects, so `src/ai/foldParts.ts` folds a small object that sits inside a larger, related one (a cap in a bottle, a button in a box) into the larger object as a named moving part, and drops it from the list. Saying "the cap" still finds the bottle. Caps and lids behave like threaded parts: while screwed on they only turn in place, climbing as they turn either way, so a shaky hand cannot drag one off the neck. About two-thirds of a turn (two or three twists of the wrist) frees one; the box shows the progress ("twist to unscrew · 70%", then "cap is loose · pull it off"), and only then does it follow your hand. Holding uses the index fingertip, and the hold is frozen while the fingers open, so letting go never drags the object.
+**Why a part is reachable:** vision lists a bottle and its cap as two objects, so `src/ai/foldParts.ts` folds a small object that sits inside a larger, related one (a cap in a bottle, a button in a box) into the larger object as a named moving part, and drops it from the list. Saying "the cap" still finds the bottle. Caps and lids sit on their thread: a shaky hand cannot drag one off the neck, but **a firm pull (about a tenth of the object) pops it straight off**. Twisting works too and is optional: the cap turns in place and climbs, and about two-thirds of a turn frees it (the box shows "pull it off, or twist · 70%"). Holding uses the index fingertip, and the hold is frozen while the fingers open, so letting go never drags the object.
 
 ## Community assistance
 
@@ -246,7 +246,8 @@ Community adds email/password accounts, profiles, reactive helper availability, 
 
 The copy starts as Claude's simple shapes, which appear at once. Press **3D** in the box's corner and the AI server sends the scanned picture, with Claude's box around the object, to SAM 3D on fal.ai (`fal-ai/sam-3/3d-objects`). In about 15 seconds the box swaps in a real mesh of the object, in the scan's own colours. Needs `FAL_KEY` in `.env` (server-side only); without it the button does not appear.
 
-- **The parts still work.** The mesh is fitted onto the model and cut along the same pieces (`src/render/meshFit.ts`): the part of the scan inside the cap's box becomes the cap, so you still twist the cap off and steady the bottle with two hands. A piece the scan has nothing for keeps Claude's shape.
+- **The parts still work.** The mesh is fitted onto the model and cut into the same pieces (`src/render/meshFit.ts`). A cap at the top is cut where the scan itself changes colour or width (a black cap on a clear bottle), searching near Claude's guess, so the cut lands on the real edge; other pieces take the scan inside their box. SAM 3D cannot do this itself: asked for the bottle and the cap as two boxes, it returns one object. A piece the scan has nothing for keeps Claude's shape.
+- **The hands work on what you see.** With a mesh shown, the hands are hit-tested against the mesh's own shape (the body in eight horizontal slices, the cap as one box), not Claude's rougher shapes, and specks of background the scan picked up are dropped before fitting.
 - **Facing the right way.** SAM 3D returns an upright mesh plus the pose it had in the photo. The box keeps it upright and turns it about the vertical so the side the camera saw faces you (`samYaw` in `src/ai/mesh.ts`, checked on a real result).
 - **The cache.** A finished model is stored on disk by the object's name (`.cache/meshes/`, or `GHOST_MESH_CACHE`), so a good model is never made twice: next time that object is scanned, its model appears at once. Both screens of a call read the same cache, so the other person sees the model too. In the enlarged box, ⟳ remakes it (the new one replaces the old one only if it succeeds), and ◆/◇ switches between the model and the simple shapes.
 - **Smaller downloads.** fal's mesh is about half a million triangles (5-12 MB). The server merges nearby vertices down to tens of thousands (about 1-2 MB) and stores that compact format (`.ghm`) next to the original `.glb`.

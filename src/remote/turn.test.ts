@@ -5,7 +5,7 @@ import PHOTOS from './handPhotos.json';
 import { GraspDetector, grabPoint, graspRatios, twistAngle } from './grasp';
 import type { P3 } from './placement';
 import { palmQuat, qAngle, qAxisAngle, qFromBasis, qInv, qMul, qRotate, type Q, QI } from './quat';
-import { TwinMover, type MoveInput } from './twinMove';
+import { GRIP_GAIN, TwinMover, type MoveInput } from './twinMove';
 
 const near = (a: number, b: number, e = 1e-6) => assert.ok(Math.abs(a - b) < e, `${a} vs ${b}`);
 const nearV = (a: number[], b: number[], e = 1e-6) => a.forEach((v, i) => near(v, b[i], e));
@@ -151,8 +151,9 @@ test('GRIP follows the whole hand in 3D: roll about the view axis turns it about
   m.update(inp(at(0, 0), 'grip', { palm: q0 }));
   const roll = qAxisAngle([0, 0, 1], 0.8);
   const s = m.update(inp(at(0, 0), 'grip', { palm: qMul(roll, q0) }));
-  near(qAngle(s.rotation, roll), 0, 1e-6);
-  nearV(qRotate(s.rotation, [1, 0, 0]), [Math.cos(0.8), Math.sin(0.8), 0]);
+  const a = 0.8 * GRIP_GAIN;                     // a little further than the hand, about the same axis
+  near(qAngle(s.rotation, qAxisAngle([0, 0, 1], a)), 0, 1e-6);
+  nearV(qRotate(s.rotation, [1, 0, 0]), [Math.cos(a), Math.sin(a), 0]);
 });
 
 test('it turns about the held point, so the spot under your fingers stays put', () => {
@@ -172,7 +173,7 @@ test('switching between pinch and grip mid-hold does not make the object jump', 
   near(qAngle(a.rotation, b.rotation), 0, 1e-6); nearV(a.offset, b.offset, 1e-9);
   assert.equal(b.kind, 'grip');
   const c = m.update(inp(at(0, 0), 'grip', { palm: qAxisAngle([0, 1, 0], 2 + 0.3) }));
-  near(qAngle(c.rotation, b.rotation), 0.3, 1e-6);
+  near(qAngle(c.rotation, b.rotation), 0.3 * GRIP_GAIN, 1e-6);
 });
 
 test('with no hand, the hold ends and the turn is kept', () => {

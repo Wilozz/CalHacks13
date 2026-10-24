@@ -6,9 +6,11 @@ import { QI, qInv, qMul, qRotate, type Q } from './quat';
 import { TwinMover, type MoveInput } from './twinMove';
 
 export type Target = 'whole' | number;
-const THREADED = /\b(cap|lid|cork|top|cover|stopper)\b/i;
+export const THREADED = /\b(cap|lid|cork|top|cover|stopper)\b/i;
 /** How much turning frees a screwed-on piece: about two-thirds of a turn (two or three twists of the wrist). */
 const FREE_TURN = Math.PI * 1.3;
+/** ...or pulling it this far (a tenth of the object) pops it straight off: twisting is optional. */
+const PULL_OFF = 0.12;
 /**
  * How far past a piece's edge a hand still takes the piece rather than the body. Fingertips (a pinch, or an open hand
  * about to pinch) go for small pieces; a fist goes for the body, so a grip has to be right on the piece. When the other
@@ -86,7 +88,7 @@ export class TwinRig {
     // The rig decides what each hand takes (see pick), so the movers take hold wherever they are told to.
     this.root = new TwinMover(this.whole, undefined, Infinity);
     // Caps and lids are screwed on: they turn in place and climb their own height, then come loose.
-    this.movers = this.components.map(c => new TwinMover({ lo: c.lo, hi: c.hi }, [0.6, 0.6, 0.6], Infinity, c.center, THREADED.test(c.name) ? { pitch: (c.hi[1] - c.lo[1]) / FREE_TURN, free: FREE_TURN } : undefined));
+    this.movers = this.components.map(c => new TwinMover({ lo: c.lo, hi: c.hi }, [0.6, 0.6, 0.6], Infinity, c.center, THREADED.test(c.name) ? { pitch: (c.hi[1] - c.lo[1]) / FREE_TURN, free: FREE_TURN, pull: PULL_OFF } : undefined));
     const mine = new Set(this.components.flatMap(c => c.parts));
     this.body = model.parts.filter((_, i) => !mine.has(i)).map(p => ({ lo: p.position.map((v, k) => v - p.size[k] / 2) as P3, hi: p.position.map((v, k) => v + p.size[k] / 2) as P3 }));
   }

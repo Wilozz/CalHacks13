@@ -1,6 +1,6 @@
 import type { GraspKind } from './grasp';
 import type { P3 } from './placement';
-import { QI, qAxisAngle, qInv, qMul, qRotate, type Q } from './quat';
+import { QI, qAxisAngle, qInv, qMul, qPow, qRotate, type Q } from './quat';
 
 export interface Bounds { lo: P3; hi: P3 }
 export interface MoveState {
@@ -17,12 +17,17 @@ export interface MoveInput {
   /** hold it still: follow the hand's position but not its turning (the other hand is working on a piece of it) */
   steady?: boolean;
 }
-/** A screwed-on piece (a cap): it turns in place and climbs `pitch` per radian until it has turned `free` radians, then comes loose. */
-export interface Thread { pitch: number; free: number }
+/**
+ * A screwed-on piece (a cap): it turns in place and climbs `pitch` per radian until it has turned `free` radians, then
+ * comes loose. Pulling it more than `pull` away from where it was taken pops it off at once, so twisting is optional.
+ */
+export interface Thread { pitch: number; free: number; pull?: number }
 
 const Z_GAIN = 0.8;
 const DEPTH_DEADZONE = 0.15; // apparent hand size wobbles by this much on its own, especially while twisting
 const TWIST_GAIN = 1.2;
+/** A grip turns the object further than the hand turns: a wrist only turns so far, and the camera sees less of it than there is. */
+export const GRIP_GAIN = 1.4;
 const wrap = (d: number) => ((((d + Math.PI) % (2 * Math.PI)) + 2 * Math.PI) % (2 * Math.PI)) - Math.PI;
 
 /**
@@ -74,6 +79,12 @@ export class TwinMover {
     else if (this.grabbing && (input.kind !== this.kind || !!input.steady !== this.steady)) this.begin(input); // pinch <-> grip, steadied or not: re-baseline, no jump
 
     let atLimit = false, anchor: P3 | null = null;
+    const pull = this.thread?.pull, st = this.start;
+    if (this.grabbing && st && this.seated && pull && Math.hypot(input.tip[0] - st.tip[0], input.tip[1] - st.tip[1]) > pull) {
+      // Pulled off: it pops free and catches up with the hand, measured from where it was taken.
+      this.turned = this.thread!.free;
+      this.begin({ ...input, tip: st.tip });
+    }
     if (this.grabbing && this.start && this.seated) {
       // Still screwed on: it only turns about its own axis, and climbs as it does (either way, like a real thread), so a
       // shaky hand twists it in place instead of dragging it off the neck. Once turned far enough it comes loose.
@@ -91,7 +102,7 @@ export class TwinMover {
       const s = this.start, L = this.limit;
       this.twistAcc += wrap(input.twist - this.twistPrev); this.twistPrev = input.twist;
       const rel: Q = input.steady ? QI : input.kind === 'grip'
-        ? (input.palm && s.palm ? qMul(input.palm, qInv(s.palm)) : QI)
+        ? (input.palm && s.palm ? qPow(qMul(input.palm, qInv(s.palm)), GRIP_GAIN) : QI)
         : qAxisAngle([0, 1, 0], this.twistAcc * TWIST_GAIN);
       this.rotation = qMul(rel, s.rot);
       // Turn about the held point, taken at the object's own depth: the fingertip sits on its front surface, and

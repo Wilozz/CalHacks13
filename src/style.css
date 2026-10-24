@@ -270,7 +270,7 @@ button:disabled{opacity:.4;cursor:default}
    otherwise the bar covers the panel's close button. (In a call the nav bar is hidden, so the panel is full height.) */
 .mac.home .sheet-backdrop{top:72px}
 /* Tutorials: recording badge, the replay player and the save dialog. */
-.twin-rec{position:absolute;left:50%;top:8px;transform:translateX(-50%);padding:3px 8px;border-radius:999px;background:var(--red);color:#fff;font-size:10px;font-weight:700;letter-spacing:1px;pointer-events:none;font-variant-numeric:tabular-nums}
+.twin-rec{position:absolute;left:8px;top:34px;padding:3px 8px;border-radius:999px;background:var(--red);color:#fff;font-size:10px;font-weight:700;letter-spacing:1px;pointer-events:none;font-variant-numeric:tabular-nums}
 .replay-player{display:grid;gap:10px}
 .replay-stage{position:relative;aspect-ratio:4/3;max-height:60dvh;border-radius:12px;overflow:hidden;background:#54575d;touch-action:none}
 .replay-stage canvas{display:block}

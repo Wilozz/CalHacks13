@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { BUILTIN_MODELS, sanitizeModel } from './modelSpec';
 import { boxPrompt, decodeMesh, encodeMesh, meshKey, MESH_KEY, orient, readGlb, samYaw, simplify, type RawMesh } from './mesh';
-import { fitToModel } from '../render/meshFit';
+import { capCut, dropSpecks, fitToModel } from '../render/meshFit';
 import { componentsOf } from '../remote/components';
 
 const near = (a: number, b: number, e = 1e-5) => assert.ok(Math.abs(a - b) < e, `${a} vs ${b}`);
@@ -86,4 +86,34 @@ test('a mesh is fitted to the model and cut into the same pieces: the cap part o
   assert.ok(fit.body.indices.length / 3 > 150, 'the rest is the body');
   const by = Array.from({ length: fit.body.positions.length / 3 }, (_, i) => fit.body.positions[3 * i + 1]);
   near(Math.min(...by), -0.5, 0.03); // stretched onto the model's box
+});
+
+test('the scan\'s own shape becomes the model the hands use: the body in slices, the cap as one box where the cap is', () => {
+  const bottle = sanitizeModel(BUILTIN_MODELS.bottle)!;
+  const pos: number[] = [], idx: number[] = [], col: number[] = [];
+  for (let k = 0; k <= 200; k++) { const y = 10 + k * 0.1, w = y > 28 ? 0.5 : 1; pos.push(-w, y, 0, w, y, 0, 0, y + 0.2, 0.5); idx.push(3 * k, 3 * k + 1, 3 * k + 2); col.push(...(y > 28 ? [20, 20, 20, 20, 20, 20, 20, 20, 20] : [230, 230, 230, 230, 230, 230, 230, 230, 230])); }
+  const fit = fitToModel({ positions: Float32Array.from(pos), colors: Uint8Array.from(col), indices: Uint32Array.from(idx) }, bottle);
+  const cap = fit.model.parts.filter(p => p.moving), body = fit.model.parts.filter(p => !p.moving);
+  assert.equal(cap.length, 1); assert.equal(cap[0].name, 'cap');
+  assert.ok(body.length >= 4, 'the body in slices');
+  const capBottom = cap[0].position[1] - cap[0].size[1] / 2, top = Math.max(...fit.model.parts.map(p => p.position[1] + p.size[1] / 2));
+  // the dark, narrow top of the scan starts 28/30.2 of the way up
+  near(top - capBottom, (30.2 - 28) / 20.2, 0.03);
+  assert.ok(cap[0].size[0] < body[0].size[0], 'the cap box is as narrow as the cap, not as wide as the body');
+  assert.equal(componentsOf(fit.model)[0].name, 'cap');
+});
+
+test('the cap is cut where the scan changes colour or width, near Claude\'s guess; with no change, at the guess', () => {
+  const pos: number[] = [], col: number[] = [];
+  for (let k = 0; k <= 100; k++) { const y = -0.5 + k * 0.01; for (const a of [0, 1, 2, 3]) { pos.push(0.2 * Math.cos(a * 1.57), y, 0.2 * Math.sin(a * 1.57)); col.push(...(y > 0.38 ? [10, 10, 10] : [240, 240, 240])); } }
+  const P = Float32Array.from(pos), used = new Uint8Array(P.length / 3).fill(1);
+  near(capCut(P, Uint8Array.from(col), used, 0.44, 0.5), 0.38, 0.015);       // Claude guessed 6% too high: the colour edge wins
+  near(capCut(P, Uint8Array.from(col), used, 0.32, 0.5), 0.38, 0.015);       // or too low
+  near(capCut(P, null, used, 0.41, 0.5), 0.41, 1e-9);                         // no colour, no width change: Claude's guess stands
+});
+
+test('specks around a scan are dropped', () => {
+  const m: RawMesh = { positions: Float32Array.from([0, 0, 0, 1, 0, 0, 0, 1, 0, 1, 1, 0, 5, 5, 5, 5.1, 5, 5, 5, 5.1, 5]), colors: null, indices: Uint32Array.from([...Array.from({ length: 30 }, () => [0, 1, 2, 1, 3, 2]).flat(), 4, 5, 6]) };
+  const kept = dropSpecks(m);
+  assert.equal(kept.length, 60 * 3, 'the lone far triangle is gone');
 });
