@@ -21,6 +21,9 @@ describe('replays',()=>{
   expect(await t.query(api.replays.list,{ownerKey:other})).toEqual([]);
   expect(await t.query(api.replays.get,{id,ownerKey:other})).toBeNull();
   expect((await t.query(api.replays.get,{id,ownerKey:owner}))?.url).toBeTruthy();
+  await expect(t.mutation(api.replays.rename,{id,name:'mine now',ownerKey:other})).rejects.toThrow();
+  await t.mutation(api.replays.rename,{id,name:'  Opening the cap ',ownerKey:owner});
+  expect((await t.query(api.replays.get,{id,ownerKey:owner}))?.name).toBe('Opening the cap');
   await expect(t.mutation(api.replays.remove,{id,ownerKey:other})).rejects.toThrow();
   await t.mutation(api.replays.remove,{id,ownerKey:owner});
   expect(await t.query(api.replays.list,{ownerKey:owner})).toEqual([]);

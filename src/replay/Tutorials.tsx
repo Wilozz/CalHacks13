@@ -1,13 +1,13 @@
 import { useEffect, useState } from 'react';
-import { useAction, useMutation, useQuery } from 'convex/react';
+import { useMutation, useQuery } from 'convex/react';
+import { convex } from '../convexClient';
 import { api } from '../../convex/_generated/api';
 import type { Id } from '../../convex/_generated/dataModel';
 import { PageHeading } from '../components/ui/page-heading';
 import { decodeReplay, encodeReplay, MAX_REPLAY_BYTES, type Replay } from './log';
 import { ReplayPlayer } from './ReplayPlayer';
 
-export const hasConvex = !!import.meta.env.VITE_CONVEX_URL;
-const fmt = (ms: number) => { const s = Math.round(ms / 1000); return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`; };
+const fmt = (ms: number) => { const s = Math.floor(ms / 1000); return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`; };
 
 let memoryKey = '';
 /** Tutorials belong to this browser: a random key kept in localStorage (see convex/replays.ts). */
@@ -20,45 +20,48 @@ export function ownerKey(): string {
   } catch { return memoryKey ||= make(); }
 }
 
-function SaveForm({ replay, defaultName, onDone, onSaved, onDiscard }: { replay: Replay; defaultName: string; onDone: () => void; onSaved: () => void; onDiscard: () => void }) {
-  const uploadUrl = useMutation(api.replays.generateUploadUrl);
-  const save = useAction(api.replays.save);
-  const [name, setName] = useState(defaultName);
-  const [state, setState] = useState<'idle' | 'saving' | 'saved'>('idle');
-  const [error, setError] = useState('');
-  async function submit() {
-    setState('saving'); setError('');
-    try {
-      const body = encodeReplay(replay);
-      if (body.length > MAX_REPLAY_BYTES) throw new Error('This recording is too long to save.');
-      const res = await fetch(await uploadUrl(), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body });
-      if (!res.ok) throw new Error(`Upload failed (${res.status}).`);
-      const { storageId } = await res.json() as { storageId: Id<'_storage'> };
-      await save({ storageId, name, ownerKey: ownerKey() });
-      setState('saved');
-    } catch (e) { setState('idle'); setError(e instanceof Error ? e.message : 'Could not save. Try again.'); }
-  }
-  if (state === 'saved') return <div className="replay-actions"><p role="status">Saved as “{name.trim() || `${replay.twin.label} tutorial`}”. Open it any time from Tutorials.</p><button className="primary" onClick={onSaved}>Done</button></div>;
-  return <form className="replay-actions" onSubmit={e => { e.preventDefault(); void submit(); }}>
-    <label>Name<input value={name} maxLength={80} onChange={e => setName(e.target.value)} autoFocus /></label>
-    {error && <p className="community-error" role="alert">{error}</p>}
-    <div className="community-actions"><button type="submit" className="primary" disabled={state === 'saving'}>{state === 'saving' ? 'Saving…' : 'Save tutorial'}</button><button type="button" onClick={onDone} disabled={state === 'saving'}>Later</button><button type="button" onClick={onDiscard} disabled={state === 'saving'}>Discard</button></div>
-  </form>;
+/** Uploads a lesson as a tutorial (the server validates it in replays.save) and returns its id. */
+export async function saveReplay(replay: Replay, name: string): Promise<Id<'replays'>> {
+  if (!convex) throw new Error('Saving needs the Convex backend (npm run convex).');
+  const body = encodeReplay(replay);
+  if (body.length > MAX_REPLAY_BYTES) throw new Error('This recording is too long to save.');
+  const res = await fetch(await convex.mutation(api.replays.generateUploadUrl, {}), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body });
+  if (!res.ok) throw new Error(`Upload failed (${res.status}).`);
+  const { storageId } = await res.json() as { storageId: Id<'_storage'> };
+  return await convex.action(api.replays.save, { storageId, name, ownerKey: ownerKey() });
 }
 
-/** A captured lesson: watch it straight away, then name and save it, keep it for later, or throw it away. */
-export function TakeDialog({ replay, defaultName, onClose, onSaved, onDiscard }: { replay: Replay; defaultName: string; onClose: () => void; onSaved: () => void; onDiscard: () => void }) {
+/** A lesson as the call screen holds it: saved by itself as soon as it was captured. */
+export interface Take { id: number; replay: Replay; name: string; state: 'saving' | 'saved' | 'failed'; replayId?: Id<'replays'>; error?: string }
+
+/** Watch a captured lesson straight away; it is already saved, so this only renames or deletes it. */
+export function TakeDialog({ take, onClose, onRenamed, onDeleted, onRetry }: { take: Take; onClose: () => void; onRenamed: (name: string) => void; onDeleted: () => void; onRetry: () => void }) {
+  const [name, setName] = useState(take.name);
+  const [error, setError] = useState('');
+  const [confirm, setConfirm] = useState(false);
+  const act = async (f: () => Promise<unknown>) => { setError(''); try { await f(); } catch (e) { setError(e instanceof Error ? e.message : 'Something went wrong. Try again.'); } };
+  const id = take.replayId;
   return <div className="community-modal replay-modal"><section role="dialog" aria-modal="true" aria-label="Captured lesson">
-    <div className="community-row"><h2>Captured lesson</h2><span className="replay-meta">{replay.twin.label} · {fmt(replay.durationMs)}</span></div>
-    <ReplayPlayer replay={replay} />
-    {hasConvex ? <SaveForm replay={replay} defaultName={defaultName} onDone={onClose} onSaved={onSaved} onDiscard={onDiscard} />
-      : <div className="replay-actions"><p>Saving needs the Convex backend (<code>npm run convex</code>). You can watch it here until you close this.</p><button onClick={onClose}>Close</button></div>}
+    <div className="community-row"><h2>Captured lesson</h2><span className="replay-meta">{take.replay.twin.label} · {fmt(take.replay.durationMs)}</span></div>
+    <ReplayPlayer replay={take.replay} />
+    <form className="replay-actions" onSubmit={e => { e.preventDefault(); if (id && convex) void act(async () => { await convex!.mutation(api.replays.rename, { id, name, ownerKey: ownerKey() }); onRenamed(name.trim() || take.name); }); }}>
+      <p role="status">{take.state === 'saved' ? 'Saved to Tutorials.' : take.state === 'saving' ? 'Saving to Tutorials…' : `Not saved: ${take.error ?? 'unknown error'}`}</p>
+      {id && <label>Name<span className="replay-rename"><input value={name} maxLength={80} onChange={e => setName(e.target.value)} /><button type="submit" disabled={name.trim() === take.name || !name.trim()}>Rename</button></span></label>}
+      {error && <p className="community-error" role="alert">{error}</p>}
+      <div className="community-actions">
+        <button type="button" className="primary" onClick={onClose}>Done</button>
+        {take.state === 'failed' && convex && <button type="button" onClick={onRetry}>Try saving again</button>}
+        {id && convex && <button type="button" onClick={() => { if (!confirm) { setConfirm(true); return; } void act(async () => { await convex!.mutation(api.replays.remove, { id, ownerKey: ownerKey() }); onDeleted(); }); }}>{confirm ? 'Tap again to delete' : 'Delete'}</button>}
+      </div>
+    </form>
   </section></div>;
 }
 
 function OpenTutorial({ id, onDeleted }: { id: Id<'replays'>; onDeleted: () => void }) {
   const meta = useQuery(api.replays.get, { id, ownerKey: ownerKey() });
   const remove = useMutation(api.replays.remove);
+  const rename = useMutation(api.replays.rename);
+  const [name, setName] = useState<string | null>(null);
   const [replay, setReplay] = useState<Replay | null>(null);
   const [error, setError] = useState('');
   const [confirm, setConfirm] = useState(false);
@@ -73,7 +76,9 @@ function OpenTutorial({ id, onDeleted }: { id: Id<'replays'>; onDeleted: () => v
   }, [url]);
   if (meta === null) return <p className="community-empty">This tutorial no longer exists.</p>;
   return <div className="community-card replay-open">
-    <div className="community-row"><h2>{meta?.name ?? 'Loading…'}</h2>
+    <div className="community-row">{name === null ? <h2>{meta?.name ?? 'Loading…'}</h2>
+      : <form className="replay-rename" onSubmit={async e => { e.preventDefault(); await rename({ id, name, ownerKey: ownerKey() }); setName(null); }}><input aria-label="Name" value={name} maxLength={80} autoFocus onChange={e => setName(e.target.value)} /><button type="submit" disabled={!name.trim()}>Save name</button></form>}
+      {meta && name === null && <button onClick={() => setName(meta.name)}>Rename</button>}
       <button onClick={async () => { if (!confirm) { setConfirm(true); return; } await remove({ id, ownerKey: ownerKey() }); onDeleted(); }}>{confirm ? 'Tap again to delete' : 'Delete'}</button></div>
     {error ? <p className="community-error" role="alert">{error}</p> : replay ? <ReplayPlayer replay={replay} /> : <p className="community-empty">Loading the recording…</p>}
   </div>;
@@ -88,7 +93,7 @@ export function Tutorials() {
     <div className="community-grid">
       <section aria-label="Saved tutorials">
         {list === undefined ? <p className="community-empty">Loading…</p>
-          : !list.length ? <p className="community-empty">Nothing saved yet. When someone shows you something on the 3D copy of an object, the lesson is captured by itself. Watch it and save it with a name from the card that appears.</p>
+          : !list.length ? <p className="community-empty">Nothing saved yet. When someone shows you something on the 3D copy of an object, the lesson is recorded and saved here by itself, named after what you were talking about.</p>
           : list.map(r => <button key={r._id} className={`community-card replay-item ${open === r._id ? 'active' : ''}`} aria-pressed={open === r._id} onClick={() => setOpen(r._id)}>
             <b>{r.name}</b><small>{r.label} · {fmt(r.durationMs)} · {new Date(r._creationTime).toLocaleString()}</small>
           </button>)}
