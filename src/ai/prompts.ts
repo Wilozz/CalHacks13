@@ -29,6 +29,7 @@ For each object also give "model": a few primitives (cylinder, box, sphere, cone
 - Use a cylinder for anything round (bottle bodies, caps, cans, knobs, buttons), a box only for flat or square things.
 - Match real proportions (a tall thin bottle is tall and thin) and use the real colors you see as #rrggbb.
 - Mark moving:true only on the part the action moves (the cap, the button, the lever, the drawer front). Fixed body parts are moving:false.
+- Give every moving part a short lowercase name such as "cap", "button", "lever" or "drawer"; parts that belong to the same moving piece share one name. Fixed parts need no name.
 - pivot is where the moving part turns or hinges (for a cap, its center). Omit it to use the moving parts' center.
 - Never invent details you cannot see.`;
 

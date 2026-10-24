@@ -251,3 +251,19 @@ button:disabled{opacity:.4;cursor:default}
 .twin-badge{position:absolute;left:8px;top:8px;padding:3px 8px;border-radius:999px;font-size:10px;font-weight:700;letter-spacing:1.2px;color:#222;pointer-events:none}
 .twin-badge.pinch{background:#fff36b}.twin-badge.grip{background:#ff9f43}
 .twin-box[data-kind=grip][data-mode=grab]{outline-color:#ff9f43}
+
+/* The Call / Throwing tabs sit in the top-right corner, in a layer above the app, which is exactly where the Hand tools
+   panel's close button is. Hide them while that panel (or the listening dialog) is open so the button can be clicked. */
+.app:has(.sheet-backdrop,.consent-backdrop)~.tabs{display:none}
+
+/* Corner box: tools at the top right (magnify, put back, close), a mirrored view when alone, and a bigger size. */
+.twin-tools{position:absolute;top:6px;right:6px;display:flex;gap:6px;z-index:2}
+.twin-tool{width:28px;height:28px;min-height:0;padding:0;border-radius:50%;border:0;background:rgba(0,0,0,.4);color:#fff;font-size:16px;line-height:1;cursor:pointer;display:grid;place-items:center}
+.twin-tool:hover{background:rgba(0,0,0,.6);filter:none}
+.twin-box.mirror canvas{transform:scaleX(-1)}
+.twin-box{transition:width .18s ease,height .18s ease}
+.twin-box.big{width:min(600px,calc(100vw - 48px),72vh);height:min(600px,calc(100vw - 48px),72vh);z-index:6}
+.phone .twin-box.big{width:calc(100vw - 32px);height:min(calc(100vw - 32px),64vh)}
+@media(prefers-reduced-motion:reduce){.twin-box{transition:none}}
+.twin-label span:first-child{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:42%}
+.twin-label .twin-status{text-align:right;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}

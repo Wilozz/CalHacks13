@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type RefObject } from 'react';
 import { httpAiClient } from './ai/client';
+import { foldParts } from './ai/foldParts';
 import type { SceneObject } from './ai/types';
 
 const MAX_SIDE = 768;
@@ -55,7 +56,7 @@ export function useSceneScan(video: RefObject<HTMLVideoElement>, cameraOn: boole
     busy.current = true; setScanning(true); setError(''); lastScanAt.current = performance.now(); lastSig.current = frameSignature(v);
     const started = performance.now();
     try {
-      const found = await client.analyzeScene({ imageBase64, mediaType: 'image/jpeg', now: performance.now() / 1000, prior: prior.current });
+      const found = foldParts(await client.analyzeScene({ imageBase64, mediaType: 'image/jpeg', now: performance.now() / 1000, prior: prior.current }));
       setObjects(found);
       setLastMs(performance.now() - started);
       if (!found.length) setError('Claude did not see any objects it could model. Move closer or improve the lighting.');

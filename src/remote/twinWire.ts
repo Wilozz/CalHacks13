@@ -32,9 +32,19 @@ export function decodeTwin(text: string): TwinInfo | null | undefined {
   return { objectId: String(m.objectId ?? '').slice(0, 40), label: String(m.label ?? 'object').slice(0, 60), model, bbox: [x0, y0, x1, y1], feedAspect: aspect };
 }
 
-/** Where the helper has moved and turned the copy. The helper's side computes it; the recipient just displays it. */
-export interface TwinPose { offset: [number, number, number]; rotation: [number, number, number, number]; grabbing: boolean; kind: 'none' | 'pinch' | 'grip'; anchor: [number, number, number] | null }
-export const REST_POSE: TwinPose = { offset: [0, 0, 0], rotation: [0, 0, 0, 1], grabbing: false, kind: 'none', anchor: null };
+/** One piece's movement: how far its centre has moved, and how it has turned. */
+export interface PieceWire { offset: [number, number, number]; rotation: [number, number, number, number] }
+/**
+ * Where the helper has moved and turned the copy. The helper's side computes it; the recipient just displays it.
+ * `offset`/`rotation` are the whole object; `parts` are its separately movable components (the cap), relative to the whole.
+ * `target` is what is held: -2 nothing, -1 the whole, 0.. a component.
+ */
+export interface TwinPose {
+  offset: [number, number, number]; rotation: [number, number, number, number]; grabbing: boolean; kind: 'none' | 'pinch' | 'grip';
+  anchor: [number, number, number] | null; parts: PieceWire[]; target: number;
+}
+export const REST_POSE: TwinPose = { offset: [0, 0, 0], rotation: [0, 0, 0, 1], grabbing: false, kind: 'none', anchor: null, parts: [], target: -2 };
+const MAX_PARTS = 4;
 const num = (n: unknown) => { const v = Number(n); return Number.isFinite(v) ? Math.min(2, Math.max(-2, v)) : 0; };
 const vec3 = (v: unknown): [number, number, number] | null => Array.isArray(v) && v.length === 3 ? [num(v[0]), num(v[1]), num(v[2])] : null;
 const KINDS: TwinPose['kind'][] = ['none', 'pinch', 'grip'];
@@ -43,20 +53,27 @@ const unitQuat = (v: unknown): [number, number, number, number] => {
   const q = v.map(Number); const n = Math.hypot(...q);
   return q.every(Number.isFinite) && n > 1e-6 ? [q[0] / n, q[1] / n, q[2] / n, q[3] / n] : [0, 0, 0, 1];
 };
+const r3 = (v: number[]) => v.map(x => +x.toFixed(3));
+const r4 = (v: number[]) => v.map(x => +x.toFixed(4));
 
 export const encodePose = (p: TwinPose): string => JSON.stringify({
-  type: 'twin-pose', o: p.offset.map(v => +v.toFixed(3)), q: p.rotation.map(v => +v.toFixed(4)), g: p.grabbing ? 1 : 0,
-  k: KINDS.indexOf(p.kind), h: p.anchor ? p.anchor.map(v => +v.toFixed(3)) : null,
+  type: 'twin-pose', o: r3(p.offset), q: r4(p.rotation), g: p.grabbing ? 1 : 0,
+  k: KINDS.indexOf(p.kind), h: p.anchor ? r3(p.anchor) : null, t: p.target,
+  c: p.parts.slice(0, MAX_PARTS).map(x => [...r3(x.offset), ...r4(x.rotation)]),
 });
 
-/** null = not a pose message or invalid. Values are clamped and the rotation is renormalized, never trusted. */
+/** null = not a pose message or invalid. Values are clamped and rotations renormalized, never trusted. */
 export function decodePose(text: string): TwinPose | null {
-  if (typeof text !== 'string' || text.length > 500) return null;
+  if (typeof text !== 'string' || text.length > 900) return null;
   let m: any;
   try { m = JSON.parse(text); } catch { return null; }
   if (!m || m.type !== 'twin-pose') return null;
   const offset = vec3(m.o);
-  return offset ? { offset, rotation: unitQuat(m.q), grabbing: m.g === 1, kind: KINDS[m.k] ?? 'none', anchor: vec3(m.h) } : null;
+  if (!offset) return null;
+  const parts: PieceWire[] = (Array.isArray(m.c) ? m.c : []).slice(0, MAX_PARTS).flatMap((x: unknown): PieceWire[] =>
+    Array.isArray(x) && x.length === 7 ? [{ offset: vec3(x.slice(0, 3))!, rotation: unitQuat(x.slice(3)) }] : []);
+  const t = Number.isInteger(m.t) ? m.t : -2;
+  return { offset, rotation: unitQuat(m.q), grabbing: m.g === 1, kind: KINDS[m.k] ?? 'none', anchor: vec3(m.h), parts, target: t >= -2 && t < parts.length ? t : -2 };
 }
 
 /** A finished sentence, shared so both screens' listening agents hear the whole conversation. Text only: audio never leaves the device except to the speech service. */

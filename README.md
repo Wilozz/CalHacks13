@@ -206,3 +206,11 @@ Cartesia protocol details are from its docs (`wss://api.cartesia.ai/stt/websocke
 - The box shows a PINCH or GRIP badge, lights the fingertips that hold, and outlines the object (yellow for pinch, orange for grip). The other person's box shows the same turn.
 
 Logic: `src/remote/grasp.ts` (detection with hysteresis), `src/remote/twinMove.ts` (grab, move, turn), `src/remote/quat.ts` (rotation math). Pinch and grip are measured on the 2D image landmarks and checked against real hand photos (`src/remote/turn.test.ts`); turning gains are first guesses to tune on real hands. The Throwing prototype uses the same palm-orientation math to turn what you hold.
+
+### Parts: the cap and the whole
+
+An object is a **whole plus separately movable pieces**: Claude marks and names the moving parts when it builds the model (`moving: true`, `name: "cap"`), and `src/remote/components.ts` groups touching moving pieces into components. Nothing is selected first. Pinch or grip **on the cap** and only the cap moves or turns (twist it about its own axis, or pull it clear of the bottle); do it **anywhere else** and the whole object moves, cap included. Hovering outlines whatever you would take, and the box says what you are holding ("pinching the cap"). Logic: `src/remote/twinRig.ts`. The other person's box shows the same, because each piece's movement travels in the pose message.
+
+The box also has a **magnify** button (top right) and, when you are alone, shows a **mirrored** view so the hand moves the way your mirrored video does.
+
+**Why a part is reachable:** vision lists a bottle and its cap as two objects, so `src/ai/foldParts.ts` folds a small object that sits inside a larger, related one (a cap in a bottle, a button in a box) into the larger object as a named moving part, and drops it from the list. Saying "the cap" still finds the bottle. Caps and lids behave like threaded parts: twisting one either way raises it (about three twists free it), and it cannot sink below its seat. Holding uses the index fingertip, and the hold is frozen while the fingers open, so letting go never drags the object.

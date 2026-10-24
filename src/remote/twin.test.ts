@@ -154,14 +154,20 @@ test('fingertipOnTwin exposes the target used to move the copy', () => {
 });
 
 test('pose messages roundtrip, and malformed or wild ones are clamped or rejected', () => {
-  const p = decodePose(encodePose({ offset: [0.3, -0.2, 0.1], rotation: [0, 0.7071, 0, 0.7071], grabbing: true, kind: 'grip', anchor: [0, 0.1, 0.2] }))!;
+  const p = decodePose(encodePose({ offset: [0.3, -0.2, 0.1], rotation: [0, 0.7071, 0, 0.7071], grabbing: true, kind: 'grip', anchor: [0, 0.1, 0.2], parts: [{ offset: [0, 0.5, 0], rotation: [0, 0.7071, 0, 0.7071] }], target: 0 }))!;
+  assert.equal(p.target, 0); assert.deepEqual(p.parts[0].offset, [0, 0.5, 0]); assert.ok(Math.abs(p.parts[0].rotation[1] - 0.7071) < 1e-3);
   assert.deepEqual(p.offset, [0.3, -0.2, 0.1]); assert.equal(p.grabbing, true); assert.equal(p.kind, 'grip'); assert.deepEqual(p.anchor, [0, 0.1, 0.2]);
   assert.ok(Math.abs(p.rotation[1] - 0.7071) < 1e-3);
-  assert.equal(decodePose(encodePose({ offset: [0, 0, 0], rotation: [0, 0, 0, 1], grabbing: false, kind: 'none', anchor: null }))!.anchor, null);
+  assert.equal(decodePose(encodePose({ offset: [0, 0, 0], rotation: [0, 0, 0, 1], grabbing: false, kind: 'none', anchor: null, parts: [], target: -2 }))!.anchor, null);
   assert.equal(decodePose('nope'), null);
   assert.equal(decodePose(JSON.stringify({ type: 'twin-pose', o: [1, 2] })), null);
   assert.deepEqual(decodePose(JSON.stringify({ type: 'twin-pose', o: [99, -99, 'x'], g: 1, h: null }))!.offset, [2, -2, 0]);
-  assert.equal(decodePose('x'.repeat(600)), null);
+  assert.equal(decodePose('x'.repeat(1000)), null);
+  // components: too many are dropped, malformed ones are skipped, and a target that points at nothing is ignored
+  const many = decodePose(JSON.stringify({ type: 'twin-pose', o: [0, 0, 0], t: 3, c: Array.from({ length: 9 }, () => [0, 0, 0, 0, 0, 0, 1]) }))!;
+  assert.equal(many.parts.length, 4); assert.equal(many.target, 3);
+  const bad = decodePose(JSON.stringify({ type: 'twin-pose', o: [0, 0, 0], t: 5, c: [[1, 2], [0, 0, 0, 0, 0, 0, 1]] }))!;
+  assert.equal(bad.parts.length, 1); assert.equal(bad.target, -2);
   // a hostile rotation is made safe: not a number, not unit length, all zero, wrong length
   assert.deepEqual(decodePose(JSON.stringify({ type: 'twin-pose', o: [0, 0, 0], q: [0, 0, 0, 0] }))!.rotation, [0, 0, 0, 1]);
   assert.deepEqual(decodePose(JSON.stringify({ type: 'twin-pose', o: [0, 0, 0], q: [1, 2] }))!.rotation, [0, 0, 0, 1]);

@@ -25,6 +25,7 @@ export function sanitizeModel(raw: unknown): ModelSpec | null {
       position: vec(p.position, -1.2, 1.2, 0),
       color: typeof p.color === 'string' && /^#[0-9a-f]{6}$/i.test(p.color) ? p.color : '#64f5ed',
       moving: p.moving === true,
+      ...(typeof p.name === 'string' && p.name.trim() ? { name: p.name.trim().slice(0, 24) } : {}),
     }];
   });
   if (!parts.length) return null;
@@ -51,14 +52,14 @@ export function normalize(m: ModelSpec): ModelSpec {
   };
 }
 
-const P = (shape: PartShape, size: V3, position: V3, color: string, moving = false): ModelPart => ({ shape, size, position, color, moving });
+const P = (shape: PartShape, size: V3, position: V3, color: string, moving = false, name?: string): ModelPart => ({ shape, size, position, color, moving, ...(name ? { name } : {}) });
 const C = '#64f5ed';
 
 /** Fallback twins for when vision gave no model. Same schema, so one renderer handles both. */
 export const BUILTIN_MODELS = {
-  bottle: { pivot: [0, 0.47, 0], parts: [P('cylinder', [0.42, 0.76, 0.42], [0, -0.12, 0], C), P('cylinder', [0.18, 0.2, 0.18], [0, 0.36, 0], C), P('cylinder', [0.24, 0.1, 0.24], [0, 0.47, 0], '#c8fff9', true), P('box', [0.03, 0.1, 0.05], [0.12, 0.47, 0], '#ffffff', true)] },
-  knob: { pivot: [0, -0.18, 0], parts: [P('cylinder', [0.76, 0.14, 0.76], [0, -0.4, 0], C), P('cylinder', [0.58, 0.3, 0.58], [0, -0.18, 0], '#c8fff9', true), P('box', [0.18, 0.03, 0.05], [0.2, -0.02, 0], '#ffffff', true)] },
-  button: { pivot: [0, -0.22, 0], parts: [P('box', [0.8, 0.2, 0.8], [0, -0.4, 0], C), P('cylinder', [0.4, 0.16, 0.4], [0, -0.22, 0], '#c8fff9', true)] },
-  switch: { pivot: [0, 0, 0.07], parts: [P('box', [0.55, 0.9, 0.1], [0, 0, -0.05], C), P('box', [0.1, 0.42, 0.1], [0, 0.2, 0.07], '#c8fff9', true), P('sphere', [0.2, 0.2, 0.2], [0, 0.42, 0.07], '#ffffff', true)] },
-  box: { pivot: [0, 0, 0], parts: [P('box', [0.95, 0.6, 0.7], [0, 0, 0], C), P('box', [0.85, 0.45, 0.55], [0, 0, 0.05], '#c8fff9', true), P('box', [0.3, 0.06, 0.08], [0, 0.02, 0.36], '#ffffff', true)] },
+  bottle: { pivot: [0, 0.47, 0], parts: [P('cylinder', [0.42, 0.76, 0.42], [0, -0.12, 0], C), P('cylinder', [0.18, 0.2, 0.18], [0, 0.36, 0], C), P('cylinder', [0.24, 0.1, 0.24], [0, 0.47, 0], '#c8fff9', true, 'cap'), P('box', [0.03, 0.1, 0.05], [0.12, 0.47, 0], '#ffffff', true, 'cap')] },
+  knob: { pivot: [0, -0.18, 0], parts: [P('cylinder', [0.76, 0.14, 0.76], [0, -0.4, 0], C), P('cylinder', [0.58, 0.3, 0.58], [0, -0.18, 0], '#c8fff9', true, 'knob'), P('box', [0.18, 0.03, 0.05], [0.2, -0.02, 0], '#ffffff', true, 'knob')] },
+  button: { pivot: [0, -0.22, 0], parts: [P('box', [0.8, 0.2, 0.8], [0, -0.4, 0], C), P('cylinder', [0.4, 0.16, 0.4], [0, -0.22, 0], '#c8fff9', true, 'button')] },
+  switch: { pivot: [0, 0, 0.07], parts: [P('box', [0.55, 0.9, 0.1], [0, 0, -0.05], C), P('box', [0.1, 0.42, 0.1], [0, 0.2, 0.07], '#c8fff9', true, 'lever'), P('sphere', [0.2, 0.2, 0.2], [0, 0.42, 0.07], '#ffffff', true, 'lever')] },
+  box: { pivot: [0, 0, 0], parts: [P('box', [0.95, 0.6, 0.7], [0, 0, 0], C), P('box', [0.85, 0.45, 0.55], [0, 0, 0.05], '#c8fff9', true, 'drawer'), P('box', [0.3, 0.06, 0.08], [0, 0.02, 0.36], '#ffffff', true, 'drawer')] },
 } satisfies Record<string, ModelSpec>;

@@ -362,7 +362,7 @@ export default function App() {
     </div>
     {screen!=='calling' && <VoiceBar state={voice.state} engine={voice.engine} partial={voice.partial} error={voice.error} heard={heard} objects={scene.objects} focus={focusInfo} topic={topic}
       onToggle={() => voice.state==='listening' ? voice.stop() : voice.start()} onChoose={chooseObject} onAccept={voice.accept} onDecline={voice.decline}/>}
-    {twin && (screen==='home' || screen==='incall') && <TwinBox twin={twin} hand={helperMode ? myHand : peerHand} drive={helperMode ? 'local' : 'remote'} remotePose={remotePose} onPose={sendPose} placement={placement} posFlip={screen==='home' ? false : placement.flipX} onClose={closeTwin}/>}
+    {twin && (screen==='home' || screen==='incall') && <TwinBox twin={twin} mirror={screen==='home'} hand={helperMode ? myHand : peerHand} drive={helperMode ? 'local' : 'remote'} remotePose={remotePose} onPose={sendPose} placement={placement} posFlip={screen==='home' ? false : placement.flipX} onClose={closeTwin}/>}
     {screen==='home' && <section className="home-panel" aria-label="Start a call">
       <div><h1>GHOST</h1><p className="tagline">Show someone what to do with your hands.</p></div>
       <button className="primary" onClick={() => call.start()}><Icon name="video" size={20}/>New call</button>

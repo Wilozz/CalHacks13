@@ -97,7 +97,7 @@ const SCENE_TOOL = {
         shape: { type: 'string', enum: ['cylinder', 'box', 'sphere', 'cone'] },
         size: { type: 'array', items: { type: 'number' }, minItems: 3, maxItems: 3 },
         position: { type: 'array', items: { type: 'number' }, minItems: 3, maxItems: 3 },
-        color: { type: 'string', description: '#rrggbb' }, moving: { type: 'boolean' },
+        color: { type: 'string', description: '#rrggbb' }, moving: { type: 'boolean' }, name: { type: 'string', description: 'short name of a moving part, e.g. cap' },
       }, required: ['shape', 'size', 'position', 'color', 'moving'] } },
       pivot: { type: 'array', items: { type: 'number' }, minItems: 3, maxItems: 3 },
     }, required: ['parts'] },

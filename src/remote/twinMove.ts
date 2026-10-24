@@ -17,6 +17,7 @@ export interface MoveInput {
 }
 
 const Z_GAIN = 0.8;
+const DEPTH_DEADZONE = 0.15; // apparent hand size wobbles by this much on its own, especially while twisting
 const TWIST_GAIN = 1.2;
 const wrap = (d: number) => ((((d + Math.PI) % (2 * Math.PI)) + 2 * Math.PI) % (2 * Math.PI)) - Math.PI;
 
@@ -33,14 +34,18 @@ export class TwinMover {
   rotation: Q = QI;
   grabbing = false;
   kind: GraspKind = 'none';
-  private start: { tip: P3; offset: P3; rot: Q; depth: number; palm: Q | null; hold: P3 } | null = null;
+  private start: { tip: P3; pivot: P3; zLift: number; offset: P3; rot: Q; depth: number; palm: Q | null; hold: P3 } | null = null;
   private twistPrev = 0;
   private twistAcc = 0;
-  constructor(private readonly bounds: Bounds, private readonly limit: P3 = [0.55, 0.55, 0.5], private readonly margin = 0.18) {}
+  /**
+   * bounds are relative to `center`, the point the body turns about (the model's centre for the whole object, a cap's
+   * own centre for the cap). `offset` is how far that centre has moved from where it started.
+   */
+  constructor(private readonly bounds: Bounds, private readonly limit: P3 = [0.55, 0.55, 0.5], private readonly margin = 0.18, private readonly center: P3 = [0, 0, 0], private readonly thread?: { pitch: number }) {}
 
   hits(tip: P3): boolean {
-    const { lo, hi } = this.bounds, o = this.offset, m = this.margin;
-    return tip[0] >= lo[0] + o[0] - m && tip[0] <= hi[0] + o[0] + m && tip[1] >= lo[1] + o[1] - m && tip[1] <= hi[1] + o[1] + m;
+    const { lo, hi } = this.bounds, o = this.offset, c = this.center, m = this.margin;
+    return tip[0] >= lo[0] + c[0] + o[0] - m && tip[0] <= hi[0] + c[0] + o[0] + m && tip[1] >= lo[1] + c[1] + o[1] - m && tip[1] <= hi[1] + c[1] + o[1] + m;
   }
 
   /** input null = no hand: the hold ends, the object stays as it is. */
@@ -60,22 +65,29 @@ export class TwinMover {
         ? (input.palm && s.palm ? qMul(input.palm, qInv(s.palm)) : QI)
         : qAxisAngle([0, 1, 0], this.twistAcc * TWIST_GAIN);
       this.rotation = qMul(rel, s.rot);
-      // Turn about the held point: the object's centre swings around where the fingers are.
-      const tipZ = s.tip[2] + (input.depth - s.depth) * Z_GAIN;
-      const spun = qRotate(rel, [s.offset[0] - s.tip[0], s.offset[1] - s.tip[1], s.offset[2] - s.tip[2]]);
-      const raw: P3 = [input.tip[0] + spun[0], input.tip[1] + spun[1], tipZ + spun[2]];
-      this.offset = raw.map((v, i) => Math.min(L[i], Math.max(-L[i], v))) as P3;
-      atLimit = raw.some((v, i) => Math.abs(v) > L[i]);
+      // Turn about the held point, taken at the object's own depth: the fingertip sits on its front surface, and
+      // turning about that point would make a twisted cap orbit sideways instead of spinning in place.
+      const c = this.center, dd = input.depth - s.depth, depthShift = Math.sign(dd) * Math.max(0, Math.abs(dd) - DEPTH_DEADZONE) * Z_GAIN;
+      const v = qRotate(rel, [c[0] + s.offset[0] - s.pivot[0], c[1] + s.offset[1] - s.pivot[1], c[2] + s.offset[2] - s.pivot[2]]);
+      // A threaded piece (a cap) climbs as it is turned, either way, like a real screw; it cannot sink below its seat.
+      const climb = this.thread && input.kind === 'pinch' ? this.thread.pitch * Math.abs(this.twistAcc * TWIST_GAIN) : 0;
+      const raw: P3 = [input.tip[0] + v[0] - c[0], input.tip[1] + v[1] - c[1] + climb, s.pivot[2] + depthShift + v[2] - c[2]];
+      this.offset = raw.map((x, i) => Math.min(L[i], Math.max(-L[i], x))) as P3;
+      if (this.thread) this.offset[1] = Math.max(0, this.offset[1]);
+      atLimit = raw.some((x, i) => Math.abs(x) > L[i]);
       const h = qRotate(this.rotation, s.hold);
-      anchor = [this.offset[0] + h[0], this.offset[1] + h[1], this.offset[2] + h[2]];
+      // The grip is drawn at the front surface, in step with the object.
+      anchor = [c[0] + this.offset[0] + h[0], c[1] + this.offset[1] + h[1], c[2] + this.offset[2] + h[2] + s.zLift];
     }
     return this.state(hover, atLimit, anchor);
   }
 
   private begin(input: MoveInput) {
     this.grabbing = true; this.kind = input.kind;
-    const rel: P3 = [input.tip[0] - this.offset[0], input.tip[1] - this.offset[1], input.tip[2] - this.offset[2]];
-    this.start = { tip: input.tip, offset: [...this.offset], rot: this.rotation, depth: input.depth, palm: input.palm, hold: qRotate(qInv(this.rotation), rel) };
+    const c = this.center, cz = c[2] + this.offset[2];
+    const pivot: P3 = [input.tip[0], input.tip[1], cz];
+    const rel: P3 = [pivot[0] - c[0] - this.offset[0], pivot[1] - c[1] - this.offset[1], 0];
+    this.start = { tip: input.tip, pivot, zLift: input.tip[2] - cz, offset: [...this.offset], rot: this.rotation, depth: input.depth, palm: input.palm, hold: qRotate(qInv(this.rotation), rel) };
     this.twistPrev = input.twist; this.twistAcc = 0;
   }
 

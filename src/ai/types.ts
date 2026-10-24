@@ -51,7 +51,7 @@ export interface HandEvent {
 export type PartShape = 'cylinder' | 'box' | 'sphere' | 'cone';
 export type V3 = [number, number, number];
 /** One primitive of a parametric twin. size is the full bounding extent; the object is ~1 unit tall, centered. */
-export interface ModelPart { shape: PartShape; size: V3; position: V3; color: string; moving: boolean }
+export interface ModelPart { shape: PartShape; size: V3; position: V3; color: string; moving: boolean; /** short name of a moving part, such as "cap" */ name?: string }
 export interface ModelSpec { parts: ModelPart[]; pivot: V3 }
 
 export interface SceneObject {
@@ -64,6 +64,8 @@ export interface SceneObject {
   confidence: number;
   seenAt: number;
   model?: ModelSpec; // Claude-written parametric twin of this object
+  /** names of the pieces folded into this object ("cap"), so saying "the cap" finds the bottle */
+  partNames?: string[];
 }
 
 export interface TranscriptWord { text: string; start: number; end: number }

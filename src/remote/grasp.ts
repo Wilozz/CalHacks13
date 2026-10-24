@@ -44,11 +44,14 @@ export class GraspDetector {
   reset() { this.kind = 'none'; this.streak = 0; this.last = null; }
 }
 
-/** Where the fingers are holding, in image coordinates: between thumb and index, or among thumb, index and middle. */
-export function grabPoint(frame: HandFrame, kind: GraspKind): { x: number; y: number } {
-  const l = frame.landmarks;
-  const pick = kind === 'grip' ? [4, 8, 12] : kind === 'pinch' ? [4, 8] : [8];
-  return { x: pick.reduce((s, i) => s + l[i].x, 0) / pick.length, y: pick.reduce((s, i) => s + l[i].y, 0) / pick.length };
+/**
+ * Where to hold, in image coordinates: always the index fingertip. It used to be the midpoint of the holding fingers,
+ * but when you open your fingers the thumb swings away, the midpoint jumps with it, and the object is flung sideways
+ * for the frames it takes to confirm the release. The index fingertip barely moves when the thumb lets go.
+ */
+export function grabPoint(frame: HandFrame, _kind: GraspKind = 'none'): { x: number; y: number } {
+  const t = frame.landmarks[8];
+  return { x: t.x, y: t.y };
 }
 
 /**

@@ -29,7 +29,7 @@ const REFERS_TO_CURRENT = /\b(it|this|that|this one|that one|the same one)\b/i;
 export const tokenize = (text: string): string[] => text.toLowerCase().replace(/[^a-z0-9\s'-]/g, ' ').split(/\s+/).filter(Boolean);
 const canon = (w: string) => CANON.get(w) ?? (w.endsWith('s') && w.length > 3 ? CANON.get(w.slice(0, -1)) ?? w.slice(0, -1) : w);
 
-export interface ObjectRef { objectId: string; label: string }
+export interface ObjectRef { objectId: string; label: string; /** pieces folded into this object ("cap"), so saying the part finds it */ partNames?: string[] }
 export interface Mention { objectId: string; score: number; term: string }
 export interface MatchResult { mentions: Mention[]; ambiguous: boolean; refersToCurrent: boolean }
 
@@ -59,6 +59,7 @@ export function matchObjects(text: string, objects: ObjectRef[]): MatchResult {
     if (headHit) { score = 0.8 + 0.2 * ((modHits + 1) / all.length); term = all.filter(w => said.has(w)).join(' ') || head; }
     else if (modHits && modifiers.some(m => !COLORS.has(m))) { score = 0.35 * (modHits / modifiers.length); term = modifiers.filter(m => said.has(m)).join(' '); }
     else if (modHits) score = 0.25;
+    for (const part of o.partNames ?? []) if (said.has(canon(part)) && score < 0.78) { score = 0.78; term = part; }
     if (score > 0) mentions.push({ objectId: o.objectId, score: +score.toFixed(3), term });
   }
   // Equal scores: the more specific label wins ("bottle cap" over "bottle" for a sentence about the cap).

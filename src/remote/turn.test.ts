@@ -73,10 +73,11 @@ test('one noisy frame does not change the gesture; losing the hand ends it', () 
   assert.equal(d.update(null), 'none');
 });
 
-test('the grab point is between the fingers that hold', () => {
-  const f = frame(0.2, 0.3);
-  const [t, i, m] = [4, 8, 12].map(k => f.landmarks[k].x);
-  near(grabPoint(f, 'pinch').x, (t + i) / 2); near(grabPoint(f, 'grip').x, (t + i + m) / 3); near(grabPoint(f, 'none').x, i);
+test('the grab point is the index fingertip, so opening the thumb never moves it', () => {
+  const closed = frame(0.15, 0.3), open = frame(0.15, 0.3);
+  open.landmarks[4] = { x: 0.2, y: 0.9, z: 0 };                  // the thumb swings far away as the fingers open
+  for (const kind of ['none', 'pinch', 'grip'] as const) { near(grabPoint(open, kind).x, grabPoint(closed, kind).x); near(grabPoint(open, kind).y, closed.landmarks[8].y); }
+  near(grabPoint(closed, 'pinch').x, closed.landmarks[8].x);
 });
 
 test('twist angle is the palm direction on screen, and opening the fingers does not change it', () => {
@@ -179,4 +180,12 @@ test('with no hand, the hold ends and the turn is kept', () => {
   m.update(inp(at(0, 0), 'pinch', { twist: 0 })); m.update(inp(at(0, 0), 'pinch', { twist: 1 }));
   const s = m.update(null);
   assert.equal(s.grabbing, false); near(qAngle(s.rotation, QI), 1.2, 1e-6);
+});
+
+test('small changes in apparent hand size do not push the object toward you; a real move does', () => {
+  const m = new TwinMover(bounds);
+  m.update(inp(at(0, 0), 'pinch', { depth: 1 }));
+  near(m.update(inp(at(0, 0), 'pinch', { depth: 1.12 })).offset[2], 0);       // wobble: ignored
+  near(m.update(inp(at(0, 0), 'pinch', { depth: 0.9 })).offset[2], 0);
+  assert.ok(m.update(inp(at(0, 0), 'pinch', { depth: 1.6 })).offset[2] > 0.2);  // hand clearly closer: it comes forward
 });
