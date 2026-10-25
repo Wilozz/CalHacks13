@@ -36,3 +36,22 @@ test('the lanyard held up to the camera is found on the device and comes up on b
  await expect(learner.locator('.scene-box, .throw-toast')).toHaveCount(0); // the boxes are found, not drawn
  await a.close();await b.close();
 });
+
+test('with finding switched off, nothing comes up whatever the camera sees; switched on, the lanyard does',async({browser})=>{
+ const a=await browser.newContext({permissions:['camera','microphone']}),b=await browser.newContext({permissions:['camera','microphone']});
+ const learner=await a.newPage(),helper=await b.newPage();
+ await cameraShows(learner,['/demo/lanyard-ref.png',MUG]);
+ const ready=new Promise<void>(r=>learner.on('console',m=>{if(/models ready/.test(m.text()))r();}));
+ await learner.goto('/');await helper.goto('/');await ready;
+ await learner.getByRole('button',{name:'New call',exact:true}).click();
+ await learner.getByRole('button',{name:'Stop finding the lanyard'}).click(); // before the friend joins
+ await expect(learner.getByTestId('room-code')).toHaveText(/^[A-HJ-NP-Z2-9]{6}$/,{timeout:20_000});
+ await helper.getByLabel('Join with a code').fill(await learner.getByTestId('room-code').innerText());
+ await helper.getByRole('button',{name:'Join',exact:true}).click();
+ await expect(learner.getByTestId('call-state')).toHaveText(/^\d\d:\d\d$/,{timeout:35_000});
+ await learner.waitForTimeout(3000);
+ for(const p of [learner,helper])await expect(p.locator('.twin-box')).toHaveCount(0);
+ await learner.getByRole('button',{name:'Find the lanyard'}).click();
+ for(const p of [learner,helper])await expect(p.locator('.twin-box.stage')).toBeVisible({timeout:10_000});
+ await a.close();await b.close();
+});

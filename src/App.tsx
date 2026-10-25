@@ -409,7 +409,9 @@ export default function App({communitySession}:{communitySession?:{id:string;tok
   // Finding the lanyard, in a call until it is out. On this device: every object boxed ~8 times a second, the most
   // lanyard-like one picked at once (useObjectFinder). Alongside, Claude's check (a small frame, one yes/no, ~1/s) is
   // the backup; what it finds is kept as a real picture, so next time the device finds it at once.
-  const looking = screen==='incall' && (phase==='loading' || active) && !twin; // the camera is on: no need to wait for hand tracking
+  // The finder switch: off, nothing is looked for, so nothing that merely looks like a lanyard can bring the mesh up.
+  const [findOn,setFindOn] = useState(true);
+  const looking = findOn && screen==='incall' && (phase==='loading' || active) && !twin; // the camera is on: no need to wait for hand tracking
   const finder = useObjectFinder(video, looking, () => live.current.hands ?? [], bbox => { console.info('[find] on device'); void showLanyard(bbox); });
   useEffect(() => {
     if (!looking) return;
@@ -492,6 +494,7 @@ export default function App({communitySession}:{communitySession?:{id:string;tok
     {screen!=='home' && <div className="controls">
       <button className="round" disabled={!call.local} aria-pressed={call.muted} aria-label={call.muted?'Unmute microphone':'Mute microphone'} onClick={call.toggleMute}><Icon name={call.muted?'micOff':'mic'}/></button>
       <button className="round" disabled={!call.local} aria-pressed={call.cameraOff} aria-label={call.cameraOff?'Turn camera on':'Turn camera off'} onClick={call.toggleCamera}><Icon name={call.cameraOff?'videoOff':'video'}/></button>
+      <button className="round" aria-pressed={findOn} aria-label={findOn ? 'Stop finding the lanyard' : 'Find the lanyard'} title={findOn ? 'Finding the lanyard: it appears when it is seen. Tap to stop.' : 'Not looking: no 3D model will appear. Tap to find the lanyard.'} onClick={() => setFindOn(v => !v)}><Icon name={findOn ? 'scan' : 'scanOff'}/></button>
       <button className="round" aria-pressed={handOn && active} aria-label="Show my hand" onClick={() => { if(!cameraOn) { setHandOn(true); void start(); } else setHandOn(v => !v); }}><Icon name="hand"/></button>
       <button className="round" aria-label="Hand tools" onClick={() => setMoreOpen(true)}><Icon name="more"/></button>
       <button className="round end" aria-label={call.status==='preparing'?'Cancel':'End call'} onClick={call.end}><Icon name="end" size={26}/></button>
