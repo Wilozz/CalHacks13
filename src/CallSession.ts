@@ -23,7 +23,7 @@ export class CallSession {
   constructor(private callbacks:CallCallbacks,private camera:()=>MediaStream|null){}
   connect(code?:string,community?:{id:string;token:string}) {
     try {
-      if(!window.isSecureContext || !navigator.mediaDevices?.getUserMedia)throw new Error('Open GHOST on localhost or trusted HTTPS to use the camera and microphone.');
+      if(!window.isSecureContext || !navigator.mediaDevices?.getUserMedia)throw new Error('Open Handoff on localhost or trusted HTTPS to use the camera and microphone.');
       const room=code?validateRoomCode(code):undefined;
       this.callbacks.status('preparing');
       const socket=new WebSocket(signalingUrl());this.socket=socket;

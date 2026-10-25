@@ -139,7 +139,7 @@ export default function ThrowPrototype() {
     </section>}
     {screen === 'incall' && <div className="call-pill throw-pill" role="status"><b>{call.room}</b><span data-testid="call-state">{call.status === 'connected' ? 'Reach through' : 'Reconnecting…'}</span></div>}
     {screen === 'incall' && (peer === 'missing' || peer === 'other') && <p className="banner error throw-warn" role="alert">
-      {peer === 'other' ? 'Your friend is on a different version of GHOST, so objects won’t show up for them. Both of you should reload the page.'
+      {peer === 'other' ? 'Your friend is on a different version of Handoff, so objects won’t show up for them. Both of you should reload the page.'
         : 'Your friend isn’t on the Throwing prototype screen, or has an old version, so they can’t see your objects. Ask them to open “Throwing prototype”, reload, and rejoin with your code.'}
     </p>}
     {call.playBlocked && <button className="pill-button throw-play" onClick={call.retryPlay}>Play friend’s audio and video</button>}

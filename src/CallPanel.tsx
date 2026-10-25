@@ -43,7 +43,7 @@ export function useCall(getCameraStream:()=>MediaStream|null) {
     toggleCamera:()=>{session.current?.cameraOff(!cameraOff);setCameraOff(!cameraOff);},
     share:()=>{
       const copy=()=>navigator.clipboard.writeText(room).then(()=>setHint('Code copied. Send it to your friend.')).catch(()=>setHint(`Your code is ${room}.`));
-      if(navigator.share)void navigator.share({text:`Join my GHOST call with code ${room}`}).catch(()=>{});else void copy();
+      if(navigator.share)void navigator.share({text:`Join my Handoff call with code ${room}`}).catch(()=>{});else void copy();
     },
     retryPlay:()=>void friendVideo.current?.play().then(()=>setPlayBlocked(false)).catch(()=>setError('Playback was blocked. Check browser audio settings.'))};
 }
