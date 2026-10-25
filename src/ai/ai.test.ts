@@ -123,6 +123,7 @@ function setup(client: Partial<AiClient>, now = { t: 5 }) {
     voiceToken: async () => ({ token: 't', model: 'm', version: 'v', expiresIn: 1 }),
     summarize: async () => ({ taskSummary: 's', mentionedObjects: [], currentStep: '', language: 'en', updatedAt: 0 }),
     analyzeScene: async () => [],
+    findLanyard: async () => ({ found: false, bbox: null }),
     ...client,
   };
   const o = new Orchestrator(tr, { client: full, clock: () => now.t, viewerLanguage: () => 'en', parseTimeoutMs: 100, onOutcome: x => outcomes.push(x), onSkipped: (_, w) => skipped.push(w), summaryIntervalSec: 1e9 });

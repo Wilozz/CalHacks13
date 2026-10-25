@@ -429,13 +429,15 @@ function Lookat() {
  * `mirror` flips the picture like a selfie view: alone, you watch yourself in a mirror, so the copy and your hands
  * must move the way your mirrored video does (move left, the hand goes left).
  */
-export function TwinBox({ twin, hand, placement, posFlip, mirror = false, drive, remotePose, onPose, onClose, frame, onThrow }: {
+export function TwinBox({ twin, hand, placement, posFlip, mirror = false, drive, remotePose, onPose, onClose, frame, onThrow, stage = false }: {
   twin: TwinInfo; hand: MutableRefObject<HandSource>; placement: Placement; posFlip: boolean; mirror?: boolean;
   drive: 'local' | 'remote'; remotePose: MutableRefObject<TwinPose>; onPose: (p: TwinPose) => void; onClose: () => void;
   /** the scanned picture this object was found in, if it is ours: lets this screen ask SAM 3D for a real model */
   frame?: ScanFrame | null;
   /** you hold it in a call: throw it to your friend (a button, or flick it up) */
   onThrow?: () => void;
+  /** in a call: drawn on the screen itself, over the video, instead of in the grey box */
+  stage?: boolean;
 }) {
   const pl = useRef(placement);
   useEffect(() => { pl.current = placement; }, [placement]);
@@ -480,7 +482,7 @@ export function TwinBox({ twin, hand, placement, posFlip, mirror = false, drive,
     : both ? `both hands: ${what} + ${ui.target2 === 'whole' ? 'the whole' : `the ${ui.target2}`}`
     : holding ? `${ui.kind === 'grip' ? 'gripping' : 'pinching'} ${what}`
     : ui.mode === 'hover' ? `pinch ${what}` : ui.mode === 'idle' && changed ? 'moved · pinch to move again' : ui.mode === 'waiting' ? 'waiting for hand' : partNames.length ? `pinch the ${partNames[0]} or the whole` : 'point at it, then pinch';
-  return <aside className={`twin-box ${mirror ? 'mirror' : ''} ${big ? 'big' : ''}`} aria-label={`3D copy of ${twin.label}`} data-mode={ui.mode} data-kind={ui.kind} data-moved={ui.moved ? '1' : '0'} data-turned={ui.turned ? '1' : '0'} data-angle={ui.angle} data-target={ui.target} data-part-angle={ui.partAngle} data-part-moved={ui.partMoved ? '1' : '0'} data-big={big ? '1' : '0'} data-thumb={ui.thumb} data-part-lift={ui.partLift} data-part-pos={ui.partPos} data-hands={ui.hands} data-kind2={ui.kind2} data-target2={ui.target2} data-unscrew={ui.unscrew} data-kit={ui.kit} data-kit-just={ui.kitJust ? '1' : '0'}>
+  return <aside className={`twin-box ${mirror ? 'mirror' : ''} ${big && !stage ? 'big' : ''} ${stage ? 'stage' : ''}`} aria-label={`3D copy of ${twin.label}`} data-mode={ui.mode} data-kind={ui.kind} data-moved={ui.moved ? '1' : '0'} data-turned={ui.turned ? '1' : '0'} data-angle={ui.angle} data-target={ui.target} data-part-angle={ui.partAngle} data-part-moved={ui.partMoved ? '1' : '0'} data-big={big ? '1' : '0'} data-thumb={ui.thumb} data-part-lift={ui.partLift} data-part-pos={ui.partPos} data-hands={ui.hands} data-kind2={ui.kind2} data-target2={ui.target2} data-unscrew={ui.unscrew} data-kit={ui.kit} data-kit-just={ui.kitJust ? '1' : '0'}>
     <Canvas dpr={[1, 2]} camera={{ position: [0.5, 0.4, 3.4], fov: 40 }} gl={{ antialias: true, alpha: true }} onCreated={({ gl }) => gl.setClearColor(0x000000, 0)}>
       <Lookat />
       <ambientLight intensity={1.2} />
@@ -493,7 +495,7 @@ export function TwinBox({ twin, hand, placement, posFlip, mirror = false, drive,
       {sam.mesh && <button className="twin-tool" aria-pressed={showMesh} aria-label={showMesh ? 'Show the simple shapes' : 'Show the SAM 3D model'} title={showMesh ? `SAM 3D model (cached${sam.ms ? `, made in ${Math.round(sam.ms / 1000)}s` : ''}). Click for the simple shapes.` : 'Show the SAM 3D model'} onClick={() => setShapes(v => !v)}>{showMesh ? '◆' : '◇'}</button>}
       {(canMake && (!sam.mesh || big)) && <button className="twin-tool" aria-label={sam.mesh ? 'Remake the 3D model' : 'Make a 3D model'} title={`${sam.mesh ? 'Remake' : 'Make'} a real 3D model with SAM 3D. Sends the scanned camera picture to fal.ai.${sam.error ? ` Last try failed: ${sam.error}` : ''}`} onClick={make}>{sam.mesh ? '⟳' : '3D'}</button>}
       {sam.mesh && drive === 'local' && sam.canKeep && <button className="twin-tool" aria-pressed={sam.saved} aria-label="Keep this model for the demo" title={sam.saved ? 'Saved for the demo: it loads from the app, no scan or AI server needed. Click to save this version again.' : 'Keep this model for the demo: saves it into the app (public/demo), so it loads instantly without scanning.'} onClick={() => { setKept('saving…'); void sam.keep(twin).then(ok => setKept(ok ? 'saved for the demo' : 'could not save')); }}>★</button>}
-      <button className="twin-tool" aria-label={big ? 'Make it smaller' : 'Make it bigger'} aria-pressed={big} title={big ? 'Make it smaller' : 'Make it bigger'} onClick={() => setBig(b => !b)}>{big ? '⤡' : '⤢'}</button>
+      {!stage && <button className="twin-tool" aria-label={big ? 'Make it smaller' : 'Make it bigger'} aria-pressed={big} title={big ? 'Make it smaller' : 'Make it bigger'} onClick={() => setBig(b => !b)}>{big ? '⤡' : '⤢'}</button>}
       {changed && drive === 'local' && <button className="twin-tool" aria-label="Put it back" title="Put it back" onClick={() => setResetToken(n => n + 1)}>↺</button>}
       {onThrow && drive === 'local' && <button className="twin-tool twin-throw" aria-label="Throw to your friend" title="Throw it to your friend (or flick it up)" onClick={onThrow}>Throw</button>}
       <button className="twin-tool" aria-label="Close 3D view" onClick={onClose}>×</button>

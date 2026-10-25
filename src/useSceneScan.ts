@@ -10,7 +10,7 @@ const MESH_SIDE = 1280; // SAM 3D makes better meshes from a sharper picture
 export interface ScanFrame { imageBase64: string; mediaType: 'image/jpeg'; width: number; height: number }
 
 /** Grab one JPEG keyframe of the camera, un-mirrored, so bboxes share the raw video's coordinates. */
-function captureFrame(v: HTMLVideoElement, maxSide = MAX_SIDE, quality = 0.7): ScanFrame | null {
+export function captureFrame(v: HTMLVideoElement, maxSide = MAX_SIDE, quality = 0.7): ScanFrame | null {
   if (!v.videoWidth || !v.videoHeight) return null;
   const scale = Math.min(1, maxSide / Math.max(v.videoWidth, v.videoHeight));
   const c = document.createElement('canvas');

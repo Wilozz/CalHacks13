@@ -17,6 +17,7 @@ const PARSE_MODEL = process.env.GHOST_PARSE_MODEL ?? 'claude-haiku-5-5';
 const CONTEXT_MODEL = process.env.GHOST_CONTEXT_MODEL ?? 'claude-haiku-5-5';
 const SCENE_MODEL = process.env.GHOST_SCENE_MODEL ?? 'claude-sonnet-5-5';
 const FOCUS_MODEL = process.env.GHOST_FOCUS_MODEL ?? PARSE_MODEL;
+const FIND_MODEL = process.env.GHOST_FIND_MODEL ?? PARSE_MODEL;
 const CARTESIA_KEY = process.env.CARTESIA_API_KEY;
 const CARTESIA_VERSION = '2026-08-14';
 const STT_MODEL = process.env.GHOST_STT_MODEL ?? 'ink-whisper';
@@ -127,6 +128,27 @@ async function scene(body: { imageBase64: string; mediaType: 'image/jpeg' | 'ima
       confidence: clamp01(o.confidence), seenAt: body.now, model: sanitizeModel(o.model) ?? undefined,
     }];
   });
+}
+
+// The call's lanyard check: one small frame, one question, so it answers in about a second (the scene scan above builds
+// a model of everything it sees and takes many seconds).
+const FIND_SYSTEM = 'You look at one frame from a webcam in a video call. Say whether a lanyard is visible: a neck strap, an ID badge or card on a strap or clip, a badge holder, a name tag, a lobster clasp with a card. Held in a hand, worn, or lying down all count, even partly visible or blurry. A phone, a plain card with no strap or clip, or a cable does not count.';
+const FIND_TOOL = {
+  name: 'report_lanyard', description: 'Report whether a lanyard is in the frame, and where.',
+  input_schema: { type: 'object', properties: {
+    found: { type: 'boolean' },
+    bbox: { type: ['array', 'null'], items: { type: 'number' }, description: '[x0, y0, x1, y1] of the lanyard (badge, clasp and strap together), normalized 0-1, origin top-left; null if not found' },
+  }, required: ['found', 'bbox'] },
+};
+async function find(body: { imageBase64: string; mediaType: 'image/jpeg' | 'image/png' }) {
+  if (!['image/jpeg', 'image/png'].includes(body.mediaType)) throw new Error('unsupported image type');
+  const { input } = await toolCall(FIND_MODEL, FIND_SYSTEM, [FIND_TOOL], [
+    { type: 'image', source: { type: 'base64', media_type: body.mediaType, data: body.imageBase64 } },
+    { type: 'text', text: 'Is there a lanyard?' },
+  ], 200);
+  const c = (n: unknown) => Math.min(1, Math.max(0, Number(n) || 0));
+  const b = Array.isArray(input.bbox) && input.bbox.length === 4 ? input.bbox.map(c) as [number, number, number, number] : null;
+  return { found: input.found === true, bbox: b && b[2] > b[0] && b[3] > b[1] ? b : null };
 }
 
 const FOCUS_TOOL = {
@@ -251,8 +273,8 @@ async function readJson(req: IncomingMessage): Promise<any> {
   try { return JSON.parse(Buffer.concat(chunks).toString('utf8')); } catch { throw Object.assign(new Error('invalid JSON'), { status: 400 }); }
 }
 
-const routes: Record<string, (b: any) => Promise<unknown>> = { '/parse': parse, '/context': context, '/scene': scene, '/focus': focus, '/voice-token': voiceToken, '/mesh': startMesh, '/mesh/keep': keepMesh };
-const NEEDS_CLAUDE = new Set(['/parse', '/context', '/scene', '/focus']);
+const routes: Record<string, (b: any) => Promise<unknown>> = { '/parse': parse, '/context': context, '/scene': scene, '/find': find, '/focus': focus, '/voice-token': voiceToken, '/mesh': startMesh, '/mesh/keep': keepMesh };
+const NEEDS_CLAUDE = new Set(['/parse', '/context', '/scene', '/find', '/focus']);
 
 createServer(async (req: IncomingMessage, res: ServerResponse) => {
   const send = (status: number, body: unknown) => { res.writeHead(status, { 'content-type': 'application/json' }); res.end(JSON.stringify(body)); };

@@ -28,16 +28,15 @@ import { twinKindForLabel } from './render/motion';
 import { isLanyard } from './remote/kitRig';
 import { DEMO_BASE } from './render/useTwinMesh';
 import { decodePose, decodeSay, decodeTwin, encodePose, encodeSay, encodeTwin, REST_POSE, type TwinInfo, type TwinPose } from './remote/twinWire';
-import { frameSignature, signatureDistance } from './useSceneScan';
+import { captureFrame } from './useSceneScan';
 import { ThrowLesson } from './replay/lesson';
 import { keepSharedReplay, saveReplay } from './replay/Tutorials';
 // The 3D copy changes hands: whoever holds it drives it, and throwing it gives it to the other screen.
 const THROW = JSON.stringify({ type: 'twin-throw' });
 // The id of a lesson just saved, so the other person keeps the same recording (with these hands in it).
 const lessonId = (text: string) => { try { const m = text.length < 200 && JSON.parse(text); return m?.type === 'lesson' && typeof m.id === 'string' && m.id.length < 64 ? m.id as string : null; } catch { return null; } };
-// In a call, the agent looks at your camera for the lanyard every few seconds until it is out (see README "The call").
-const LOOK_MS = 4000;
-const lanyardIn = (objects: SceneObject[]) => objects.find(o => isLanyard(`${o.label} ${o.parentLabel ?? ''}`));
+// In a call, the agent checks your camera for the lanyard this often (one check at a time) until it is out (README "The call").
+const LOOK_MS = 1200;
 const SLOTS = [0, 1] as const;
 type Facing = 'user' | 'environment';
 type Phase = 'idle' | 'loading' | 'running' | 'error';
@@ -389,10 +388,11 @@ export default function App({communitySession}:{communitySession?:{id:string;tok
     } catch { /* not saved after all */ }
     return false;
   };
-  // The lanyard without waiting for the agent: the saved model, or the built-in one.
-  const showLanyard = async () => {
-    if (await openSaved('lanyard')) return;
-    const t: TwinInfo = { objectId: 'lanyard', label: 'lanyard', bbox: [0.3,0.2,0.7,0.85], feedAspect: live.current.aspect, model: sanitizeModel(BUILTIN_MODELS.lanyard)! };
+  // The lanyard, where it was seen (bbox), as the model saved for the demo or else the built-in one.
+  const showLanyard = async (bbox: [number,number,number,number] = [0.3,0.2,0.7,0.85]) => {
+    let model = sanitizeModel(BUILTIN_MODELS.lanyard)!;
+    try { const m = await (await fetch(`${DEMO_BASE}lanyard.json`)).json(); const saved = decodeTwin(JSON.stringify({ ...m.twin, type:'twin' })); if (saved) model = saved.model; } catch { /* not saved: the built-in one */ }
+    const t: TwinInfo = { objectId: 'lanyard', label: 'lanyard', bbox, feedAspect: live.current.aspect, model };
     setSelectedId(null); prevSelected.current = null; setTwin(t); sendTwin(t); setHolder('me');
   };
   const throwTwin = () => {
@@ -406,23 +406,23 @@ export default function App({communitySession}:{communitySession?:{id:string;tok
     const want = new URLSearchParams(location.search).get('demo');
     if (want && /^[a-z0-9-]{1,40}$/.test(want)) void openSaved(want);
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
-  // The agent: in a call, until the lanyard is out, look at my camera every few seconds (only when the view has changed).
-  const lookSig = useRef<Uint8Array|null>(null);
-  const scanRef = useRef(scene); scanRef.current = scene;
+  // The agent: in a call, until the lanyard is out, ask Claude (a small frame, one yes/no question) about once a second.
   const looking = screen==='incall' && active && !twin;
   useEffect(() => {
     if (!looking) return;
-    lookSig.current = null;
-    const id = window.setInterval(() => {
-      const sc = scanRef.current, v = video.current;
-      if (sc.scanning || !v) return;
-      const sig = frameSignature(v); if (!sig) return;
-      if (lookSig.current && signatureDistance(sig, lookSig.current) < 0.02) return; // same view as the last look: it is still not there
-      lookSig.current = sig; void sc.scan(v);
-    }, LOOK_MS);
-    return () => clearInterval(id);
-  }, [looking]);
-  useEffect(() => { const l = looking && lanyardIn(scene.objects); if (l) setSelectedId(l.objectId); }, [scene.objects, looking]);
+    let live = true, timer = 0;
+    const look = async () => {
+      let wait = LOOK_MS;
+      const shot = captureFrame(video.current, 448, 0.6);
+      if (shot) try {
+        const r = await aiClient.findLanyard({ imageBase64: shot.imageBase64, mediaType: 'image/jpeg' });
+        if (live && r.found) { void showLanyard(r.bbox ?? undefined); return; }
+      } catch (e) { wait = 5000; console.warn('Lanyard check failed:', e); } // no AI server or key: try again later, quietly
+      if (live) timer = window.setTimeout(look, wait);
+    };
+    timer = window.setTimeout(look, 300);
+    return () => { live = false; clearTimeout(timer); };
+  }, [looking]); // eslint-disable-line react-hooks/exhaustive-deps
   const wasInCall = useRef(false);
   useEffect(() => {
     if (screen!=='home') { wasInCall.current = true; return; }
@@ -466,7 +466,7 @@ export default function App({communitySession}:{communitySession?:{id:string;tok
     </div>
     {screen!=='calling' && <VoiceBar state={voice.state} engine={voice.engine} partial={voice.partial} error={voice.error} heard={heard} objects={scene.objects} focus={focusInfo} topic={topic}
       onToggle={() => voice.state==='listening' ? voice.stop() : voice.start()} onChoose={chooseObject} onAccept={voice.accept} onDecline={voice.decline}/>}
-    {twin && (screen==='home' || screen==='incall') && <TwinBox twin={twin} mirror={screen==='home'} hand={holder==='me' ? myHand : peerHand} drive={holder==='me' ? 'local' : 'remote'} remotePose={remotePose} onPose={sendPose} placement={placement} posFlip={screen==='home' ? false : placement.flipX} onClose={closeTwin} onThrow={screen==='incall' ? throwTwin : undefined} frame={holder==='me' && scene.objects.some(o => o.objectId===twin.objectId) ? scene.frame.current : null}/>}
+    {twin && (screen==='home' || screen==='incall') && <TwinBox twin={twin} mirror={screen==='home'} hand={holder==='me' ? myHand : peerHand} drive={holder==='me' ? 'local' : 'remote'} remotePose={remotePose} onPose={sendPose} placement={placement} posFlip={screen==='home' ? false : placement.flipX} onClose={closeTwin} onThrow={screen==='incall' ? throwTwin : undefined} stage={screen==='incall'} frame={holder==='me' && scene.objects.some(o => o.objectId===twin.objectId) ? scene.frame.current : null}/>}
     {toasts.length > 0 && <div className="throw-toasts">{toasts.map(t => <p key={t.id} className="throw-toast" role="status">{t.text}</p>)}</div>}
     {screen==='home' && <section className="home-panel" aria-label="Start a call">
       <PageHeading compact eyebrow="Handoff LIVE" title={<>A hand.<br/><span className="gradient-text">From anywhere.</span></>} description="Show someone what to do with your hands."/>
@@ -488,11 +488,7 @@ export default function App({communitySession}:{communitySession?:{id:string;tok
       {call.hint && <p className="fine" role="status">{call.hint}</p>}
       {call.room && !call.relay && <p className="fine">No TURN relay on this server, so calls across networks may fail.</p>}
     </section>}
-    {screen==='incall' && !twin && <div className="hand-hint look-hint" role="status">
-      <span>{!active ? (phase==='loading' ? 'Starting hand tracking…' : 'Tap the hand button to turn on hand tracking') : scene.scanning ? 'Looking for the lanyard…' : 'Hold the lanyard up to your camera'}</span>
-      <button className="pill-button" onClick={() => void showLanyard()}>Show lanyard</button>
-    </div>}
-    {screen==='incall' && twin && <p className="hand-hint" role="status">{holder==='me' ? 'You have it. Grab it with your hand, then throw it to your friend' : 'Your friend has it'}</p>}
+    {screen==='incall' && !twin && !active && phase!=='loading' && <p className="hand-hint" role="status">Tap the hand button to turn on hand tracking</p>}
     {screen==='incall' && <div className="call-pill" role="status"><b data-testid="room-code">{call.room}</b><span data-testid="call-state">{call.status==='connected' ? clock : 'Reconnecting…'}</span>{call.route && <span>{call.route}</span>}</div>}
     {screen!=='home' && <div className="controls">
       <button className="round" disabled={!call.local} aria-pressed={call.muted} aria-label={call.muted?'Unmute microphone':'Mute microphone'} onClick={call.toggleMute}><Icon name={call.muted?'micOff':'mic'}/></button>

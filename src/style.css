@@ -290,3 +290,10 @@ button:disabled{opacity:.4;cursor:default}
 /* The Community pages style every button; the player keeps its own compact controls there. */
 .replay-player .replay-controls button{min-height:36px!important;min-width:36px;padding:0 10px!important;border-radius:18px!important;white-space:nowrap;background:#262626!important;color:#eee!important;font-size:13px!important}
 .replay-player .replay-speeds button[aria-pressed=true]{background:#eee!important;color:#111!important}
+/* In a call the lanyard is on the screen itself: a transparent layer over the video, tools top right, its status as the hint pill. */
+.app .twin-box.stage{inset:0;width:auto;height:auto;right:0;bottom:0;border-radius:0;background:transparent;box-shadow:none;outline:none;z-index:1;pointer-events:none;transition:none}
+.twin-box.stage .twin-tools{pointer-events:auto;top:calc(env(safe-area-inset-top) + 64px);right:16px}
+.twin-box.stage .twin-label{left:50%;right:auto;bottom:calc(env(safe-area-inset-bottom) + 100px);transform:translateX(-50%);gap:12px;padding:8px 16px;border-radius:999px;font-size:13px;background:rgba(7,18,23,.82);border:1px solid #2a4a50;max-width:calc(100% - 32px)}
+.twin-box.stage .twin-label span:first-child{max-width:none}
+.twin-box.stage .twin-badge{left:50%;top:calc(env(safe-area-inset-top) + 64px);transform:translateX(-50%)}
+.phone .twin-box.stage .twin-tools{top:calc(env(safe-area-inset-top) + 104px)}

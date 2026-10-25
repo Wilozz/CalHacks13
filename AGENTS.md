@@ -48,7 +48,7 @@ Unit tests sit next to the code (`*.test.ts`, `server/server.test.mjs`). New uni
 
 ## Invariants (do not break)
 
-- Camera frames never leave the browser except as call media to the connected peer (and single-frame AI scans: explicit ones, plus the agent's look for the lanyard every 4 s in a call, only until it is out). Hand landmarks go only to the peer over the call's data channel, and into a replay the learner saves. Community metadata lives in Convex; never send high-frequency hand data through Convex.
+- Camera frames never leave the browser except as call media to the connected peer (and single-frame AI scans: explicit ones, plus the agent's small-frame check for the lanyard about once a second in a call, only until it is out). Hand landmarks go only to the peer over the call's data channel, and into a replay the learner saves. Community metadata lives in Convex; never send high-frequency hand data through Convex.
 - At most one frame in flight to the worker; drop frames rather than queue. Always close transferred `ImageBitmap`s.
 - `HandFrame` stays plain, serializable data (planned future transport boundary).
 - TURN secrets are server-side only. Never put them in a `VITE_` variable.

@@ -10,6 +10,8 @@ export interface AiClient {
   parseAction(req: ParseRequest, signal?: AbortSignal): Promise<ParseResult>;
   summarize(input: { previous: ContextState | null; turns: Utterance[]; objects: SceneObject[]; viewerLanguage: string }, signal?: AbortSignal): Promise<ContextState>;
   analyzeScene(input: { imageBase64: string; mediaType: 'image/jpeg' | 'image/png'; now: number; prior: SceneObject[] }, signal?: AbortSignal): Promise<SceneObject[]>;
+  /** The call's quick check: is a lanyard in this frame, and where (normalized box)? */
+  findLanyard(input: { imageBase64: string; mediaType: 'image/jpeg' | 'image/png' }, signal?: AbortSignal): Promise<{ found: boolean; bbox: [number, number, number, number] | null }>;
 }
 
 async function post<T>(base: string, path: string, body: unknown, signal?: AbortSignal): Promise<T> {
@@ -26,5 +28,6 @@ export function httpAiClient(base = import.meta.env.VITE_AI_URL ?? '/ai'): AiCli
     voiceToken: signal => post(base, '/voice-token', {}, signal),
     summarize: (input, signal) => post(base, '/context', input, signal),
     analyzeScene: (input, signal) => post(base, '/scene', input, signal),
+    findLanyard: (input, signal) => post(base, '/find', input, signal),
   };
 }
