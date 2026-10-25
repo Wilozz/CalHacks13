@@ -1,4 +1,3 @@
-import {PageHeading} from './components/ui/page-heading';
 import { useEffect, useRef, useState, type CSSProperties } from 'react';
 import { useCall } from './CallPanel';
 import { normalizeRoomCode, ROOM_PATTERN } from './callSignaling';
@@ -516,7 +515,6 @@ export default function App({communitySession}:{communitySession?:{id:string;tok
     </div>
     {twin && (screen==='home' || screen==='incall') && <TwinBox twin={twin} mirror={screen==='home'} hand={myHand} peer={screen==='incall' ? peerHand : undefined} yieldTie={owner==='friend'} drive="local" remotePose={remotePose} onPose={sendPose} placement={placement} posFlip={screen==='home' ? false : placement.flipX} onClose={closeTwin} stage={screen==='incall'} frame={owner!=='me' ? null : scene.objects.some(o => o.objectId===twin.objectId) ? scene.frame.current : clicked.current?.id===twin.objectId ? clicked.current.frame : null}/>}
     {screen==='home' && <section className="home-panel" aria-label="Start a call">
-      <PageHeading compact eyebrow="Handoff LIVE" title={<>A hand.<br/><span className="gradient-text">From anywhere.</span></>} description="Show someone what to do with your hands."/>
       <button className="primary" onClick={() => begin()}><Icon name="video" size={20}/>New call</button>
       <form className="join" onSubmit={e => { e.preventDefault(); if(validCode) begin(code); }}>
         <label htmlFor="room-input">Join with a code</label>
