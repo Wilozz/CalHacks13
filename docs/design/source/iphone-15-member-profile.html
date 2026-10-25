@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Member profile, iPhone</title>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+body{margin:0;background:#000}
+a{color:#0066CC}a:hover{color:#004F9E}
+a:active,button:active{transform:scale(.96);transition:transform 100ms ease-out}
+@keyframes sheet{0%{transform:translateY(100%)}100%{transform:none}}
+@keyframes back{0%{transform:none;opacity:1}100%{transform:scale(.92) translateY(-8px);opacity:.6}}
+@media (prefers-reduced-motion: reduce){*{animation:none !important}}
+</style>
+</helmet>
+<div style="width: 390px; height: 844px; position: relative; overflow: hidden; background: #000; color: #000; font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Inter', system-ui, sans-serif; -webkit-font-smoothing: antialiased">
+  <div aria-hidden="true" style="position: absolute; inset: 0; border-radius: 40px; background: #F2F2F7; transform-origin: 50% 0; animation: back .5s cubic-bezier(.2,.9,.25,1) both"></div>
+
+  <section role="dialog" aria-label="Member profile" style="position: absolute; left: 0; right: 0; top: 58px; bottom: 0; border-radius: 12px 12px 0 0; background: #F2F2F7; animation: sheet .5s cubic-bezier(.2,.9,.25,1) both">
+    <div style="height: 52px; padding: 0 8px; display: flex; align-items: center; justify-content: flex-end">
+      <a href="iphone-14-helpers.html" aria-label="Close profile" style="height: 44px; padding: 0 10px; display: flex; align-items: center; font-size: 17px; font-weight: 600; text-decoration: none">Done</a>
+    </div>
+    <div style="display: flex; flex-direction: column; align-items: center; padding: 0 24px">
+      <span style="width: 96px; height: 96px; border-radius: 50%; background: linear-gradient(#A5ABB8, #858994); color: #fff; font-size: 40px; font-weight: 600; display: flex; align-items: center; justify-content: center">S</span>
+      <h1 style="margin: 12px 0 0; font-size: 28px; font-weight: 700; letter-spacing: -0.015em">Sam Patel</h1>
+      <p style="margin: 2px 0 0; font-size: 15px; color: #6C6C70">@sam · Available to help</p>
+    </div>
+
+    <div style="margin: 20px 16px 0; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px">
+      <a href="iphone-18-chat.html" aria-label="Message" style="height: 62px; border-radius: 12px; background: #fff; color: #0066CC; text-decoration: none; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; font-size: 12px; font-weight: 500">
+        <svg aria-hidden="true" width="22" height="22" viewBox="0 0 256 256" fill="currentColor"><path d="M232,128A104,104,0,0,1,79.12,219.82L45.07,231.17a16,16,0,0,1-20.24-20.24l11.35-34.05A104,104,0,1,1,232,128Z"></path></svg>message</a>
+      <button aria-label="Send request" style="height: 62px; border-radius: 12px; border: 0; background: #fff; color: #0066CC; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; font: 500 12px/1 -apple-system, BlinkMacSystemFont, 'Inter', sans-serif">
+        <svg aria-hidden="true" width="22" height="22" viewBox="0 0 256 256" fill="currentColor"><path d="M256,136a8,8,0,0,1-8,8H232v16a8,8,0,0,1-16,0V144H200a8,8,0,0,1,0-16h16V112a8,8,0,0,1,16,0v16h16A8,8,0,0,1,256,136Zm-57.87,58.85a8,8,0,0,1-12.26,10.3C165.75,181.19,138.09,168,108,168s-57.75,13.19-77.87,37.15a8,8,0,0,1-12.25-10.3c14.94-17.78,33.52-30.41,54.17-37.17a68,68,0,1,1,71.9,0C164.6,164.44,183.18,177.07,198.13,194.85ZM108,152a52,52,0,1,0-52-52A52.06,52.06,0,0,0,108,152Z"></path></svg>add friend</button>
+    </div>
+
+    <dl style="margin: 12px 16px 0; padding: 14px 0; border-radius: 12px; background: #fff; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr))">
+      <div style="text-align: center; display: flex; flex-direction: column-reverse; gap: 2px"><dt style="font-size: 12px; color: #6C6C70">Rating · 12 reviews</dt><dd style="margin: 0; font-size: 20px; font-weight: 700; display: flex; align-items: center; justify-content: center; gap: 4px">4.9<svg aria-hidden="true" width="15" height="15" viewBox="0 0 256 256" fill="#FF9500"><path d="M234.29,114.85l-45,38.83L203,211.75a16.4,16.4,0,0,1-24.5,17.82L128,198.49,77.47,229.57A16.4,16.4,0,0,1,53,211.75l13.76-58.07-45-38.83A16.46,16.46,0,0,1,31.08,86l59-4.76,22.76-55.08a16.36,16.36,0,0,1,30.27,0l22.75,55.08,59,4.76a16.46,16.46,0,0,1,9.37,28.86Z"></path></svg></dd></div>
+      <div style="text-align: center; border-left: 0.5px solid #D1D1D6; display: flex; flex-direction: column-reverse; gap: 2px"><dt style="font-size: 12px; color: #6C6C70">People helped</dt><dd style="margin: 0; font-size: 20px; font-weight: 700">8</dd></div>
+      <div style="text-align: center; border-left: 0.5px solid #D1D1D6; display: flex; flex-direction: column-reverse; gap: 2px"><dt style="font-size: 12px; color: #6C6C70">Help sessions</dt><dd style="margin: 0; font-size: 20px; font-weight: 700">11</dd></div>
+    </dl>
+
+    <div style="margin: 12px 16px 0; border-radius: 12px; background: #fff; padding: 12px 16px">
+      <h2 style="margin: 0; font-size: 13px; font-weight: 400; color: #6C6C70">About</h2>
+      <p style="margin: 4px 0 0; font-size: 16px; line-height: 22px">I fix bikes on weekends and make my own lanyards. Happy to show you knots, clips and buckles.</p>
+      <h2 style="margin: 14px 0 0; font-size: 13px; font-weight: 400; color: #6C6C70">Can help with</h2>
+      <p style="margin: 4px 0 0; font-size: 16px">Assembly, Bikes, Sewing</p>
+    </div>
+  </section>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":390,"height":844}}'>
+class Component extends DCLogic {
+renderVals() { return {}; }
+}
+</script>
+</body>
+</html>

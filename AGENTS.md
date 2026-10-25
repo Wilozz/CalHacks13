@@ -5,6 +5,7 @@ Handoff is a CalHacks prototype for remote help with a physical object: the lear
 - Goals, core loop, build order, tracks: [docs/GOALS.md](docs/GOALS.md)
 - How it works, plus the planned object/interaction/replay design: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
 - **Current focus:** the hero demo, a lanyard hook clipped through a cardboard tag's slot: GOALS "Current milestone" and ARCHITECTURE "Assembly" / "Hook into tag slot". Persistent data goes in Convex (ARCHITECTURE "Backend: Convex"); the `Planned` sections are design, not code yet.
+- Approved UI redesign (iPhone + Mac, not built yet; restyle only, keeps every feature and test name): [docs/DESIGN.md](docs/DESIGN.md)
 - User-facing setup, phone testing, calling: [README.md](README.md)
 - Public server + TURN relay: [deploy/README.md](deploy/README.md)
 

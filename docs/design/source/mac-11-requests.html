@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Requests, Mac</title>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+body{margin:0;background:#fff}
+a{color:#0066CC}a:hover{color:#004F9E}
+input::placeholder{color:#6C6C70}
+button:active,a:active{transform:scale(.97);transition:transform 100ms ease-out}
+@keyframes pane{0%{opacity:0;transform:translateX(8px)}100%{opacity:1;transform:none}}
+@media (prefers-reduced-motion: reduce){*{animation:none !important}}
+</style>
+</helmet>
+<div style="width: 1280px; height: 800px; position: relative; overflow: hidden; background: #fff; color: #000; font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Inter', system-ui, sans-serif; -webkit-font-smoothing: antialiased; display: flex">
+  <nav aria-label="Screens" style="width: 200px; flex: none; background: #ECECEF; border-right: 0.5px solid rgba(0,0,0,0.1); padding: 50px 10px 12px; box-sizing: border-box; display: flex; flex-direction: column; gap: 1px; position: relative">
+    <div aria-hidden="true" style="position: absolute; top: 16px; left: 18px; display: flex; gap: 8px">
+      <span style="width: 12px; height: 12px; border-radius: 50%; background: #FF5F57"></span>
+      <span style="width: 12px; height: 12px; border-radius: 50%; background: #FEBC2E"></span>
+      <span style="width: 12px; height: 12px; border-radius: 50%; background: #28C840"></span>
+    </div>
+    <a href="mac-01-home.html" style="height: 30px; padding: 0 8px; border-radius: 7px; display: flex; align-items: center; gap: 8px; color: #000; text-decoration: none; font-size: 13px">
+      <svg aria-hidden="true" width="16" height="16" viewBox="0 0 256 256" fill="#0066CC"><path d="M251.77,73a8,8,0,0,0-8.21.39L208,97.05V72a16,16,0,0,0-16-16H32A16,16,0,0,0,16,72V184a16,16,0,0,0,16,16H192a16,16,0,0,0,16-16V159l35.56,23.71A8,8,0,0,0,248,184a8,8,0,0,0,8-8V80A8,8,0,0,0,251.77,73ZM192,184H32V72H192V184Zm48-22.95-32-21.33V116.28L240,95Z"></path></svg>Call</a>
+    <a href="mac-11-requests.html" aria-current="page" style="height: 30px; padding: 0 8px; border-radius: 7px; background: rgba(0,0,0,0.08); display: flex; align-items: center; gap: 8px; color: #000; text-decoration: none; font-size: 13px; font-weight: 500">
+      <svg aria-hidden="true" width="16" height="16" viewBox="0 0 256 256" fill="#0066CC"><path d="M196,88a27.86,27.86,0,0,0-13.35,3.39A28,28,0,0,0,144,74.7V44a28,28,0,0,0-56,0v80l-3.82-6.13A28,28,0,0,0,35.73,146l4.67,8.23C74.81,214.89,89.05,240,136,240a88.1,88.1,0,0,0,88-88V116A28,28,0,0,0,196,88Zm12,64a72.08,72.08,0,0,1-72,72c-37.63,0-47.84-18-81.68-77.68l-4.69-8.27,0-.05A12,12,0,0,1,54,121.61a11.88,11.88,0,0,1,6-1.6,12,12,0,0,1,10.41,6,1.76,1.76,0,0,0,.14.23l18.67,30A8,8,0,0,0,104,152V44a12,12,0,0,1,24,0v68a8,8,0,0,0,16,0V100a12,12,0,0,1,24,0v20a8,8,0,0,0,16,0v-4a12,12,0,0,1,24,0Z"></path></svg>Requests</a>
+    <a href="mac-11-requests.html" style="height: 30px; padding: 0 8px; border-radius: 7px; display: flex; align-items: center; gap: 8px; color: #000; text-decoration: none; font-size: 13px">
+      <svg aria-hidden="true" width="16" height="16" viewBox="0 0 256 256" fill="#0066CC"><path d="M117.25,157.92a60,60,0,1,0-66.5,0A95.83,95.83,0,0,0,3.53,195.63a8,8,0,1,0,13.4,8.74,80,80,0,0,1,134.14,0,8,8,0,0,0,13.4-8.74A95.83,95.83,0,0,0,117.25,157.92ZM40,108a44,44,0,1,1,44,44A44.05,44.05,0,0,1,40,108Zm210.14,98.7a8,8,0,0,1-11.07-2.33A79.83,79.83,0,0,0,172,168a8,8,0,0,1,0-16,44,44,0,1,0-16.34-84.87,8,8,0,1,1-5.94-14.85,60,60,0,0,1,55.53,105.64,95.83,95.83,0,0,1,47.22,37.71A8,8,0,0,1,250.14,206.7Z"></path></svg>Helpers</a>
+    <a href="mac-13-activity-and-request.html" style="height: 30px; padding: 0 8px; border-radius: 7px; display: flex; align-items: center; gap: 8px; color: #000; text-decoration: none; font-size: 13px">
+      <svg aria-hidden="true" width="16" height="16" viewBox="0 0 256 256" fill="#0066CC"><path d="M128,24A104,104,0,1,0,232,128,104.11,104.11,0,0,0,128,24Zm0,192a88,88,0,1,1,88-88A88.1,88.1,0,0,1,128,216Zm64-88a8,8,0,0,1-8,8H128a8,8,0,0,1-8-8V72a8,8,0,0,1,16,0v48h48A8,8,0,0,1,192,128Z"></path></svg>Activity</a>
+    <a href="mac-12-messages.html" style="height: 30px; padding: 0 8px; border-radius: 7px; display: flex; align-items: center; gap: 8px; color: #000; text-decoration: none; font-size: 13px">
+      <svg aria-hidden="true" width="16" height="16" viewBox="0 0 256 256" fill="#0066CC"><path d="M128,24A104,104,0,0,0,36.18,176.88L24.83,210.93a16,16,0,0,0,20.24,20.24l34.05-11.35A104,104,0,1,0,128,24Zm0,192a87.87,87.87,0,0,1-44.06-11.81,8,8,0,0,0-6.54-.67L40,216,52.47,178.6a8,8,0,0,0-.66-6.54A88,88,0,1,1,128,216Z"></path></svg>Messages<span style="flex: 1"></span><span aria-label="2 friend requests" style="font-size: 12px; color: #6C6C70">2</span></a>
+    <a href="mac-04-lessons.html" style="height: 30px; padding: 0 8px; border-radius: 7px; display: flex; align-items: center; gap: 8px; color: #000; text-decoration: none; font-size: 13px">
+      <svg aria-hidden="true" width="16" height="16" viewBox="0 0 256 256" fill="#0066CC"><path d="M223.68,66.15,135.68,18h0a15.88,15.88,0,0,0-15.36,0l-88,48.17a16,16,0,0,0-8.32,14v95.64a16,16,0,0,0,8.32,14l88,48.17a15.88,15.88,0,0,0,15.36,0l88-48.17a16,16,0,0,0,8.32-14V80.18A16,16,0,0,0,223.68,66.15ZM128,32h0l80.34,44L128,120,47.66,76ZM40,90l80,43.78v85.79L40,175.82Zm96,129.57V133.82L216,90v85.78Z"></path></svg>Lessons</a>
+    <a href="iphone-19-your-profile.html" aria-label="Profile" style="margin-top: auto; height: 40px; padding: 0 8px; border-radius: 8px; display: flex; align-items: center; gap: 8px; color: #000; text-decoration: none; font-size: 13px"><span style="width: 26px; height: 26px; border-radius: 50%; background: linear-gradient(#A5ABB8, #858994); color: #fff; font-size: 11px; font-weight: 600; display: flex; align-items: center; justify-content: center">D</span>Dimural</a>
+  </nav>
+
+  <section aria-label="Open requests" style="width: 360px; flex: none; border-right: 0.5px solid rgba(0,0,0,0.1); display: flex; flex-direction: column">
+    <div style="height: 52px; padding: 0 12px; display: flex; align-items: center; gap: 8px; border-bottom: 0.5px solid rgba(0,0,0,0.1)">
+      <h1 style="margin: 0; flex: 1; font-size: 15px; font-weight: 600">Help requests</h1>
+      <button aria-label="Request Help" style="width: 28px; height: 28px; border-radius: 7px; border: 0; background: transparent; color: #3C3C43; display: flex; align-items: center; justify-content: center">
+        <svg aria-hidden="true" width="17" height="17" viewBox="0 0 256 256" fill="currentColor"><path d="M224,128a8,8,0,0,1-8,8H136v80a8,8,0,0,1-16,0V136H40a8,8,0,0,1,0-16h80V40a8,8,0,0,1,16,0v80h80A8,8,0,0,1,224,128Z"></path></svg></button>
+    </div>
+    <div style="padding: 10px 14px; display: flex; align-items: center; gap: 8px; border-bottom: 0.5px solid rgba(0,0,0,0.1)">
+      <span aria-hidden="true" style="width: 8px; height: 8px; border-radius: 50%; background: #34C759"></span>
+      <label for="mav" style="flex: 1; font-size: 13px">Available to help</label>
+      <input id="mav" type="checkbox" checked="checked" style="accent-color: #34C759; width: 15px; height: 15px; margin: 0">
+    </div>
+    <div style="padding: 6px 8px; display: flex; flex-direction: column; gap: 2px">
+      <a href="mac-11-requests.html" aria-current="true" style="padding: 10px 12px; border-radius: 9px; background: #0066CC; color: #fff; text-decoration: none; display: flex; flex-direction: column; gap: 3px">
+        <span style="display: flex; justify-content: space-between"><span style="font-size: 13px; font-weight: 600">Badge keeps falling off</span><span style="font-size: 12px; opacity: 0.85">2m</span></span>
+        <span style="font-size: 12px; line-height: 16px; opacity: 0.9">The clip won’t stay on the lanyard.</span>
+        <span style="font-size: 11px; opacity: 0.85">Jordan · Assembly</span>
+      </a>
+      <a href="mac-11-requests.html" style="padding: 10px 12px; border-radius: 9px; color: #000; text-decoration: none; display: flex; flex-direction: column; gap: 3px">
+        <span style="display: flex; justify-content: space-between"><span style="font-size: 13px; font-weight: 600">Loose cabinet handle</span><span style="font-size: 12px; color: #6C6C70">18m</span></span>
+        <span style="font-size: 12px; line-height: 16px; color: #3C3C43">The screw spins and never tightens.</span>
+        <span style="font-size: 11px; color: #6C6C70">Priya · Home repair</span>
+      </a>
+    </div>
+  </section>
+
+  <main style="flex: 1; min-width: 0; display: flex; flex-direction: column; animation: pane .35s cubic-bezier(.2,.9,.25,1) both">
+    <div style="height: 52px; flex: none; border-bottom: 0.5px solid rgba(0,0,0,0.1)"></div>
+    <article style="padding: 32px 40px; max-width: 560px">
+      <div style="display: flex; align-items: center; gap: 10px">
+        <span style="width: 36px; height: 36px; border-radius: 50%; background: linear-gradient(#A5ABB8, #858994); color: #fff; font-size: 15px; font-weight: 600; display: flex; align-items: center; justify-content: center">J</span>
+        <span style="flex: 1; display: flex; flex-direction: column"><span style="font-size: 14px; font-weight: 600">Jordan Reyes</span><span style="font-size: 12px; color: #6C6C70">@jordan · asked 2 minutes ago · Assembly</span></span>
+      </div>
+      <h1 style="margin: 22px 0 0; font-size: 26px; line-height: 31px; font-weight: 700; letter-spacing: -0.015em">Badge keeps falling off</h1>
+      <p style="margin: 10px 0 0; font-size: 15px; line-height: 22px; color: #1C1C1E">The clip won’t stay on the lanyard. I think I’m threading the strap through the wrong side of the ring. It slips off after a few steps.</p>
+      <div style="margin-top: 26px; display: flex; align-items: center; gap: 10px">
+        <a href="mac-12-messages.html" style="height: 32px; padding: 0 16px; border-radius: 8px; background: #0066CC; color: #fff; font-size: 13px; font-weight: 590; text-decoration: none; display: flex; align-items: center; gap: 6px">
+          <svg aria-hidden="true" width="15" height="15" viewBox="0 0 256 256" fill="currentColor"><path d="M216,64v90.93c0,46.2-36.85,84.55-83,85.06A83.71,83.71,0,0,1,72.6,215.4C50.79,192.33,26.15,136,26.15,136a16,16,0,0,1,6.53-22.23c7.66-4,17.1-.84,21.4,6.62l21,36.44a6.09,6.09,0,0,0,6,3.09l.12,0A8.19,8.19,0,0,0,88,151.74V48a16,16,0,0,1,16.77-16c8.61.4,15.23,7.82,15.23,16.43V112a8,8,0,0,0,8.53,8,8.17,8.17,0,0,0,7.47-8.25V32a16,16,0,0,1,16.77-16c8.61.4,15.23,7.82,15.23,16.43V120a8,8,0,0,0,8.53,8,8.17,8.17,0,0,0,7.47-8.25V64.45c0-8.61,6.62-16,15.23-16.43A16,16,0,0,1,216,64Z"></path></svg>
+          Accept Help</a>
+        <span style="font-size: 12px; color: #6C6C70">Opens a chat. Start the call when you’re both ready.</span>
+      </div>
+    </article>
+  </main>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1280,"height":800}}'>
+class Component extends DCLogic {
+renderVals() { return {}; }
+}
+</script>
+</body>
+</html>

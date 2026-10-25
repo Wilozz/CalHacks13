@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Your profile, iPhone</title>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+body{margin:0;background:#F2F2F7}
+a{color:#0066CC}a:hover{color:#004F9E}
+input::placeholder,textarea::placeholder{color:#8A8A8E}
+button:active{transform:scale(.97);transition:transform 100ms ease-out}
+@media (prefers-reduced-motion: reduce){*{animation:none !important}}
+</style>
+</helmet>
+<div style="width: 390px; height: 844px; position: relative; overflow: hidden; background: #F2F2F7; color: #000; font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Inter', system-ui, sans-serif; -webkit-font-smoothing: antialiased">
+  <div style="height: 44px; margin-top: 50px; padding: 0 8px; display: flex; align-items: center; justify-content: space-between">
+    <a href="iphone-11-requests.html" style="height: 44px; padding: 0 8px; display: flex; align-items: center; font-size: 17px; text-decoration: none">Cancel</a>
+    <h1 style="margin: 0; font-size: 17px; font-weight: 600">Your profile</h1>
+    <button style="height: 44px; padding: 0 8px; border: 0; background: transparent; color: #0066CC; font: 600 17px/1 -apple-system, BlinkMacSystemFont, 'Inter', sans-serif">Save profile</button>
+  </div>
+
+  <div style="padding: 0 16px">
+    <div style="margin: 6px 0 18px; display: flex; flex-direction: column; align-items: center; gap: 6px">
+      <span style="width: 84px; height: 84px; border-radius: 50%; background: linear-gradient(#A5ABB8, #858994); color: #fff; font-size: 34px; font-weight: 600; display: flex; align-items: center; justify-content: center">D</span>
+    </div>
+
+    <div style="border-radius: 12px; background: #fff; overflow: hidden">
+      <div style="height: 46px; padding: 0 16px; display: flex; align-items: center; gap: 12px"><label for="n" style="width: 110px; font-size: 16px">Display name</label><input id="n" value="Dimural Murat" maxlength="60" style="flex: 1; min-width: 0; border: 0; background: transparent; font: 400 16px/1 -apple-system, BlinkMacSystemFont, 'Inter', sans-serif; outline: none"></div>
+      <span aria-hidden="true" style="display: block; height: 0.5px; margin-left: 16px; background: #C6C6C8"></span>
+      <div style="height: 46px; padding: 0 16px; display: flex; align-items: center; gap: 12px"><label for="u" style="width: 110px; font-size: 16px">Username</label><span style="color: #6C6C70">@</span><input id="u" value="dimural" maxlength="24" style="flex: 1; min-width: 0; border: 0; background: transparent; font: 400 16px/1 -apple-system, BlinkMacSystemFont, 'Inter', sans-serif; outline: none; margin-left: -10px"></div>
+      <span aria-hidden="true" style="display: block; height: 0.5px; margin-left: 16px; background: #C6C6C8"></span>
+      <div style="height: 46px; padding: 0 16px; display: flex; align-items: center; gap: 12px"><label for="ph" style="width: 110px; font-size: 16px; line-height: 18px">Avatar URL <span style="display: block; font-size: 11px; color: #6C6C70">optional, HTTPS</span></label><input id="ph" type="url" placeholder="https://" style="flex: 1; min-width: 0; border: 0; background: transparent; font: 400 16px/1 -apple-system, BlinkMacSystemFont, 'Inter', sans-serif; outline: none"></div>
+    </div>
+
+    <div style="margin-top: 24px; border-radius: 12px; background: #fff; overflow: hidden">
+      <label for="b" style="display: block; padding: 10px 16px 0; font-size: 13px; color: #6C6C70">About you</label>
+      <textarea id="b" rows="2" maxlength="500" placeholder="What are you good at?" style="display: block; width: 100%; box-sizing: border-box; padding: 4px 16px 10px; border: 0; background: transparent; resize: none; font: 400 16px/22px -apple-system, BlinkMacSystemFont, 'Inter', sans-serif; outline: none">Building things with my hands. Ask me about cables and clips.</textarea>
+      <span aria-hidden="true" style="display: block; height: 0.5px; margin-left: 16px; background: #C6C6C8"></span>
+      <label for="e" style="display: block; padding: 10px 16px 0; font-size: 13px; color: #6C6C70">Expertise (comma-separated, up to 8 tags)</label>
+      <input id="e" value="Electronics, Assembly" style="display: block; width: 100%; box-sizing: border-box; padding: 4px 16px 12px; border: 0; background: transparent; font: 400 16px/22px -apple-system, BlinkMacSystemFont, 'Inter', sans-serif; outline: none">
+    </div>
+
+    <div style="margin-top: 24px; border-radius: 12px; background: #fff; overflow: hidden">
+      <div style="height: 50px; padding: 0 14px 0 16px; display: flex; align-items: center; gap: 10px">
+        <label for="av" style="flex: 1; font-size: 16px">Available to help when online</label>
+        <span style="position: relative; width: 51px; height: 31px; flex: none">
+          <input id="av" type="checkbox" checked="checked" style="position: absolute; inset: 0; margin: 0; opacity: 0">
+          <span aria-hidden="true" style="position: absolute; inset: 0; border-radius: 16px; background: #34C759"></span>
+          <span aria-hidden="true" style="position: absolute; top: 2px; right: 2px; width: 27px; height: 27px; border-radius: 50%; background: #fff; box-shadow: 0 3px 8px rgba(0,0,0,0.15)"></span>
+        </span>
+      </div>
+    </div>
+    <p style="margin: 8px 16px 0; font-size: 13px; line-height: 18px; color: #6C6C70">You’ve helped 3 people · rated 4.7. Availability pauses while you’re in a session.</p>
+
+    <div style="margin-top: 24px; border-radius: 12px; background: #fff; overflow: hidden">
+      <button style="width: 100%; height: 46px; border: 0; background: transparent; color: #C4001A; font: 400 16px/1 -apple-system, BlinkMacSystemFont, 'Inter', sans-serif">Log out</button>
+    </div>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":390,"height":844}}'>
+class Component extends DCLogic {
+renderVals() { return {}; }
+}
+</script>
+</body>
+</html>

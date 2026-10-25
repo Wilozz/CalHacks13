@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Sign in, Mac</title>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+body{margin:0;background:#ECECEF}
+a{color:#0066CC}a:hover{color:#004F9E}
+input::placeholder{color:#8A8A8E}
+input:focus{box-shadow:0 0 0 3.5px rgba(0,102,204,0.35);border-color:#0066CC}
+@keyframes float{0%,100%{transform:translateY(0) rotate(-4deg)}50%{transform:translateY(-6px) rotate(-2deg)}}
+@media (prefers-reduced-motion: reduce){*{animation:none !important}}
+</style>
+</helmet>
+<div style="width: 1280px; height: 800px; position: relative; overflow: hidden; background: #ECECEF; color: #000; font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Inter', system-ui, sans-serif; -webkit-font-smoothing: antialiased">
+  <div aria-hidden="true" style="position: absolute; top: 16px; left: 18px; display: flex; gap: 8px">
+    <span style="width: 12px; height: 12px; border-radius: 50%; background: #FF5F57"></span>
+    <span style="width: 12px; height: 12px; border-radius: 50%; background: #FEBC2E"></span>
+    <span style="width: 12px; height: 12px; border-radius: 50%; background: #28C840"></span>
+  </div>
+
+  <div style="position: absolute; left: 50%; top: 110px; width: 340px; margin-left: -170px; display: flex; flex-direction: column; align-items: center">
+    <p style="margin: 0; font-size: 20px; font-weight: 700; letter-spacing: -0.02em; color: #000">Handoff</p>
+    <h1 style="margin: 28px 0 0; font-size: 22px; font-weight: 700; letter-spacing: -0.01em">Welcome back</h1>
+    <p style="margin: 6px 0 0; text-align: center; font-size: 13px; line-height: 18px; color: #3C3C43">For requests, helpers and messages. Calls with a code never need an account.</p>
+
+    <form style="margin-top: 24px; align-self: stretch; display: flex; flex-direction: column; gap: 10px">
+      <label for="me" style="position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0)">Email</label>
+      <input id="me" type="email" placeholder="Email" autocomplete="email" style="height: 34px; box-sizing: border-box; padding: 0 12px; border-radius: 8px; border: 0.5px solid rgba(0,0,0,0.2); background: #fff; font: 400 14px/1 -apple-system, BlinkMacSystemFont, 'Inter', sans-serif; outline: none">
+      <label for="mp" style="position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0)">Password</label>
+      <input id="mp" type="password" placeholder="Password" autocomplete="current-password" style="height: 34px; box-sizing: border-box; padding: 0 12px; border-radius: 8px; border: 0.5px solid rgba(0,0,0,0.2); background: #fff; font: 400 14px/1 -apple-system, BlinkMacSystemFont, 'Inter', sans-serif; outline: none">
+      <button type="submit" style="margin-top: 6px; height: 34px; border-radius: 8px; border: 0; background: #0066CC; color: #fff; font: 590 14px/1 -apple-system, BlinkMacSystemFont, 'Inter', sans-serif">Log in</button>
+    </form>
+    <p style="margin: 16px 0 0; font-size: 13px; color: #3C3C43"><a href="mac-01-home.html" style="text-decoration: none; font-weight: 590">New here? Sign up</a></p>
+  </div>
+
+  <a href="mac-01-home.html" style="position: absolute; left: 0; right: 0; bottom: 36px; text-align: center; font-size: 13px; color: #3C3C43; text-decoration: none">Not now — start a call with a code</a>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1280,"height":800}}'>
+class Component extends DCLogic {
+renderVals() { return {}; }
+}
+</script>
+</body>
+</html>

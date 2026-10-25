@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Hand tools, iPhone</title>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+body{margin:0;background:#000}
+a{color:#0A84FF}a:hover{color:#409CFF}
+button:active{transform:scale(.97);transition:transform 100ms ease-out}
+@keyframes sheet{0%{transform:translateY(100%)}100%{transform:none}}
+@keyframes dim{0%{opacity:0}100%{opacity:1}}
+@media (prefers-reduced-motion: reduce){*{animation:none !important}}
+</style>
+</helmet>
+<div style="width: 390px; height: 844px; position: relative; overflow: hidden; background: #000; color: #fff; font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Inter', system-ui, sans-serif; -webkit-font-smoothing: antialiased">
+  <img src="assets/camera-placeholder.jpg" alt="" style="position: absolute; inset: 0; width: 390px; height: 844px; object-fit: cover">
+  <div aria-hidden="true" style="position: absolute; inset: 0; background: rgba(0,0,0,0.4); animation: dim .3s ease-out both"></div>
+
+  <section role="dialog" aria-label="Hand tools" style="position: absolute; left: 0; right: 0; top: 150px; bottom: 0; border-radius: 34px 34px 0 0; background: rgba(28,28,30,0.94); backdrop-filter: blur(40px) saturate(180%); padding: 18px 16px 0; box-sizing: border-box; animation: sheet .45s cubic-bezier(.2,.9,.25,1) both">
+    <span aria-hidden="true" style="position: absolute; top: 7px; left: 50%; width: 36px; height: 5px; margin-left: -18px; border-radius: 3px; background: rgba(255,255,255,0.3)"></span>
+    <div style="display: flex; align-items: center; justify-content: space-between">
+      <h2 style="margin: 0; font-size: 22px; font-weight: 700">Hand tools</h2>
+      <button aria-label="Close" style="width: 30px; height: 30px; border-radius: 50%; border: 0; background: rgba(255,255,255,0.14); color: rgba(255,255,255,0.8); display: flex; align-items: center; justify-content: center">
+        <svg aria-hidden="true" width="13" height="13" viewBox="0 0 256 256" fill="currentColor"><path d="M205.66,194.34a8,8,0,0,1-11.32,11.32L128,139.31,61.66,205.66a8,8,0,0,1-11.32-11.32L116.69,128,50.34,61.66A8,8,0,0,1,61.66,50.34L128,116.69l66.34-66.35a8,8,0,0,1,11.32,11.32L139.31,128Z"></path></svg>
+      </button>
+    </div>
+
+    <div role="group" aria-label="How the hand is placed" style="margin-top: 16px; height: 34px; border-radius: 9px; background: rgba(118,118,128,0.24); padding: 2px; box-sizing: border-box; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr))">
+      <button aria-pressed="true" style="border: 0; border-radius: 7px; background: #636366; color: #fff; font: 600 13px/1 -apple-system, BlinkMacSystemFont, 'Inter', sans-serif">Follow my finger</button>
+      <button aria-pressed="false" style="border: 0; border-radius: 7px; background: transparent; color: #fff; font: 500 13px/1 -apple-system, BlinkMacSystemFont, 'Inter', sans-serif">Pin to a spot</button>
+    </div>
+    <p role="status" style="margin: 8px 4px 0; font-size: 13px; line-height: 18px; color: rgba(235,235,245,0.7)">The cyan hand on the screen is what your friend would see. Move your finger to point.</p>
+
+    <div style="margin-top: 16px; border-radius: 12px; background: rgba(255,255,255,0.08); overflow: hidden">
+      <button style="width: 100%; padding: 12px 16px; border: 0; background: transparent; color: #fff; display: flex; align-items: center; gap: 12px; text-align: left">
+        <svg aria-hidden="true" width="20" height="20" viewBox="0 0 256 256" fill="#64D2FF"><path d="M40,88H73a32,32,0,0,0,62,0h81a8,8,0,0,0,0-16H135a32,32,0,0,0-62,0H40a8,8,0,0,0,0,16Zm64-24A16,16,0,1,1,88,80,16,16,0,0,1,104,64ZM216,168H199a32,32,0,0,0-62,0H40a8,8,0,0,0,0,16h97a32,32,0,0,0,62,0h17a8,8,0,0,0,0-16Zm-48,24a16,16,0,1,1,16-16A16,16,0,0,1,168,192Z"></path></svg>
+        <span style="flex: 1; display: flex; flex-direction: column; gap: 2px"><span style="font: 400 16px/1.2 -apple-system, BlinkMacSystemFont, 'Inter', sans-serif">Tune the hand</span><span style="font: 400 13px/1.2 -apple-system, BlinkMacSystemFont, 'Inter', sans-serif; color: rgba(235,235,245,0.6)">size, reach, mirroring, network test</span></span>
+        <svg aria-hidden="true" width="12" height="12" viewBox="0 0 256 256" fill="rgba(235,235,245,0.4)"><path d="M181.66,133.66l-80,80a8,8,0,0,1-11.32-11.32L164.69,128,90.34,53.66a8,8,0,0,1,11.32-11.32l80,80A8,8,0,0,1,181.66,133.66Z"></path></svg>
+      </button>
+      <span aria-hidden="true" style="display: block; height: 0.5px; margin-left: 48px; background: rgba(255,255,255,0.12)"></span>
+      <div style="padding: 12px 16px 14px">
+        <div style="display: flex; align-items: center; gap: 12px">
+          <svg aria-hidden="true" width="20" height="20" viewBox="0 0 256 256" fill="#64D2FF"><path d="M224,40V80a8,8,0,0,1-16,0V48H176a8,8,0,0,1,0-16h40A8,8,0,0,1,224,40ZM80,208H48V176a8,8,0,0,0-16,0v40a8,8,0,0,0,8,8H80a8,8,0,0,0,0-16Zm136-40a8,8,0,0,0-8,8v32H176a8,8,0,0,0,0,16h40a8,8,0,0,0,8-8V176A8,8,0,0,0,216,168ZM40,88a8,8,0,0,0,8-8V48H80a8,8,0,0,0,0-16H40a8,8,0,0,0-8,8V80A8,8,0,0,0,40,88ZM80,72h96a8,8,0,0,1,8,8v96a8,8,0,0,1-8,8H80a8,8,0,0,1-8-8V80A8,8,0,0,1,80,72Zm8,96h80V88H88Z"></path></svg>
+          <span style="flex: 1; display: flex; flex-direction: column; gap: 2px"><span style="font-size: 16px">AI scan to 3D model</span><span style="font-size: 13px; color: rgba(235,235,245,0.6)">needs the AI server</span></span>
+          <svg aria-hidden="true" width="12" height="12" viewBox="0 0 256 256" fill="rgba(235,235,245,0.4)"><path d="M213.66,101.66l-80,80a8,8,0,0,1-11.32,0l-80-80A8,8,0,0,1,53.66,90.34L128,164.69l74.34-74.35a8,8,0,0,1,11.32,11.32Z"></path></svg>
+        </div>
+        <div style="margin: 12px 0 0 32px; display: flex; flex-direction: column; gap: 10px">
+          <div style="display: flex; gap: 8px">
+            <button style="height: 34px; padding: 0 12px; white-space: nowrap; border-radius: 17px; border: 0; background: #0A84FF; color: #fff; font: 590 13px/1 -apple-system, BlinkMacSystemFont, 'Inter', sans-serif">Scan my camera</button>
+            <button style="height: 34px; padding: 0 12px; white-space: nowrap; border-radius: 17px; border: 0; background: rgba(255,255,255,0.14); color: #fff; font: 590 13px/1 -apple-system, BlinkMacSystemFont, 'Inter', sans-serif">Scan my friend's view</button>
+          </div>
+          <label style="display: flex; align-items: center; gap: 8px; font-size: 14px; color: rgba(235,235,245,0.85)"><input type="checkbox" style="accent-color: #0A84FF; width: 16px; height: 16px; margin: 0">Re-scan my camera every 6 s</label>
+          <div role="group" aria-label="Detected objects" style="display: flex; gap: 6px; flex-wrap: wrap">
+            <button aria-pressed="true" style="height: 28px; padding: 0 12px; border-radius: 14px; border: 0; background: #fff; color: #000; font: 590 13px/1 -apple-system, BlinkMacSystemFont, 'Inter', sans-serif">lanyard</button>
+            <button aria-pressed="false" style="height: 28px; padding: 0 12px; border-radius: 14px; border: 0; background: rgba(255,255,255,0.14); color: #fff; font: 500 13px/1 -apple-system, BlinkMacSystemFont, 'Inter', sans-serif">mug (basic shape)</button>
+          </div>
+          <div role="group" aria-label="Saved for the demo" style="display: flex; align-items: center; gap: 8px; font-size: 13px; color: rgba(235,235,245,0.6)">Saved for the demo:
+            <button style="height: 28px; padding: 0 12px; border-radius: 14px; border: 0; background: rgba(255,255,255,0.14); color: #fff; font: 500 13px/1 -apple-system, BlinkMacSystemFont, 'Inter', sans-serif">★ lanyard</button>
+          </div>
+        </div>
+      </div>
+      <span aria-hidden="true" style="display: block; height: 0.5px; margin-left: 48px; background: rgba(255,255,255,0.12)"></span>
+      <button style="width: 100%; padding: 12px 16px; border: 0; background: transparent; color: #fff; display: flex; align-items: center; gap: 12px; text-align: left">
+        <svg aria-hidden="true" width="20" height="20" viewBox="0 0 256 256" fill="#64D2FF"><path d="M221.66,90.34h0l-56-56A8,8,0,0,0,160,32H40a8,8,0,0,0-8,8V160a8,8,0,0,0,2.3,5.61l56,56h0A8,8,0,0,0,96,224H216a8,8,0,0,0,8-8V96A8,8,0,0,0,221.66,90.34ZM168,59.31,196.69,88H168ZM88,196.69,59.31,168H88ZM88,152H48V59.31l40,40ZM59.31,48H152V88H99.31ZM152,104v48H104V104ZM104,208V168h52.69l40,40Zm104-11.31-40-40V104h40Z"></path></svg>
+        <span style="flex: 1; font: 400 16px/1.2 -apple-system, BlinkMacSystemFont, 'Inter', sans-serif">Demo preview</span>
+        <svg aria-hidden="true" width="12" height="12" viewBox="0 0 256 256" fill="rgba(235,235,245,0.4)"><path d="M181.66,133.66l-80,80a8,8,0,0,1-11.32-11.32L164.69,128,90.34,53.66a8,8,0,0,1,11.32-11.32l80,80A8,8,0,0,1,181.66,133.66Z"></path></svg>
+      </button>
+    </div>
+  </section>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":390,"height":844}}'>
+class Component extends DCLogic {
+renderVals() { return {}; }
+}
+</script>
+</body>
+</html>

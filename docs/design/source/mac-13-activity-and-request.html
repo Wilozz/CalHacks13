@@ -1,0 +1,90 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Activity and new request, Mac</title>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+body{margin:0;background:#fff}
+a{color:#0066CC}a:hover{color:#004F9E}
+input::placeholder,textarea::placeholder{color:#8A8A8E}
+button:active,a:active{transform:scale(.97);transition:transform 100ms ease-out}
+@keyframes sheet{0%{transform:translateY(-24px) scale(.98);opacity:0}100%{transform:none;opacity:1}}
+@keyframes live{0%,100%{opacity:1}50%{opacity:.35}}
+@media (prefers-reduced-motion: reduce){*{animation:none !important}}
+</style>
+</helmet>
+<div style="width: 1280px; height: 800px; position: relative; overflow: hidden; background: #fff; color: #000; font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Inter', system-ui, sans-serif; -webkit-font-smoothing: antialiased; display: flex">
+  <nav aria-label="Screens" style="width: 200px; flex: none; background: #ECECEF; border-right: 0.5px solid rgba(0,0,0,0.1); padding: 50px 10px 12px; box-sizing: border-box; display: flex; flex-direction: column; gap: 1px; position: relative">
+    <div aria-hidden="true" style="position: absolute; top: 16px; left: 18px; display: flex; gap: 8px">
+      <span style="width: 12px; height: 12px; border-radius: 50%; background: #FF5F57"></span>
+      <span style="width: 12px; height: 12px; border-radius: 50%; background: #FEBC2E"></span>
+      <span style="width: 12px; height: 12px; border-radius: 50%; background: #28C840"></span>
+    </div>
+    <a href="mac-01-home.html" style="height: 30px; padding: 0 8px; border-radius: 7px; display: flex; align-items: center; gap: 8px; color: #000; text-decoration: none; font-size: 13px">
+      <svg aria-hidden="true" width="16" height="16" viewBox="0 0 256 256" fill="#0066CC"><path d="M251.77,73a8,8,0,0,0-8.21.39L208,97.05V72a16,16,0,0,0-16-16H32A16,16,0,0,0,16,72V184a16,16,0,0,0,16,16H192a16,16,0,0,0,16-16V159l35.56,23.71A8,8,0,0,0,248,184a8,8,0,0,0,8-8V80A8,8,0,0,0,251.77,73ZM192,184H32V72H192V184Zm48-22.95-32-21.33V116.28L240,95Z"></path></svg>Call</a>
+    <a href="mac-11-requests.html" style="height: 30px; padding: 0 8px; border-radius: 7px; display: flex; align-items: center; gap: 8px; color: #000; text-decoration: none; font-size: 13px">
+      <svg aria-hidden="true" width="16" height="16" viewBox="0 0 256 256" fill="#0066CC"><path d="M196,88a27.86,27.86,0,0,0-13.35,3.39A28,28,0,0,0,144,74.7V44a28,28,0,0,0-56,0v80l-3.82-6.13A28,28,0,0,0,35.73,146l4.67,8.23C74.81,214.89,89.05,240,136,240a88.1,88.1,0,0,0,88-88V116A28,28,0,0,0,196,88Zm12,64a72.08,72.08,0,0,1-72,72c-37.63,0-47.84-18-81.68-77.68l-4.69-8.27,0-.05A12,12,0,0,1,54,121.61a11.88,11.88,0,0,1,6-1.6,12,12,0,0,1,10.41,6,1.76,1.76,0,0,0,.14.23l18.67,30A8,8,0,0,0,104,152V44a12,12,0,0,1,24,0v68a8,8,0,0,0,16,0V100a12,12,0,0,1,24,0v20a8,8,0,0,0,16,0v-4a12,12,0,0,1,24,0Z"></path></svg>Requests</a>
+    <a href="mac-11-requests.html" style="height: 30px; padding: 0 8px; border-radius: 7px; display: flex; align-items: center; gap: 8px; color: #000; text-decoration: none; font-size: 13px">
+      <svg aria-hidden="true" width="16" height="16" viewBox="0 0 256 256" fill="#0066CC"><path d="M117.25,157.92a60,60,0,1,0-66.5,0A95.83,95.83,0,0,0,3.53,195.63a8,8,0,1,0,13.4,8.74,80,80,0,0,1,134.14,0,8,8,0,0,0,13.4-8.74A95.83,95.83,0,0,0,117.25,157.92ZM40,108a44,44,0,1,1,44,44A44.05,44.05,0,0,1,40,108Zm210.14,98.7a8,8,0,0,1-11.07-2.33A79.83,79.83,0,0,0,172,168a8,8,0,0,1,0-16,44,44,0,1,0-16.34-84.87,8,8,0,1,1-5.94-14.85,60,60,0,0,1,55.53,105.64,95.83,95.83,0,0,1,47.22,37.71A8,8,0,0,1,250.14,206.7Z"></path></svg>Helpers</a>
+    <a href="mac-13-activity-and-request.html" aria-current="page" style="height: 30px; padding: 0 8px; border-radius: 7px; background: rgba(0,0,0,0.08); display: flex; align-items: center; gap: 8px; color: #000; text-decoration: none; font-size: 13px; font-weight: 500">
+      <svg aria-hidden="true" width="16" height="16" viewBox="0 0 256 256" fill="#0066CC"><path d="M128,24A104,104,0,1,0,232,128,104.11,104.11,0,0,0,128,24Zm0,192a88,88,0,1,1,88-88A88.1,88.1,0,0,1,128,216Zm64-88a8,8,0,0,1-8,8H128a8,8,0,0,1-8-8V72a8,8,0,0,1,16,0v48h48A8,8,0,0,1,192,128Z"></path></svg>Activity</a>
+    <a href="mac-12-messages.html" style="height: 30px; padding: 0 8px; border-radius: 7px; display: flex; align-items: center; gap: 8px; color: #000; text-decoration: none; font-size: 13px">
+      <svg aria-hidden="true" width="16" height="16" viewBox="0 0 256 256" fill="#0066CC"><path d="M128,24A104,104,0,0,0,36.18,176.88L24.83,210.93a16,16,0,0,0,20.24,20.24l34.05-11.35A104,104,0,1,0,128,24Zm0,192a87.87,87.87,0,0,1-44.06-11.81,8,8,0,0,0-6.54-.67L40,216,52.47,178.6a8,8,0,0,0-.66-6.54A88,88,0,1,1,128,216Z"></path></svg>Messages<span style="flex: 1"></span><span aria-label="2 friend requests" style="font-size: 12px; color: #6C6C70">2</span></a>
+    <a href="mac-04-lessons.html" style="height: 30px; padding: 0 8px; border-radius: 7px; display: flex; align-items: center; gap: 8px; color: #000; text-decoration: none; font-size: 13px">
+      <svg aria-hidden="true" width="16" height="16" viewBox="0 0 256 256" fill="#0066CC"><path d="M223.68,66.15,135.68,18h0a15.88,15.88,0,0,0-15.36,0l-88,48.17a16,16,0,0,0-8.32,14v95.64a16,16,0,0,0,8.32,14l88,48.17a15.88,15.88,0,0,0,15.36,0l88-48.17a16,16,0,0,0,8.32-14V80.18A16,16,0,0,0,223.68,66.15ZM128,32h0l80.34,44L128,120,47.66,76ZM40,90l80,43.78v85.79L40,175.82Zm96,129.57V133.82L216,90v85.78Z"></path></svg>Lessons</a>
+    <a href="iphone-19-your-profile.html" aria-label="Profile" style="margin-top: auto; height: 40px; padding: 0 8px; border-radius: 8px; display: flex; align-items: center; gap: 8px; color: #000; text-decoration: none; font-size: 13px"><span style="width: 26px; height: 26px; border-radius: 50%; background: linear-gradient(#A5ABB8, #858994); color: #fff; font-size: 11px; font-weight: 600; display: flex; align-items: center; justify-content: center">D</span>Dimural</a>
+  </nav>
+
+  <main style="flex: 1; min-width: 0; display: flex; flex-direction: column">
+    <header style="height: 52px; flex: none; padding: 0 16px 0 20px; display: flex; align-items: center; gap: 12px; border-bottom: 0.5px solid rgba(0,0,0,0.1)">
+      <h1 style="margin: 0; flex: 1; font-size: 15px; font-weight: 600">Your activity</h1>
+      <button style="height: 28px; padding: 0 12px; border-radius: 7px; border: 0; background: #0066CC; color: #fff; font: 590 13px/1 -apple-system, BlinkMacSystemFont, 'Inter', sans-serif">Request Help</button>
+    </header>
+
+    <div style="padding: 20px 28px; display: flex; flex-direction: column; gap: 0">
+      <h2 style="margin: 0 0 6px; font-size: 11px; font-weight: 600; color: #6C6C70">NOW</h2>
+      <div style="display: flex; align-items: center; gap: 14px; padding: 12px 0; border-bottom: 0.5px solid #D1D1D6">
+        <span style="width: 92px; font-size: 12px; font-weight: 600; color: #1F7A35; display: flex; align-items: center; gap: 5px"><span style="width: 6px; height: 6px; border-radius: 50%; background: #34C759; animation: live 1.4s ease-in-out infinite"></span><span style="text-transform: capitalize; ">in session</span></span>
+        <span style="flex: 1; display: flex; flex-direction: column"><span style="font-size: 14px; font-weight: 600">Badge keeps falling off</span><span style="font-size: 12px; color: #3C3C43">You’re helping Jordan</span></span>
+        <a href="mac-03-in-call.html" style="height: 26px; padding: 0 12px; border-radius: 6px; background: #1F7A35; color: #fff; font-size: 12px; font-weight: 590; text-decoration: none; display: flex; align-items: center">Join Session</a>
+        <a href="mac-12-messages.html" style="height: 26px; padding: 0 12px; border-radius: 6px; background: #F2F2F7; color: #000; font-size: 12px; text-decoration: none; display: flex; align-items: center">Open messages</a>
+        <button style="height: 26px; padding: 0 12px; border-radius: 6px; border: 0; background: #F2F2F7; color: #C4001A; font: 400 12px/1 -apple-system, BlinkMacSystemFont, 'Inter', sans-serif">End session</button>
+      </div>
+      <h2 style="margin: 18px 0 6px; font-size: 11px; font-weight: 600; color: #6C6C70">EARLIER</h2>
+      <div style="display: flex; align-items: center; gap: 14px; padding: 12px 0; border-bottom: 0.5px solid #D1D1D6">
+        <span style="text-transform: capitalize; width: 92px; font-size: 12px; color: #6C6C70">completed</span>
+        <span style="flex: 1; display: flex; flex-direction: column"><span style="font-size: 14px; font-weight: 600">Badge on the lanyard</span><span style="font-size: 12px; color: #3C3C43">Sam helped you</span></span>
+        <span style="font-size: 12px; color: #3C3C43">Rated 4/5</span>
+      </div>
+    </div>
+  </main>
+
+  <div aria-hidden="true" style="position: absolute; inset: 0; background: rgba(0,0,0,0.12)"></div>
+  <section role="dialog" aria-label="Request assistance" style="position: absolute; top: 52px; left: 50%; width: 460px; margin-left: -130px; padding: 20px; box-sizing: border-box; border-radius: 14px; background: #F6F6F8; box-shadow: 0 24px 60px rgba(0,0,0,0.28), inset 0 0 0 0.5px rgba(0,0,0,0.1); transform-origin: 50% 0; animation: sheet .35s cubic-bezier(.2,.9,.25,1) both">
+    <h2 style="margin: 0 0 14px; font-size: 15px; font-weight: 700">Request assistance</h2>
+    <form style="display: grid; grid-template-columns: 90px minmax(0, 1fr); gap: 10px 12px; align-items: center">
+      <label for="st" style="font-size: 13px; text-align: right">Title</label>
+      <input id="st" value="Badge keeps falling off" style="height: 26px; box-sizing: border-box; padding: 0 8px; border-radius: 6px; border: 0.5px solid rgba(0,0,0,0.2); background: #fff; font: 400 13px/1 -apple-system, BlinkMacSystemFont, 'Inter', sans-serif; outline: none">
+      <label for="sd" style="font-size: 13px; text-align: right; align-self: start; padding-top: 6px">Description</label>
+      <textarea id="sd" rows="3" placeholder="What’s getting stuck?" style="box-sizing: border-box; padding: 6px 8px; border-radius: 6px; border: 0.5px solid rgba(0,0,0,0.2); background: #fff; resize: none; font: 400 13px/18px -apple-system, BlinkMacSystemFont, 'Inter', sans-serif; outline: none">The clip won’t stay on the lanyard.</textarea>
+      <label for="sc" style="font-size: 13px; text-align: right">Category</label>
+      <select id="sc" style="height: 24px; width: 180px; border-radius: 6px; border: 0.5px solid rgba(0,0,0,0.2); background: #fff; font: 400 13px/1 -apple-system, BlinkMacSystemFont, 'Inter', sans-serif"><option>Assembly</option><option>Electronics</option><option>Everyday tasks</option><option>Home repair</option><option>Other</option></select>
+    </form>
+    <div style="margin-top: 18px; display: flex; justify-content: flex-end; gap: 8px">
+      <button aria-label="Close request form" style="height: 26px; padding: 0 14px; border-radius: 6px; border: 0.5px solid rgba(0,0,0,0.2); background: #fff; color: #000; font: 400 13px/1 -apple-system, BlinkMacSystemFont, 'Inter', sans-serif">Cancel</button>
+      <button style="height: 26px; padding: 0 14px; border-radius: 6px; border: 0; background: #0066CC; color: #fff; font: 590 13px/1 -apple-system, BlinkMacSystemFont, 'Inter', sans-serif">Send request</button>
+    </div>
+  </section>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1280,"height":800}}'>
+class Component extends DCLogic {
+renderVals() { return {}; }
+}
+</script>
+</body>
+</html>

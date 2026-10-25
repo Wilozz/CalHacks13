@@ -1,5 +1,7 @@
 # Handoff UI
 
+This describes the UI as it is built today. The approved next look (Apple-style, iPhone and Mac) is specified in [DESIGN.md](DESIGN.md) and is not implemented yet.
+
 The supplied globe-hero reference is adapted to the existing Vite/React/TypeScript app. No shadcn or Tailwind migration is needed: existing camera, chat, call and tracking components keep their behavior and share the same native CSS design tokens.
 
 - `src/components/ui/page-heading.tsx`: reusable heading and description used by Community, Profile, Messages, login and Call.

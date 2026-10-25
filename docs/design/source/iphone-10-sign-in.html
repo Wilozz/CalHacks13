@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Sign in, iPhone</title>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+body{margin:0;background:#F2F2F7}
+a{color:#0066CC}a:hover{color:#004F9E}
+input::placeholder{color:#8A8A8E}
+@keyframes float{0%,100%{transform:translateY(0) rotate(-4deg)}50%{transform:translateY(-6px) rotate(-2deg)}}
+@media (prefers-reduced-motion: reduce){*{animation:none !important}}
+</style>
+</helmet>
+<div style="width: 390px; height: 844px; position: relative; overflow: hidden; background: #F2F2F7; color: #000; font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Inter', system-ui, sans-serif; -webkit-font-smoothing: antialiased">
+  <div style="position: absolute; left: 0; right: 0; top: 150px; text-align: center"><p style="margin: 0; font-size: 22px; font-weight: 700; letter-spacing: -0.02em; color: #000">Handoff</p></div>
+
+  <div style="position: absolute; top: 248px; left: 24px; right: 24px; text-align: center">
+    <h1 style="margin: 0; font-size: 28px; line-height: 34px; font-weight: 700; letter-spacing: -0.015em">Welcome back</h1>
+    <p style="margin: 8px 0 0; font-size: 15px; line-height: 20px; color: #3C3C43">For posting requests, helping people and messaging. Calls with a code never need an account.</p>
+  </div>
+
+  <form style="position: absolute; top: 372px; left: 16px; right: 16px">
+    <div style="border-radius: 12px; background: #fff; overflow: hidden">
+      <div style="height: 50px; padding: 0 16px; display: flex; align-items: center; gap: 12px">
+        <label for="email" style="width: 76px; font-size: 16px">Email</label>
+        <input id="email" type="email" autocomplete="email" placeholder="you@example.com" style="flex: 1; min-width: 0; border: 0; background: transparent; font: 400 16px/1 -apple-system, BlinkMacSystemFont, 'Inter', sans-serif; outline: none">
+      </div>
+      <span aria-hidden="true" style="display: block; height: 0.5px; margin-left: 16px; background: #C6C6C8"></span>
+      <div style="height: 50px; padding: 0 16px; display: flex; align-items: center; gap: 12px">
+        <label for="pw" style="width: 76px; font-size: 16px">Password</label>
+        <input id="pw" type="password" autocomplete="current-password" placeholder="Required" style="flex: 1; min-width: 0; border: 0; background: transparent; font: 400 16px/1 -apple-system, BlinkMacSystemFont, 'Inter', sans-serif; outline: none">
+      </div>
+    </div>
+    <button type="submit" style="margin-top: 20px; width: 100%; height: 50px; border-radius: 14px; border: 0; background: #0066CC; color: #fff; font: 590 17px/1 -apple-system, BlinkMacSystemFont, 'Inter', sans-serif">Log in</button>
+    <p style="margin: 18px 0 0; text-align: center; font-size: 15px; color: #3C3C43"><a href="iphone-19-your-profile.html" style="text-decoration: none; font-weight: 590">New here? Sign up</a></p>
+  </form>
+
+  <a href="iphone-01-home.html" style="position: absolute; left: 0; right: 0; bottom: 44px; text-align: center; font-size: 15px; text-decoration: none; color: #3C3C43">Not now — start a call with a code</a>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":390,"height":844}}'>
+class Component extends DCLogic {
+renderVals() { return {}; }
+}
+</script>
+</body>
+</html>
