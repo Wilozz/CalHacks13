@@ -120,7 +120,7 @@ Separating uses the reverse motion. Objects with release tabs add a `press` part
 
 ### Interaction (grab, transform, throw)
 
-Builds on `src/throw/TossScene.tsx` and `src/remote/pinch.ts`.
+Built on `src/remote/pinch.ts` (the Throwing prototype that started it, `src/throw/`, was removed; see git history).
 
 - **Grab:** pinch *or* fist, inside a generous radius (`GRAB_RADIUS` is 1.15 × object height today). Anchor to the palm centre, smooth with One Euro (already done). Show a reach highlight before the grip closes so the user knows it will take.
 - **Rotate:** while held, apply the change in palm orientation (from wrist, index-MCP and pinky-MCP) to the object. Use deltas only, so grabbing never snaps the object.
@@ -140,7 +140,7 @@ Builds on `src/throw/TossScene.tsx` and `src/remote/pinch.ts`.
 | `control` (existing) | reliable | `toss` (object id + pose + scale + part states), `part` state changes, `grab` and `release` events |
 
 - Whoever holds the object is the authority for its pose and part states. The other side only displays them, the same rule as `twinMove.ts` today.
-- Built in the Throwing prototype: the owner streams `poses` (position on their raw camera image, height, rotation) over `hand`, and the other side draws the object inside the owner's video, on their real hand. A throw (`toss` with `give`) passes ownership. The object never leaves either screen.
+- Built in the call: the holder drives the 3D copy and sends `twin-pose` over `control` (~15 Hz, each piece and the lanyard's clip state); `twin-throw` hands it over, and the catcher drives it from then on (`holder` in `src/App.tsx`).
 - Hands are drawn in the object's frame (object-relative), so they stay on the model when the viewer orbits.
 
 ### Recording and replay
@@ -148,7 +148,7 @@ Builds on `src/throw/TossScene.tsx` and `src/remote/pinch.ts`.
 - The recorder runs on **both** sides and logs what is in the scene, never video: `{t, kind: 'hand'|'pose'|'part'|'toss'|'caption', data}`. At 2 hands × 30 Hz × 262 B that is about 16 KB/s, or about 2 MB for a 2-minute lesson before compression.
 - On throw-back the helper's log goes with it (or is uploaded and referenced by id). The learner merges both logs into one session timeline.
 - Replay viewer: the same R3F scene fed from the log instead of live input, with scrub, play/pause, speed, orbit, and part-state chapter markers.
-- Built: a lesson runs from catching a thrown object to throwing it back (`ThrowLesson` in `src/replay/lesson.ts`), recorded on the catcher's screen (their hands + the object's pose on their raw camera image), saved to Convex by itself, renamable and deletable. Nothing on screen says it is recording. The catcher keeps it and sends the saved id to the thrower over the `control` channel; `replays.copy` gives the thrower their own row pointing at the same log file, which is deleted with its last row.
+- Built: a lesson runs from catching the lanyard to throwing it back (`ThrowLesson` in `src/replay/lesson.ts`), recorded on the catcher's screen (their raw hands + the copy's `TwinPose` stream, log v3 in `src/replay/log.ts`), saved to Convex by itself, renamable and deletable. The catcher sends the saved id to the thrower over `control`; `replays.copy` gives the thrower their own row pointing at the same log file. Tutorials replays it in `TwinScene` itself (drive `remote`), so it looks like the live box.
 
 ### Backend: Convex
 

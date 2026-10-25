@@ -29,6 +29,8 @@ export class ThrowLesson {
     c.rec.frame(now, update, poses.find(p => p.id === c.id) ?? null, twinPose);
     if (c.rec.full) this.end(now);
   }
+  /** The 3D copy moved (the holder's pose, ~15 Hz): kept even between hand-tracker frames. */
+  posed(now: number, twinPose: TwinPose) { const c = this.cur; if (c) { c.rec.frame(now, undefined, null, twinPose); if (c.rec.full) this.end(now); } }
   /** You threw an object: if it is the one you caught, the lesson is over. */
   thrown(id: string, now: number) { if (this.cur?.id === id) this.end(now); }
   /** The call or screen is closing: keep what was recorded. */

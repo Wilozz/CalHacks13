@@ -44,17 +44,16 @@ Done:
 - Front/rear camera switch, mobile performance caps
 - Two-person WebRTC calls via six-character room code, automatic signaling
 - TURN relay support (coturn shared secret or managed provider), relay-only mode
-- Throwing prototype (`src/throw/`): preset primitive objects, palm-anchored pinch/fist grab, turn it with your palm, throw (up-flick or push) into the screen toward the friend; it comes out of their screen toward them, with no effects, as if it passed through the glass
-- Several objects per screen (up to 4), both callers throwing at once, resize by pinch (phone), scroll or two hands (computer); e2e covers a computer and a phone-sized touch peer throwing simultaneously
+- One call screen (`src/App.tsx`): the agent looks for the lanyard with Claude every 4 s until it is out (or **Show lanyard**); the stored SAM 3D lanyard appears on both screens; the holder handles it and throws it (button or up-flick); the catcher unclips and clips it and throws it back. The earlier Throwing prototype (preset objects, `src/throw/`) was removed for this
 - Wilson's branch merged: voice agent (Cartesia STT, `src/voice/`), pinch/grip turning of the Call tab's 3D copy (`src/remote/grasp.ts`, `quat.ts`)
 - Claude vision scan into a primitive `ModelSpec` twin, and an action library (`twist press pull push slide lift flip tilt`) with procedural animation (`src/render/motion.ts`)
 - Helper hand over the call (`src/remote/handWire.ts`, 262 B/frame on the `hand` channel), drawn on the friend's feed and the 3D copy
-- Tutorials (`src/replay/`): on the Throwing screen a lesson records itself from catching an object to throwing it back (your hands + the object's pose), saves to Convex, live list, player with scrub, speed and orbit, rename/delete
+- Tutorials (`src/replay/`): a lesson records itself from catching the lanyard to throwing it back (the catcher's hands + the copy's pose and clip state), saves to Convex for both people, live list, player with the same 3D box as the call (scrub, speed, orbit), rename/delete
 - Unit tests and Playwright e2e (direct and relay)
 
 Next, in build order (each step demoable on its own):
 
-1. ~~**Throw safety.**~~ Done: `isThrow` in `src/throw/toss.ts` (held ≥ 0.25 s, up-flick or push only), and tracking loss freezes the object instead of releasing it.
+1. ~~**Throw safety.**~~ Done in the old prototype; the call's throw is the **Throw** button or a fast up-flick while holding (`FLICK` in `src/render/TwinBox.tsx`), which needs tuning on real hands.
 2. **Mesh objects.** Load cached GLB models next to `ModelSpec` primitives. Add an object profile with parts, pieces and connectors (ARCHITECTURE "Object profile" and "Assembly").
 3. **Two hands.** Set `numHands: 2` in the worker, assign hands to pieces by continuity, hold one piece in each hand, and add two-hand resize and rotate.
 3b. **Assembly.** For the lanyard: align assist, thread the hook tip through the tag slot, then the tag hangs and swings (ARCHITECTURE "Hook into tag slot"). Unit-test the math first.

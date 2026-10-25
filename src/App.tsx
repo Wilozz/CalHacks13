@@ -64,7 +64,7 @@ export default function App({communitySession}:{communitySession?:{id:string;tok
   const [moreOpen,setMoreOpen] = useState(false);
   const [code,setCode] = useState('');
   const call = useCall(() => video.current?.srcObject instanceof MediaStream ? video.current.srcObject : null);
-  useEffect(()=>{if(communitySession)void start().then(()=>call.start(undefined,communitySession));},[communitySession]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(()=>{if(communitySession)call.start(undefined,communitySession);},[communitySession]);
   const handOnRef = useRef(true);
   const slots = useRef(new HandSlots());       // keeps each of the two hands in its own slot
   const slotSent = useRef([false, false]);     // whether a hand in that slot is currently being sent
@@ -150,7 +150,8 @@ export default function App({communitySession}:{communitySession?:{id:string;tok
     generation.current++; cleanup.current(); live.current.frame=null; live.current.hands=[null,null]; slots.current.reset(); myHand.current.reset(); rtc.current?.send(null,0); rtc.current?.send(null,1);
     setPhase('idle'); setMessage('');
   }
-  async function start(requestedFacing: Facing = facing) {
+  /** from: the call's own stream, so tracking shares the call's camera (a clone of its track) instead of opening it twice. */
+  async function start(requestedFacing: Facing = facing, from?: MediaStream) {
     cleanup.current();
     live.current.frame=null;
     setNotice('');
@@ -180,7 +181,8 @@ export default function App({communitySession}:{communitySession?:{id:string;tok
     setPhase('loading'); setMessage('Requesting camera access…');
     try {
       if(!window.isSecureContext || !navigator.mediaDevices?.getUserMedia) throw new Error('Open Handoff over trusted HTTPS on your phone. A laptop’s HTTP LAN address cannot access your camera. Localhost only works on the device serving the app.');
-      stream=await navigator.mediaDevices.getUserMedia({audio:false,video:{facingMode:{ideal:requestedFacing},width:{ideal:640},height:{ideal:480},frameRate:{ideal:30,max:mobile?30:60}}});
+      const shared = from?.getVideoTracks().find(t => t.readyState==='live');
+      stream=shared ? new MediaStream([shared.clone()]) : await navigator.mediaDevices.getUserMedia({audio:false,video:{facingMode:{ideal:requestedFacing},width:{ideal:640},height:{ideal:480},frameRate:{ideal:30,max:mobile?30:60}}});
       if(cancelled) { stream.getTracks().forEach(t=>t.stop()); return; }
       const track = stream.getVideoTracks()[0];
       const ended = () => fail(new Error('The camera was disconnected or access was revoked. Tap Enable camera to reconnect.'));
@@ -343,7 +345,7 @@ export default function App({communitySession}:{communitySession?:{id:string;tok
   const [scannedFrom,setScannedFrom] = useState<'mine'|'friend'>('mine'); // outlines only make sense over the camera that was scanned
   const prevSelected = useRef<string|null>(null);
   sayRef.current = text => { const dc = controlRef.current; if (dc?.readyState==='open') dc.send(encodeSay(text)); };
-  const sendPose = (p:TwinPose) => { lastPose.current = p; const dc = controlRef.current; if (dc?.readyState==='open') dc.send(encodePose(p)); };
+  const sendPose = (p:TwinPose) => { lastPose.current = p; lesson.current?.posed(performance.now(), p); const dc = controlRef.current; if (dc?.readyState==='open') dc.send(encodePose(p)); };
   const sendTwin = (t:TwinInfo|null) => { const dc = controlRef.current; if (dc?.readyState==='open') dc.send(encodeTwin(t)); };
   useEffect(() => {
     const dc = call.controlChannel; controlRef.current = dc;
@@ -421,9 +423,15 @@ export default function App({communitySession}:{communitySession?:{id:string;tok
     return () => clearInterval(id);
   }, [looking]);
   useEffect(() => { const l = looking && lanyardIn(scene.objects); if (l) setSelectedId(l.objectId); }, [scene.objects, looking]);
-  useEffect(() => { if (screen==='home') { lesson.current!.end(performance.now()); setHolder('me'); } }, [screen]);
-  // Tracking starts with the call: the hands are how you hold the lanyard, and the call reuses this camera.
-  async function begin(room?:string) { if (phase!=='running' && phase!=='loading') await start(); call.start(room); }
+  const wasInCall = useRef(false);
+  useEffect(() => {
+    if (screen!=='home') { wasInCall.current = true; return; }
+    lesson.current!.end(performance.now()); setHolder('me');
+    if (wasInCall.current) { wasInCall.current = false; stop(); } // the call is over: the camera goes off with it
+  }, [screen]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Tracking starts with the call (the hands are how you hold the lanyard), on the call's own camera.
+  const begin = (room?:string) => call.start(room);
+  useEffect(() => { if (screen!=='home' && call.local && phase==='idle') void start(facing, call.local); }, [call.local, screen]); // eslint-disable-line react-hooks/exhaustive-deps
   const chooseObject = (id:string|null) => { setSelectedId(id); if (id) agent.current?.tracker.mention(id, 1, performance.now()); };
   const scanMine = () => { void scene.scan(video.current); };
   const scanFriend = () => { void scene.scan(call.friendVideo.current); };
@@ -462,8 +470,8 @@ export default function App({communitySession}:{communitySession?:{id:string;tok
     {toasts.length > 0 && <div className="throw-toasts">{toasts.map(t => <p key={t.id} className="throw-toast" role="status">{t.text}</p>)}</div>}
     {screen==='home' && <section className="home-panel" aria-label="Start a call">
       <PageHeading compact eyebrow="Handoff LIVE" title={<>A hand.<br/><span className="gradient-text">From anywhere.</span></>} description="Show someone what to do with your hands."/>
-      <button className="primary" onClick={() => void begin()}><Icon name="video" size={20}/>New call</button>
-      <form className="join" onSubmit={e => { e.preventDefault(); if(validCode) void begin(code); }}>
+      <button className="primary" onClick={() => begin()}><Icon name="video" size={20}/>New call</button>
+      <form className="join" onSubmit={e => { e.preventDefault(); if(validCode) begin(code); }}>
         <label htmlFor="room-input">Join with a code</label>
         <div><input id="room-input" value={code} onChange={e => setCode(normalizeRoomCode(e.target.value).slice(0,6))} placeholder="ABC234" maxLength={8} spellCheck={false} autoCapitalize="characters" autoComplete="off" enterKeyHint="go"/><button type="submit" disabled={!validCode}>Join</button></div>
       </form>

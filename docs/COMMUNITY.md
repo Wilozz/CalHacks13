@@ -30,7 +30,7 @@ npm run dev:community
 
 It runs `convex dev --start "npm run dev"`. Stop any existing copies first to avoid port conflicts. Default ports: Vite **5173**, signaling **8787**, local Convex **3210**, Convex HTTP/auth **3211**, optional AI **8790**. `npm run dev` starts the original app/signaling/optional AI services; it does not launch Convex itself.
 
-If `VITE_CONVEX_URL` is absent, standalone Call and Throwing prototype still load; Requests/Helpers/Activity/Profile show setup instructions. Use `npm run convex` to regenerate Convex types after backend edits. `convex/tsconfig.json` is checked separately.
+If `VITE_CONVEX_URL` is absent, the standalone Call still loads; Requests/Helpers/Activity/Profile show setup instructions. Use `npm run convex` to regenerate Convex types after backend edits. `convex/tsconfig.json` is checked separately.
 
 ## Two-user test
 
