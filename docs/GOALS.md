@@ -44,11 +44,11 @@ Done:
 - Front/rear camera switch, mobile performance caps
 - Two-person WebRTC calls via six-character room code, automatic signaling
 - TURN relay support (coturn shared secret or managed provider), relay-only mode
-- One call screen (`src/App.tsx`): the agent looks for the lanyard with Claude every 4 s until it is out (or **Show lanyard**); the stored SAM 3D lanyard appears on both screens; the holder handles it and throws it (button or up-flick); the catcher unclips and clips it and throws it back. The earlier Throwing prototype (preset objects, `src/throw/`) was removed for this
+- One call screen (`src/App.tsx`): objects on camera get clickable boxes (on-device detector, the lanyard labelled by embedding match); nothing comes up until you click. The lanyard opens the stored SAM 3D mesh; anything else a built-in shape that Claude refines. The copy is shared: both people's hands on it, first grab holds it. The throw was removed (it depended on luck: flick detection plus a one-shot handover)
 - Wilson's branch merged: voice agent (Cartesia STT, `src/voice/`), pinch/grip turning of the Call tab's 3D copy (`src/remote/grasp.ts`, `quat.ts`)
 - Claude vision scan into a primitive `ModelSpec` twin, and an action library (`twist press pull push slide lift flip tilt`) with procedural animation (`src/render/motion.ts`)
 - Helper hand over the call (`src/remote/handWire.ts`, 262 B/frame on the `hand` channel), drawn on the friend's feed and the 3D copy
-- Tutorials (`src/replay/`): a lesson records itself from catching the lanyard to throwing it back (the catcher's hands + the copy's pose and clip state), saves to Convex for both people, live list, player with the same 3D box as the call (scrub, speed, orbit), rename/delete
+- Tutorials (`src/replay/`): a lesson records itself from the copy coming up until it is closed or the call ends (both people's hands + the copy's pose and clip state), saves to Convex for both people, live list, player with the same 3D box as the call (scrub, speed, orbit), rename/delete
 - Unit tests and Playwright e2e (direct and relay)
 
 Next, in build order (each step demoable on its own):
@@ -99,4 +99,4 @@ Possible but not planned: Tiger Data (we chose Convex for storage), Elastic (sea
 - Hook type: a plain open hook, or a spring-gate clasp (lobster or trigger)? This only sets the `gate` flag. Photograph the real hook and tag first.
 - Who decides part affordances: Claude per object (with a human check on the cached ones), or hand-written profiles for the 3 demo objects? Recommended: Claude-generated, then hand-checked and committed.
 - Does the learner watch the helper's demonstration in 3D only, or 3D overlaid on the helper's video?
-- One shared scene (both see the same object at once) or the current "only the holder has it" model? Currently the holder has it. That keeps conflicts away and makes the throw meaningful.
+- ~~One shared scene or "only the holder has it"?~~ Shared, first grab holds it (Oct 24).

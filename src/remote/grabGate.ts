@@ -38,7 +38,9 @@ export class GrabGate {
   private cooldownUntil = 0;
   private wasGrabbing = false;
   private trail: { t: number; x: number; y: number }[] = [];
-  constructor(o: GateOptions = {}) { this.o = { armMs: 120, hoverMs: 110, maxSpeed: 1.4, cooldownMs: 250, ...o }; }
+  // Tuned for one object on screen (the demo): short enough that a plain reach-and-pinch on a dim, dropping camera still
+  // grabs; a fast wave (2.5+ units/s) or a fist that was already closed still does not.
+  constructor(o: GateOptions = {}) { this.o = { armMs: 80, hoverMs: 50, maxSpeed: 2, cooldownMs: 150, ...o }; }
 
   /** Speed over about the last 150 ms, in twin units per second. */
   speed(): number {

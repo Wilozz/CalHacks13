@@ -12,6 +12,8 @@ export interface CallCallbacks {
   hand?:(channel:RTCDataChannel|null)=>void;
   /** Reliable, ordered channel for small JSON control messages (which object is being shown). */
   control?:(channel:RTCDataChannel|null)=>void;
+  /** Unordered, no retransmits: the 3D copy's pose, where a late update is worse than a lost one. */
+  pose?:(channel:RTCDataChannel|null)=>void;
 }
 export class CallSession {
   private socket:WebSocket|null=null;
@@ -69,6 +71,7 @@ export class CallSession {
       // Negotiated on both sides with a fixed id, so it needs no extra signaling and no offer/answer ordering.
       this.callbacks.hand?.(pc.createDataChannel('hand',{negotiated:true,id:1,ordered:false,maxRetransmits:0}));
       this.callbacks.control?.(pc.createDataChannel('control',{negotiated:true,id:2}));
+      this.callbacks.pose?.(pc.createDataChannel('pose',{negotiated:true,id:3,ordered:false,maxRetransmits:0}));
       for(const track of media.getTracks()){
         pc.addTrack(track,media);
         track.onended=()=>this.fail(new Error('Camera or microphone stopped. Check permissions and start a new call.'));
@@ -138,6 +141,6 @@ export class CallSession {
     this.socket?.close();this.socket=null;
     this.peer?.close();this.peer=null;
     this.media?.getTracks().forEach(track=>{track.onended=null;track.stop();});this.media=null;
-    this.queued=[];this.callbacks.local(null);this.callbacks.remote(null);this.callbacks.hand?.(null);this.callbacks.control?.(null);this.callbacks.status('idle');
+    this.queued=[];this.callbacks.local(null);this.callbacks.remote(null);this.callbacks.hand?.(null);this.callbacks.control?.(null);this.callbacks.pose?.(null);this.callbacks.status('idle');
   }
 }

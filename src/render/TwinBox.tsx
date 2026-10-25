@@ -23,8 +23,10 @@ import { useTwinMesh } from './useTwinMesh';
 const CYAN = '#64f5ed';
 const HOLD_COLOR: Record<GraspKind, string> = { none: CYAN, pinch: '#fff36b', grip: '#ff9f43' };
 const SLOTS = [0, 1] as const;
-// The second hand is tinted so you can tell the two apart.
-const HAND_COLORS = [{ joint: '#9ffcf5', bone: '#22d3e6' }, { joint: '#e1d4ff', bone: '#a78bfa' }];
+// Drawn hands: 0, 1 are this screen's own (or, in a replay, the recorded ones); 2, 3 the friend's.
+const HANDS = [0, 1, 2, 3] as const;
+// The second hand is tinted so you can tell the two apart, and the friend's hands are warm, yours cool.
+const HAND_COLORS = [{ joint: '#9ffcf5', bone: '#22d3e6' }, { joint: '#e1d4ff', bone: '#a78bfa' }, { joint: '#ffe0b8', bone: '#ff9f43' }, { joint: '#ffd1e0', bone: '#f472b6' }];
 
 type Mode = 'none' | 'waiting' | 'hover' | 'grab' | 'idle';
 export interface BoxStatus {
@@ -55,8 +57,10 @@ interface SceneProps {
   status: MutableRefObject<BoxStatus>; resetToken: number;
   /** the SAM 3D mesh, cut into the same pieces as the model; null = draw the model's shapes */
   mesh: FittedMesh | null;
-  /** a flick upward while holding it: throw it to the friend */
-  onThrow?: () => void;
+  /** the friend's hands, drawn on it too; in a call either person can take it (see TwinScene) */
+  peer?: MutableRefObject<HandSource>;
+  /** both took it at the same moment: this screen lets go (the one who brought it out keeps it) */
+  yieldTie?: boolean;
 }
 
 const toLinear = (c: number) => { const v = c / 255; return v <= 0.04045 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4; };
@@ -158,9 +162,23 @@ const MOVED = 0.05, TURNED = 0.08;
 // and vanishes keeps its last real reading this long before the hold ends.
 const HOLD_GRACE_MS = 350;
 const IDLE: Hold = { target: null, hover: null, grabbing: false, kind: 'none', anchor: null };
-// A throw: the holding hand's fingertip moving up the camera image this fast (image heights per second, smoothed).
-// Lifting the clasp off the card is much slower than this.
-const FLICK = 2.2;
+// The holder resends its pose this often even when nothing moves (the pose channel drops packets, so the last one may
+// be lost); a friend's hold with nothing heard for FRIEND_HOLD_MS has ended (they dropped out mid-hold).
+const KEEPALIVE_MS = 300, FRIEND_HOLD_MS = 1000;
+const holdOf = (t: number): Target | null => (t === -2 ? null : t === -1 ? 'whole' : t);
+/** What the screen that drives the copy says it is doing: where everything is, and what its hands hold. */
+function shownPose(rp: TwinPose, comps: { length: number }, seat: P3 | null) {
+  const asTarget = (t: number): Target | null => { const h = holdOf(t); return typeof h === 'number' && h >= comps.length ? null : h; };
+  return {
+    root: { offset: rp.offset, rotation: rp.rotation },
+    // Before any pose arrives, a lanyard shows clipped together, as it starts.
+    parts: Array.from({ length: comps.length }, (_, i) => rp.parts[i] ? { offset: rp.parts[i].offset, rotation: rp.parts[i].rotation } : { offset: i === 0 && seat ? seat : [0, 0, 0] as P3, rotation: QI }),
+    holds: [
+      { target: asTarget(rp.target), hover: null, grabbing: rp.grabbing, kind: rp.kind, anchor: rp.anchor },
+      rp.second ? { target: asTarget(rp.second.target), hover: null, grabbing: rp.second.target !== -2, kind: rp.second.kind, anchor: rp.second.anchor } : IDLE,
+    ] as [Hold, Hold],
+  };
+}
 
 /** A smoothed position and orientation, so pieces glide to their pose instead of snapping. */
 const view = () => ({ pos: new THREE.Vector3(), quat: new THREE.Quaternion(), wantPos: new THREE.Vector3(), wantQuat: new THREE.Quaternion() });
@@ -172,9 +190,11 @@ const view = () => ({ pos: new THREE.Vector3(), quat: new THREE.Quaternion(), wa
  * goes for the body and fingertips for the piece; a cap has to be twisted loose before it can be pulled off.
  * Pinch (thumb + index) moves, and twisting spins; grip (thumb + index + middle) turns with your whole hand.
  * A grab only starts when it is deliberate (see GrabGate), so waving a hand about does nothing.
- * When the other person is the helper, this only displays the pose they send.
+ * In a call both people work on the same copy, with both people's hands drawn on it. Whoever takes it first holds it
+ * until they let go; meanwhile this screen shows their pose, and its own hands can point but not take it. Every grab
+ * starts from where the last one left it. drive 'remote' (a replay) only displays the poses it is given.
  */
-export function TwinScene({ mirror, twin, hand, placement, posFlip, drive, remotePose, onPose, status, resetToken, mesh, onThrow }: SceneProps) {
+export function TwinScene({ mirror, twin, hand, placement, posFlip, drive, remotePose, onPose, status, resetToken, mesh, peer, yieldTie = false }: SceneProps) {
   // With a scanned mesh, the hands work on the mesh's own shape (see fitToModel), so they land on what you see.
   const model = mesh?.model ?? twin.model;
   // A lanyard is two pieces that clip together (KitRig); anything else is a whole with parts (TwinRig).
@@ -187,7 +207,7 @@ export function TwinScene({ mirror, twin, hand, placement, posFlip, drive, remot
   const smooth = useMemo(() => SLOTS.map(() => ({ x: new OneEuro(1.4, 0.5), y: new OneEuro(1.4, 0.5) })), []);
   const rootGroup = useRef<THREE.Group>(null!);
   const compGroups = useRef<(THREE.Group | null)[]>([]);
-  const hg = useRef(SLOTS.map(() => ({ group: null as THREE.Group | null, joints: [] as (THREE.Mesh | null)[], bones: [] as (THREE.Mesh | null)[], dots: [] as (THREE.Mesh | null)[], ring: null as THREE.Mesh | null })));
+  const hg = useRef(HANDS.map(() => ({ group: null as THREE.Group | null, joints: [] as (THREE.Mesh | null)[], bones: [] as (THREE.Mesh | null)[], dots: [] as (THREE.Mesh | null)[], ring: null as THREE.Mesh | null })));
   const shadow = useRef<THREE.Mesh>(null!);
   const outlineMats = useRef<THREE.MeshBasicMaterial[]>([]);
   const meshMats = useRef(new Map<number, THREE.MeshStandardMaterial>()); // -1: the body, else a component
@@ -195,12 +215,13 @@ export function TwinScene({ mirror, twin, hand, placement, posFlip, drive, remot
   const trail = useMemo(() => new THREE.Line(new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(), new THREE.Vector3()]), new THREE.LineDashedMaterial({ color: '#ffffff', dashSize: 0.05, gapSize: 0.04, transparent: true, opacity: 0.7 })), []);
   const views = useMemo(() => ({ root: view(), parts: comps.map(() => view()) }), [comps]);
   const s = useRef({
-    pos: SLOTS.map(() => Array.from({ length: 21 }, () => new THREE.Vector3())), fresh: [false, false], a: new THREE.Vector3(), b: new THREE.Vector3(), up: new THREE.Vector3(0, 1, 0),
+    pos: HANDS.map(() => Array.from({ length: 21 }, () => new THREE.Vector3())), fresh: [false, false, false, false], a: new THREE.Vector3(), b: new THREE.Vector3(), up: new THREE.Vector3(0, 1, 0),
     sent: REST_POSE, sentAt: 0, holding: [false, false], firm: [null, null] as (null | { tip: P3; twist: number; palm: Q | null; depth: number })[],
     last: [null, null] as (MoveInput | null)[], lastAt: [0, 0],
-    flick: SLOTS.map(() => ({ y: 0, t: 0, vy: 0 })), thrown: false,
+    /** this screen moved it last, so it keeps telling the other screen where it is */
+    mine: false, seen: null as TwinPose | null,
   });
-  const mats = useMemo(() => SLOTS.map(sl => ({ joint: new THREE.MeshBasicMaterial({ color: HAND_COLORS[sl].joint, transparent: true }), bone: new THREE.MeshBasicMaterial({ color: HAND_COLORS[sl].bone, transparent: true }), tip: new THREE.MeshBasicMaterial({ color: '#ffffff' }), ring: new THREE.MeshBasicMaterial({ color: CYAN, transparent: true, side: THREE.DoubleSide }) })), []);
+  const mats = useMemo(() => HANDS.map(sl => ({ joint: new THREE.MeshBasicMaterial({ color: HAND_COLORS[sl].joint, transparent: true }), bone: new THREE.MeshBasicMaterial({ color: HAND_COLORS[sl].bone, transparent: true }), tip: new THREE.MeshBasicMaterial({ color: '#ffffff' }), ring: new THREE.MeshBasicMaterial({ color: CYAN, transparent: true, side: THREE.DoubleSide }) })), []);
   const geoms = useMemo(() => model.parts.map(p => shapeGeometry(p.shape)), [model]);
   const owner = useMemo(() => model.parts.map((_, i) => comps.findIndex(c => c.parts.includes(i))), [model, comps]); // -1: part of the body
   const bottom = useMemo(() => Math.min(...model.parts.map(p => p.position[1] - p.size[1] / 2)), [model]);
@@ -210,7 +231,7 @@ export function TwinScene({ mirror, twin, hand, placement, posFlip, drive, remot
     rig.reset(); const v = s.current; views.root.pos.set(0, 0, 0); views.root.quat.identity();
     views.parts.forEach((p, i) => { p.pos.set(...comps[i].center); p.quat.identity(); });
     gates.forEach(g => g.reset());
-    onPose(REST_POSE); v.sent = REST_POSE;
+    onPose(REST_POSE); v.sent = REST_POSE; v.sentAt = performance.now(); v.mine = true;
   }, [resetToken, rig]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useFrame(({ clock }, dt) => {
@@ -220,17 +241,40 @@ export function TwinScene({ mirror, twin, hand, placement, posFlip, drive, remot
     let parts = comps.map(() => ({ offset: [0, 0, 0] as P3, rotation: QI as Q }));
     let holds: [Hold, Hold] = [IDLE, IDLE];
     const frames: (HandFrame | null)[] = SLOTS.map(sl => hand.current.current(now, sl));
-    const handPts: (P3[] | null)[] = [null, null];
-    const closeness = [0, 0];
-    let shown: TwinPose = REST_POSE;
+    const peerFrames: (HandFrame | null)[] = SLOTS.map(sl => peer?.current.current(now, sl) ?? null);
+    const handPts: (P3[] | null)[] = [null, null, null, null];
+    const handHolds: Hold[] = [IDLE, IDLE, IDLE, IDLE];
+    const handKinds: GraspKind[] = ['none', 'none', 'none', 'none'];
+    const closeness = [0, 0, 0, 0];
+    let shown: TwinPose = REST_POSE, friendHolds = false;
 
     // Alone, the whole picture is mirrored (so left is left, like your selfie video), and that mirror already
     // flips the hand: flipping the shape too would draw your right hand as a left hand.
     const shapePl = mirror ? { ...placement.current, flipX: false } : placement.current;
     const place = (f: HandFrame, at: P3 | undefined, from: { x: number; y: number }) =>
       placeHandOnTwin(f, shapePl, model, twin.bbox, twin.feedAspect, posFlip, at, 'none', from)?.points ?? null;
+    /** Hands that are only shown (the friend's, or a replay's): on what they hold, if they hold something. */
+    const drawShown = (fs: (HandFrame | null)[], hs: Hold[], base: number) => SLOTS.forEach(sl => {
+      const f = fs[sl], h = hs[sl] ?? IDLE; if (!f) return;
+      handPts[base + sl] = place(f, h.grabbing && h.anchor ? h.anchor : undefined, grabPoint(f, h.kind)); handHolds[base + sl] = h; handKinds[base + sl] = h.kind;
+    });
+    const showRemote = (rp: TwinPose) => {
+      if (rp.kit) { const was = kit.current; kit.current = { ...rp.kit, sinceJoin: rp.kit.joined ? (was.joined ? (was.sinceJoin < 0 ? -1 : was.sinceJoin + dt * 1000) : 0) : -1 }; }
+      const p = shownPose(rp, comps, kitProfile ? seatOffset(kitProfile) : null);
+      root = p.root; parts = p.parts; holds = p.holds; shown = rp;
+    };
 
     if (drive === 'local') {
+      // The friend's latest pose. A new one, while this screen holds nothing, is where the copy is now: take it on, so
+      // the next grab here starts from there. If both took it at once, one screen gives way (yieldTie).
+      const rp = remotePose.current;
+      friendHolds = !!peer && rp.at !== undefined && now - rp.at < FRIEND_HOLD_MS && (rp.grabbing || (rp.second?.target ?? -2) !== -2);
+      if (rp !== v.seen) {
+        v.seen = rp;
+        const mine = v.holding[0] || v.holding[1];
+        if (rp.at !== undefined && (!mine || (friendHolds && yieldTie))) { rig.adopt(rp); v.holding = [false, false]; v.mine = false; if (rp.kit) kit.current = { ...kit.current, ...rp.kit }; }
+      }
+      const theirTurn = friendHolds && !v.holding[0] && !v.holding[1];
       const inputs: [MoveInput | null, MoveInput | null] = [null, null];
       const froms: ({ x: number; y: number } | undefined)[] = [undefined, undefined];
       SLOTS.forEach(sl => {
@@ -247,7 +291,8 @@ export function TwinScene({ mirror, twin, hand, placement, posFlip, drive, remot
         const base = place(frame, undefined, from);            // the hand's shape, to read how the fingers are turned
         if (base) { twist = twistAngle(base); palm = palmQuat(base); }
         // A grab is only deliberate if the hand was open, over a part, and closing slowly: waving does nothing.
-        const kind = gates[sl].filter({ now, kind: raw, tip: { x: tipS[0], y: tipS[1] }, hovering: rig.hoverAt(tipS, sl, raw) !== null, grabbing: v.holding[sl] });
+        // While the friend holds it there is nothing free to take, so no closing counts.
+        const kind = gates[sl].filter({ now, kind: raw, tip: { x: tipS[0], y: tipS[1] }, hovering: !theirTurn && rig.hoverAt(tipS, sl, raw) !== null, grabbing: v.holding[sl] });
         // While the fingers are opening (before the release is confirmed) hold the last firm reading, so letting go can
         // never drag the object along with the fingers' last movement.
         const opening = kind !== 'none' && (grasps[sl].ratios?.pinch ?? 0) > 0.38;
@@ -255,45 +300,38 @@ export function TwinScene({ mirror, twin, hand, placement, posFlip, drive, remot
         if (opening && v.firm[sl]) reading = v.firm[sl]!; else if (!opening) v.firm[sl] = reading;
         inputs[sl] = { ...reading, kind }; v.last[sl] = inputs[sl]; v.lastAt[sl] = now;
       });
-      const m = rig.step(inputs);
-      v.holding = [m.holds[0].grabbing, m.holds[1].grabbing];
-      root = m.root; parts = m.parts; holds = m.holds;
-      SLOTS.forEach(sl => {
-        const f = frames[sl], fl = v.flick[sl];
-        if (!f || !m.holds[sl].grabbing) { fl.t = 0; fl.vy = 0; return; }
-        const y = f.landmarks[8].y;
-        if (fl.t && now > fl.t) fl.vy = 0.6 * fl.vy + 0.4 * ((y - fl.y) * 1000) / (now - fl.t);
-        fl.y = y; fl.t = now;
-        if (fl.vy < -FLICK && onThrow && !v.thrown) { v.thrown = true; onThrow(); }
-      });
-      SLOTS.forEach(sl => { const f = frames[sl], fr = froms[sl]; if (f && fr) handPts[sl] = place(f, m.holds[sl].grabbing && m.holds[sl].anchor ? m.holds[sl].anchor! : undefined, fr); });
-      // Tell the other screen where everything is, but not more than ~15 times a second.
-      if (rig instanceof KitRig) kit.current = { ...rig.kit };
-      const cur: TwinPose = {
-        offset: m.root.offset, rotation: m.root.rotation, grabbing: m.holds[0].grabbing, kind: m.holds[0].kind, anchor: m.holds[0].anchor, parts: m.parts,
-        target: m.holds[0].target === null ? -2 : m.holds[0].target === 'whole' ? -1 : m.holds[0].target,
-        second: { target: m.holds[1].target === null ? -2 : m.holds[1].target === 'whole' ? -1 : m.holds[1].target, kind: m.holds[1].kind, anchor: m.holds[1].anchor },
-        ...(rig instanceof KitRig ? { kit: { joined: rig.kit.joined, gate: rig.kit.gate, near: rig.kit.near } } : {}),
-      };
-      shown = cur;
-      const sent = v.sent;
-      const changed = cur.grabbing !== sent.grabbing || cur.kind !== sent.kind || cur.target !== sent.target || !same(cur.offset, sent.offset, 0.004) || qAngle(cur.rotation, sent.rotation) > 0.01
-        || cur.parts.some((p, i) => !sent.parts[i] || !same(p.offset, sent.parts[i].offset, 0.004) || qAngle(p.rotation, sent.parts[i].rotation) > 0.01)
-        || cur.second!.target !== (sent.second?.target ?? -2) || cur.second!.kind !== (sent.second?.kind ?? 'none')
-        || (!!cur.kit && (!sent.kit || cur.kit.joined !== sent.kit.joined || cur.kit.near !== sent.kit.near || Math.abs(cur.kit.gate - sent.kit.gate) > 0.05));
-      if (changed && now - v.sentAt > 66) { v.sent = cur; v.sentAt = now; onPose(cur); }
+      if (theirTurn) {
+        showRemote(rp);
+        SLOTS.forEach(sl => { const f = frames[sl], fr = froms[sl]; if (f && fr) { handPts[sl] = place(f, undefined, fr); handKinds[sl] = grasps[sl].kind; } });
+        drawShown(peerFrames, holds, 2);
+      } else {
+        const m = rig.step(inputs);
+        v.holding = [m.holds[0].grabbing, m.holds[1].grabbing];
+        root = m.root; parts = m.parts; holds = m.holds;
+        SLOTS.forEach(sl => { const f = frames[sl], fr = froms[sl]; if (f && fr) { handPts[sl] = place(f, m.holds[sl].grabbing && m.holds[sl].anchor ? m.holds[sl].anchor! : undefined, fr); handHolds[sl] = m.holds[sl]; handKinds[sl] = grasps[sl].kind; } });
+        drawShown(peerFrames, [IDLE, IDLE], 2);
+        if (rig instanceof KitRig) kit.current = { ...rig.kit };
+        const cur: TwinPose = {
+          offset: m.root.offset, rotation: m.root.rotation, grabbing: m.holds[0].grabbing, kind: m.holds[0].kind, anchor: m.holds[0].anchor, parts: m.parts,
+          target: m.holds[0].target === null ? -2 : m.holds[0].target === 'whole' ? -1 : m.holds[0].target,
+          second: { target: m.holds[1].target === null ? -2 : m.holds[1].target === 'whole' ? -1 : m.holds[1].target, kind: m.holds[1].kind, anchor: m.holds[1].anchor },
+          ...(rig instanceof KitRig ? { kit: { joined: rig.kit.joined, gate: rig.kit.gate, near: rig.kit.near } } : {}),
+        };
+        shown = cur;
+        if (v.holding[0] || v.holding[1]) v.mine = true;
+        // Tell the other screen where everything is (only the screen that moved it last does): when it changes, but
+        // not more than ~15 times a second, and again every KEEPALIVE_MS in case the last one was lost.
+        const sent = v.sent;
+        const changed = cur.grabbing !== sent.grabbing || cur.kind !== sent.kind || cur.target !== sent.target || !same(cur.offset, sent.offset, 0.004) || qAngle(cur.rotation, sent.rotation) > 0.01
+          || cur.parts.some((p, i) => !sent.parts[i] || !same(p.offset, sent.parts[i].offset, 0.004) || qAngle(p.rotation, sent.parts[i].rotation) > 0.01)
+          || cur.second!.target !== (sent.second?.target ?? -2) || cur.second!.kind !== (sent.second?.kind ?? 'none')
+          || (!!cur.kit && (!sent.kit || cur.kit.joined !== sent.kit.joined || cur.kit.near !== sent.kit.near || Math.abs(cur.kit.gate - sent.kit.gate) > 0.05));
+        if (v.mine && ((changed && now - v.sentAt > 66) || now - v.sentAt > KEEPALIVE_MS)) { v.sent = cur; v.sentAt = now; onPose(cur); }
+      }
     } else {
-      const rp = remotePose.current; shown = rp;
-      if (rp.kit) { const was = kit.current; kit.current = { ...rp.kit, sinceJoin: rp.kit.joined ? (was.joined ? (was.sinceJoin < 0 ? -1 : was.sinceJoin + dt * 1000) : 0) : -1 }; }
-      root = { offset: rp.offset, rotation: rp.rotation };
-      // Before any pose arrives, a lanyard shows clipped together, as it starts.
-      parts = comps.map((_, i) => rp.parts[i] ? { offset: rp.parts[i].offset, rotation: rp.parts[i].rotation } : { offset: i === 0 && kitProfile ? seatOffset(kitProfile) : [0, 0, 0] as P3, rotation: QI });
-      const asTarget = (t: number): Target | null => (t === -2 ? null : t === -1 ? 'whole' : t < comps.length ? t : null);
-      holds = [
-        { target: asTarget(rp.target), hover: null, grabbing: rp.grabbing, kind: rp.kind, anchor: rp.anchor },
-        rp.second ? { target: asTarget(rp.second.target), hover: null, grabbing: rp.second.target !== -2, kind: rp.second.kind, anchor: rp.second.anchor } : IDLE,
-      ];
-      SLOTS.forEach(sl => { const f = frames[sl]; if (f) handPts[sl] = place(f, holds[sl].grabbing && holds[sl].anchor ? holds[sl].anchor! : undefined, grabPoint(f, holds[sl].kind)); });
+      showRemote(remotePose.current);
+      drawShown(frames, holds, 0);
+      drawShown(peerFrames, [IDLE, IDLE], 2);
     }
     const grabbing = holds.some(h => h.grabbing);
     const holdsWhole = holds.some(h => h.target === 'whole');
@@ -340,8 +378,9 @@ export function TwinScene({ mirror, twin, hand, placement, posFlip, drive, remot
     ghosts.current.forEach((g, i) => { if (g) g.visible = owner[i] < 0 && rootMoved && !mesh && !kitProfile; }); // box outlines around a scanned mesh would only confuse
 
     // Hands: the fingers that hold light up, and a ring closes around where they meet.
-    SLOTS.forEach(sl => {
-      const h = hg.current[sl], pts = handPts[sl], pos = v.pos[sl], hold = holds[sl];
+    HANDS.forEach(sl => {
+      const h = hg.current[sl], pts = handPts[sl], pos = v.pos[sl], hold = handHolds[sl];
+      const live = drive === 'local' && sl < 2; // this screen's own hands: the ring shows what a pinch would take
       if (!h.group) return;
       h.group.visible = !!pts;
       if (!pts) { v.fresh[sl] = false; return; }
@@ -352,7 +391,7 @@ export function TwinScene({ mirror, twin, hand, placement, posFlip, drive, remot
         v.a.copy(pos[i]); v.b.copy(pos[j]).sub(v.a);
         m.position.copy(v.a).addScaledVector(v.b, 0.5); m.scale.set(1, v.b.length(), 1); m.quaternion.setFromUnitVectors(v.up, v.b.normalize());
       });
-      const rawKind = drive === 'local' ? grasps[sl].kind : hold.kind;
+      const rawKind = handKinds[sl];
       const holding = HOLD_FINGERS[rawKind];
       [4, 8, 12].forEach((f, i) => { const d = h.dots[i]; if (d) { d.position.copy(pos[f]); d.visible = rawKind !== 'none' ? holding.includes(f) : f === 8; } });
       if (h.ring) {
@@ -360,7 +399,7 @@ export function TwinScene({ mirror, twin, hand, placement, posFlip, drive, remot
         h.ring.position.copy(v.b);
         const r = 0.07 + 0.16 * (1 - closeness[sl]) + (rawKind === 'grip' ? 0.03 : 0);
         h.ring.scale.set(r, r, r);
-        h.ring.visible = drive === 'local' ? (hold.hover !== null || hold.grabbing || closeness[sl] > 0.2) : hold.grabbing;
+        h.ring.visible = live ? (hold.hover !== null || hold.grabbing || closeness[sl] > 0.2) : hold.grabbing;
         mats[sl].ring.opacity = hold.grabbing ? 1 : 0.8; mats[sl].ring.color.set(hold.grabbing ? HOLD_COLOR[hold.kind] : CYAN);
       }
       mats[sl].joint.opacity = mats[sl].bone.opacity = 0.95;
@@ -368,13 +407,13 @@ export function TwinScene({ mirror, twin, hand, placement, posFlip, drive, remot
 
     // Status for the label (and for tests): the busiest hand leads.
     const lead = holds.find(h => h.grabbing) ?? holds.find(h => h.hover !== null) ?? holds[0];
-    const present = frames.filter(Boolean).length;
+    const present = frames.filter(Boolean).length + (friendHolds ? peerFrames.filter(Boolean).length : 0);
     const mode: Mode = present === 0 ? 'waiting' : lead.grabbing ? 'grab' : lead.hover !== null ? 'hover' : 'idle';
     const thumbPts = v.pos[0];
     const onPiece = holds.map(h => h.target ?? h.hover).find((t): t is number => typeof t === 'number');
     const loose = drive === 'local' && onPiece !== undefined ? rig.loosened()[onPiece] : null;
     status.current = {
-      mode, kind: lead.grabbing ? lead.kind : 'none', moved: rootMoved, turned: rootTurn > TURNED, remote: drive === 'remote', angle: Math.round((rootTurn * 180) / Math.PI / 5) * 5,
+      mode, kind: lead.grabbing ? lead.kind : 'none', moved: rootMoved, turned: rootTurn > TURNED, remote: drive === 'remote' || (friendHolds && !v.holding[0] && !v.holding[1]), angle: Math.round((rootTurn * 180) / Math.PI / 5) * 5,
       target: nameOf(lead.target ?? lead.hover), partAngle: Math.round((partTurn * 180) / Math.PI / 5) * 5, partMoved,
       partPos: views.parts[0] ? [0, 1, 2].map(i => Math.round(([views.parts[0].pos.x, views.parts[0].pos.y, views.parts[0].pos.z][i] - comps[0].center[i]) * 100)).join(',') : '',
       partLift: Math.round(Math.max(0, ...views.parts.map((p, i) => p.pos.y - comps[i].center[1])) * 20) * 5,
@@ -409,7 +448,7 @@ export function TwinScene({ mirror, twin, hand, placement, posFlip, drive, remot
       </group>)}
     </group>
     {kitProfile && comps[0] && <Strap clasp={compGroups} at={[kitProfile.attach[0] - comps[0].center[0], comps[0].hi[1], kitProfile.attach[2] - comps[0].center[2]]} />}
-    {SLOTS.map(sl => <group key={`hand${sl}`} ref={el => { hg.current[sl].group = el; }} visible={false}>
+    {HANDS.map(sl => <group key={`hand${sl}`} ref={el => { hg.current[sl].group = el; }} visible={false}>
       {Array.from({ length: 21 }, (_, i) => <mesh key={i} ref={el => { hg.current[sl].joints[i] = el; }} material={mats[sl].joint}><sphereGeometry args={[0.026, 10, 10]} /></mesh>)}
       {BONES.map((_, i) => <mesh key={i} ref={el => { hg.current[sl].bones[i] = el; }} material={mats[sl].bone}><cylinderGeometry args={[0.014, 0.014, 1, 8]} /></mesh>)}
       {[0, 1, 2].map(i => <mesh key={`d${i}`} ref={el => { hg.current[sl].dots[i] = el; }} material={mats[sl].tip}><sphereGeometry args={[0.042, 14, 14]} /></mesh>)}
@@ -429,13 +468,13 @@ function Lookat() {
  * `mirror` flips the picture like a selfie view: alone, you watch yourself in a mirror, so the copy and your hands
  * must move the way your mirrored video does (move left, the hand goes left).
  */
-export function TwinBox({ twin, hand, placement, posFlip, mirror = false, drive, remotePose, onPose, onClose, frame, onThrow, stage = false }: {
+export function TwinBox({ twin, hand, peer, yieldTie, placement, posFlip, mirror = false, drive, remotePose, onPose, onClose, frame, stage = false }: {
   twin: TwinInfo; hand: MutableRefObject<HandSource>; placement: Placement; posFlip: boolean; mirror?: boolean;
   drive: 'local' | 'remote'; remotePose: MutableRefObject<TwinPose>; onPose: (p: TwinPose) => void; onClose: () => void;
   /** the scanned picture this object was found in, if it is ours: lets this screen ask SAM 3D for a real model */
   frame?: ScanFrame | null;
-  /** you hold it in a call: throw it to your friend (a button, or flick it up) */
-  onThrow?: () => void;
+  /** in a call: the friend's hands, and whether this screen gives way when both take it at once */
+  peer?: MutableRefObject<HandSource>; yieldTie?: boolean;
   /** in a call: drawn on the screen itself, over the video, instead of in the grey box */
   stage?: boolean;
 }) {
@@ -487,7 +526,7 @@ export function TwinBox({ twin, hand, placement, posFlip, mirror = false, drive,
       <Lookat />
       <ambientLight intensity={1.2} />
       <directionalLight position={[2, 3, 4]} intensity={2} />
-      <TwinScene key={`${twin.objectId}:${drive}`} onThrow={drive === 'local' ? onThrow : undefined} mirror={mirror} twin={twin} hand={hand} placement={pl} posFlip={posFlip} drive={drive} remotePose={remotePose} onPose={onPose} status={status} resetToken={resetToken} mesh={showMesh ? sam.mesh : null} />
+      <TwinScene key={`${twin.objectId}:${drive}`} peer={peer} yieldTie={yieldTie} mirror={mirror} twin={twin} hand={hand} placement={pl} posFlip={posFlip} drive={drive} remotePose={remotePose} onPose={onPose} status={status} resetToken={resetToken} mesh={showMesh ? sam.mesh : null} />
     </Canvas>
     {holding && <span className={`twin-badge ${ui.kind}`}>{both ? '2 HANDS' : ui.kind === 'grip' ? 'GRIP' : 'PINCH'}</span>}
     <div className="twin-label"><span>{twin.label}{making ? ` · ${making}` : kept ? ` · ${kept}` : showMesh ? (sam.saved ? ' · saved' : ' · SAM 3D') : ''}</span><span className="twin-status">{text}</span></div>
@@ -497,7 +536,6 @@ export function TwinBox({ twin, hand, placement, posFlip, mirror = false, drive,
       {sam.mesh && drive === 'local' && sam.canKeep && <button className="twin-tool" aria-pressed={sam.saved} aria-label="Keep this model for the demo" title={sam.saved ? 'Saved for the demo: it loads from the app, no scan or AI server needed. Click to save this version again.' : 'Keep this model for the demo: saves it into the app (public/demo), so it loads instantly without scanning.'} onClick={() => { setKept('saving…'); void sam.keep(twin).then(ok => setKept(ok ? 'saved for the demo' : 'could not save')); }}>★</button>}
       {!stage && <button className="twin-tool" aria-label={big ? 'Make it smaller' : 'Make it bigger'} aria-pressed={big} title={big ? 'Make it smaller' : 'Make it bigger'} onClick={() => setBig(b => !b)}>{big ? '⤡' : '⤢'}</button>}
       {changed && drive === 'local' && <button className="twin-tool" aria-label="Put it back" title="Put it back" onClick={() => setResetToken(n => n + 1)}>↺</button>}
-      {onThrow && drive === 'local' && <button className="twin-tool twin-throw" aria-label="Throw to your friend" title="Throw it to your friend (or flick it up)" onClick={onThrow}>Throw</button>}
       <button className="twin-tool" aria-label="Close 3D view" onClick={onClose}>×</button>
     </div>
   </aside>;

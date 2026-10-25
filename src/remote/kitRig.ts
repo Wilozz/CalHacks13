@@ -4,6 +4,7 @@ import type { GraspKind } from './grasp';
 import type { P3 } from './placement';
 import { qAxisAngle, qInv, qMul, qRotate, type Q } from './quat';
 import { TwinMover, type MoveInput } from './twinMove';
+import type { TwinPose } from './twinWire';
 import { rayBoxDistance, type Hold, type RigState, type Target } from './twinRig';
 
 /** A lanyard with its card: the hero demo. The clasp (and the strap above it) is one piece, the card the other. */
@@ -233,5 +234,15 @@ export class KitRig {
   }
 
   update(input: MoveInput | null): RigState { return this.step([input, null]); }
+
+  /** The pose the other screen drove it to. The swing carries on from here (its speed is kept), so it does not jerk. */
+  adopt(p: Pick<TwinPose, 'offset' | 'rotation' | 'parts' | 'kit'>) {
+    this.active = [null, null]; this.card.place(p.offset, p.rotation);
+    const c = this.components[0].center, part = p.parts[0];
+    if (part) { this.clasp.place(sub(add(p.offset, qRotate(p.rotation, add(part.offset, c))), c), qMul(p.rotation, part.rotation)); }
+    if (p.kit) { if (p.kit.joined && !this.kit.joined) this.joinedAt = this.clock(); this.kit = { ...this.kit, joined: p.kit.joined, gate: p.kit.gate, near: false }; }
+    this.theta = 2 * Math.atan2(p.rotation[2], p.rotation[3]); this.lastHook = null; this.rel = null; this.heldFrom = null; this.wasNearOpen = false;
+    if (!this.kit.joined) this.armed = false; // it must move clear of the hole before it can clip on again here
+  }
 }
 

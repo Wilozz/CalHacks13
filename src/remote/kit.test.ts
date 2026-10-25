@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { BUILTIN_MODELS, sanitizeModel } from '../ai/modelSpec';
 import { componentsOf } from './components';
 import { isLanyard, KitRig, lanyardProfile, seatOffset, START_APART } from './kitRig';
+import { TwinRig } from './twinRig';
 import type { P3 } from './placement';
 import type { MoveInput } from './twinMove';
 import { twinKindForLabel } from '../render/motion';
@@ -206,4 +207,29 @@ test('TWO HANDS: with the claw open, taking the card unclips it at once and each
   assert.equal(k.r.kit.joined, false);
   for (let i = 1; i <= 10; i++) k.step(inp([c[0] + i * 0.02, c[1], 0.3], 'pinch'), inp([card[0] - i * 0.02, card[1], 0.3], 'grip'));
   assert.ok(k.r.hookAt()[0] - k.r.holeAt()[0] > 0.3, 'they went their separate ways');
+});
+
+test('SHARED: the other screen takes on a pose exactly (lanyard and bottle), and grabbing there starts from it', () => {
+  // One screen carries the clasp off the card; the other adopts what it sent and shows the same thing.
+  const a = rig('joined');
+  a.hold(30, () => inp(a.claspAt(), 'pinch'));
+  carry(a, [0.4, 0.3, 0]);
+  const s = a.step(null), sent = { offset: s.root.offset, rotation: s.root.rotation, parts: s.parts, kit: { ...a.r.kit } };
+  assert.equal(sent.kit.joined, false);
+  const b = rig('joined'); b.r.adopt(sent);
+  const got = b.step(null);
+  got.root.offset.forEach((v, i) => near(v, sent.offset[i], 1e-3));
+  got.parts[0].offset.forEach((v, i) => near(v, sent.parts[0].offset[i], 1e-3));
+  assert.equal(b.r.kit.joined, false);
+  near(b.r.hookAt()[0], a.r.hookAt()[0], 1e-3);
+  // A pinch on the clasp where it now is takes it, from there.
+  const took = b.step(inp(b.claspAt(), 'pinch'));
+  assert.equal(took.holds[0].target, 0);
+  near(b.r.hookAt()[0], a.r.hookAt()[0], 0.02);
+
+  // A bottle whose cap the other screen unscrewed and lifted: the cap is loose here too, so it pulls straight off.
+  const bottle = new TwinRig(sanitizeModel(BUILTIN_MODELS.bottle)!);
+  bottle.adopt({ offset: [0.1, 0, 0], rotation: [0, 0, 0, 1], parts: [{ offset: [0.2, 0.3, 0], rotation: [0, 0, 0, 1] }] });
+  assert.deepEqual(bottle.loosened(), [1]);
+  assert.deepEqual(bottle.step([null, null]).root.offset, [0.1, 0, 0]);
 });

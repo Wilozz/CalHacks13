@@ -6,10 +6,12 @@ type Box = [number, number, number, number];
 /** One object the on-device detector boxed (normalized, raw camera frame), and how much it looks like the lanyard (cosine, -1..1). */
 export interface FoundBox { label: string; score: number; bbox: Box; sim: number }
 
-// How lanyard-like a box must look, on this many frames in a row. Calibrated on photos: other objects score up to ~0.3
-// against the rendered model; a picture of the lanyard itself (a learned crop) scores far higher.
+// How lanyard-like a box must look. Calibrated on photos: other objects score up to ~0.3 against the rendered model; a
+// picture of the lanyard itself (a learned crop) scores far higher.
 export const MATCH = 0.42;
-const STREAK = 2, EVERY_MS = 120;
+// Boxes stay up this long after the last frame that had any, so a frame or two of missed detections does not make the
+// box you are about to click vanish.
+const EVERY_MS = 120, LINGER_MS = 1500;
 const LEARNED = 'handoff.lanyardRefs', MAX_LEARNED = 4;
 const learned = (): string[] => { try { const l = JSON.parse(localStorage.getItem(LEARNED) ?? '[]'); return Array.isArray(l) ? l.filter((x): x is string => typeof x === 'string').slice(-MAX_LEARNED) : []; } catch { return []; } };
 
@@ -25,14 +27,15 @@ export function heldBox(h: HandFrame): Box {
 export const bestMatch = (boxes: FoundBox[]): FoundBox | null => boxes.reduce<FoundBox | null>((b, x) => (x.sim >= MATCH && (!b || x.sim > b.sim) ? x : b), null);
 
 /**
- * The on-device finder (public/objects.worker.js): boxes every object in the camera about 8 times a second and picks the
- * one that looks most like the stored lanyard. No frame leaves the device. `learn` keeps a real crop of the lanyard
- * (one Claude or the person confirmed) in this browser, so the next time it is matched at once.
+ * The on-device finder (public/objects.worker.js): boxes every object in the camera about 8 times a second, each with how
+ * much it looks like the stored lanyard. It never brings anything up itself: the person clicks the box they want. No
+ * frame leaves the device. `learn` keeps a real crop of the lanyard (one Claude confirmed) in this browser, so the next
+ * time it is matched at once.
  */
-export function useObjectFinder(video: RefObject<HTMLVideoElement>, on: boolean, hands: () => (HandFrame | null)[], onFound: (bbox: Box) => void) {
+export function useObjectFinder(video: RefObject<HTMLVideoElement>, on: boolean, hands: () => (HandFrame | null)[]) {
   const [boxes, setBoxes] = useState<FoundBox[]>([]);
-  const worker = useRef<Worker | null>(null), ready = useRef(false), busy = useRef(false), streak = useRef(0);
-  const cb = useRef({ on, hands, onFound }); cb.current = { on, hands, onFound };
+  const worker = useRef<Worker | null>(null), ready = useRef(false), busy = useRef(false), seenAt = useRef(0);
+  const cb = useRef({ on, hands }); cb.current = { on, hands };
 
   // Loaded with the page, not the call, so the models are ready (and cached) by the time the lanyard is held up.
   useEffect(() => {
@@ -43,12 +46,9 @@ export function useObjectFinder(video: RefObject<HTMLVideoElement>, on: boolean,
       busy.current = false;
       if (data.type === 'error') { console.warn('Object finder:', data.message); return; }
       if (!cb.current.on) return;
-      const found = data.boxes as FoundBox[];
-      setBoxes(found);
-      if (found.length) console.debug(`[find] ${data.ms | 0} ms:`, found.map(b => `${b.label} ${b.sim.toFixed(2)}`).join(', '));
-      const best = bestMatch(found);
-      streak.current = best ? streak.current + 1 : 0;
-      if (best && streak.current >= STREAK) { streak.current = 0; cb.current.onFound(best.bbox); }
+      const found = data.boxes as FoundBox[], now = performance.now();
+      if (found.length) { seenAt.current = now; setBoxes(found); console.debug(`[find] ${data.ms | 0} ms:`, found.map(b => `${b.label} ${b.sim.toFixed(2)}`).join(', ')); }
+      else if (now - seenAt.current > LINGER_MS) setBoxes(b => (b.length ? [] : b));
     };
     void (async () => {
       const urls = [`${DEMO_BASE}lanyard-ref.png`, `${DEMO_BASE}lanyard-ref-card.png`, ...learned()];
@@ -59,7 +59,7 @@ export function useObjectFinder(video: RefObject<HTMLVideoElement>, on: boolean,
   }, []);
 
   useEffect(() => {
-    if (!on) { setBoxes([]); streak.current = 0; return; }
+    if (!on) { setBoxes([]); return; }
     const id = window.setInterval(() => {
       const v = video.current, w = worker.current;
       if (!w || !ready.current || busy.current || !v || v.readyState < 2 || !v.videoWidth) return;

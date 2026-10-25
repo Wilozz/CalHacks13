@@ -6,18 +6,19 @@ import { Recorder, type ObjPose, type Replay } from './log';
 export const MIN_LESSON_MS = 2000;
 
 /**
- * A lesson is the time you have an object someone threw you: catching it starts the recording, throwing that same
- * object back ends it. Silent on purpose: nothing on screen says it is recording. Too short (a catch and an instant
- * throw back) is not a lesson.
+ * A lesson is the time a 3D copy is up in a call: it starts when the copy comes up, and ends when it is closed (or
+ * another one replaces it) or the call ends. Both people's hands and the copy's pose, whoever moved it. Silent on
+ * purpose: nothing on screen says it is recording. Too short (opened and closed at once) is not a lesson.
  */
-export class ThrowLesson {
+export class CallLesson {
   private cur: { id: string; rec: Recorder } | null = null;
   private lastAt = -1;
   constructor(private readonly onLesson: (r: Replay) => void) {}
   get recording() { return this.cur?.id ?? null; }
-  /** An object was thrown to you. One lesson at a time: catching a second object while recording is part of the first. */
-  caught(id: string, label: string, model: ModelSpec, aspect: number, now: number, twin?: Replay['twin']) {
-    if (this.cur) return;
+  /** A copy came up. A different one ends the lesson so far and starts a new one; the same one carries on. */
+  start(id: string, label: string, model: ModelSpec, aspect: number, now: number, twin?: Replay['twin']) {
+    if (this.cur?.id === id) return;
+    this.end(now);
     this.cur = { id, rec: new Recorder(now, { label, model, aspect, twin }) }; this.lastAt = -1;
   }
   /** Every pose tick (~30 Hz): your hands (at = when the tracker produced them), where your objects are, and the 3D copy's pose. */
@@ -29,11 +30,11 @@ export class ThrowLesson {
     c.rec.frame(now, update, poses.find(p => p.id === c.id) ?? null, twinPose);
     if (c.rec.full) this.end(now);
   }
-  /** The 3D copy moved (the holder's pose, ~15 Hz): kept even between hand-tracker frames. */
+  /** The friend's hands, as they arrive. */
+  peer(now: number, hands: HandFrame[]) { const c = this.cur; if (c) { c.rec.peer(now, hands); if (c.rec.full) this.end(now); } }
+  /** The 3D copy moved (either screen's pose, ~15 Hz): kept even between hand-tracker frames. */
   posed(now: number, twinPose: TwinPose) { const c = this.cur; if (c) { c.rec.frame(now, undefined, null, twinPose); if (c.rec.full) this.end(now); } }
-  /** You threw an object: if it is the one you caught, the lesson is over. */
-  thrown(id: string, now: number) { if (this.cur?.id === id) this.end(now); }
-  /** The call or screen is closing: keep what was recorded. */
+  /** The copy was closed, or the call or screen is closing: keep what was recorded. */
   end(now: number) {
     const c = this.cur; if (!c) return;
     this.cur = null;

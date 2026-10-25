@@ -7,7 +7,7 @@ const logs=(p:Page,name:string,out:string[])=>p.on('console',m=>{if(/\[lesson\]|
 // Nothing pops up on screen any more: what happened is in the console.
 const said=(out:string[],text:string)=>expect.poll(()=>out.some(l=>l.includes(text)),{timeout:15_000}).toBe(true);
 // The fake camera shows no lanyard (and there is no AI server here), so it comes out from Hand tools → Saved for the demo.
-test('the lanyard is thrown to the helper and back, and the helper’s lesson lands in both people’s Tutorials',async({browser})=>{
+test('the lanyard is up for both, and the lesson from when it came up until it was closed lands in both people’s Tutorials',async({browser})=>{
  const a=await browser.newContext({permissions:['camera','microphone']}),b=await browser.newContext({permissions:['camera','microphone']});
  const learner=await a.newPage(),helper=await b.newPage(),ls:string[]=[],hs:string[]=[];
  logs(learner,'learner',ls);logs(helper,'helper',hs);
@@ -24,20 +24,18 @@ test('the lanyard is thrown to the helper and back, and the helper’s lesson la
  await learner.getByRole('button',{name:'Close',exact:true}).click();
  await expect(learner.locator('.twin-box.stage')).toBeVisible(); // on the screen itself, not the grey box
  for(const p of [learner,helper])await expect(p.getByRole('complementary',{name:'3D copy of lanyard'})).toBeVisible({timeout:10_000});
- await expect(helper.getByRole('button',{name:'Throw to your friend'})).toHaveCount(0); // only the holder can throw
- await learner.getByRole('button',{name:'Throw to your friend'}).click();
- await said(hs,'Your friend threw you the lanyard');
- await expect(learner.getByRole('button',{name:'Throw to your friend'})).toHaveCount(0);
- await helper.waitForTimeout(3000); // the helper unclips and clips it (a lesson is at least 2 s)
- await helper.getByRole('button',{name:'Throw to your friend'}).click();
- await said(ls,'Your friend threw you the lanyard');
- await said(hs,'Lesson saved to Tutorials');
- await said(ls,'Your friend’s lesson was saved to Tutorials');
- for(const p of [learner,helper])await expect(p.locator('.throw-toast, .hand-hint, .scene-box')).toHaveCount(0); // no pills or boxes on screen
+ for(const p of [learner,helper])await expect(p.getByRole('button',{name:'Throw to your friend'})).toHaveCount(0); // nothing to throw: both can take it
+ await said(ls,'lanyard is up, recording');
+ await learner.waitForTimeout(3000); // both handle it (a lesson is at least 2 s)
+ await learner.getByRole('button',{name:'Close 3D view'}).click(); // closing it ends the lesson
+ for(const p of [learner,helper])await expect(p.locator('.twin-box')).toHaveCount(0);
+ await said(ls,'Lesson saved to Tutorials');
+ await said(hs,'Your friend’s lesson was saved to Tutorials');
+ for(const p of [learner,helper])await expect(p.locator('.throw-toast, .hand-hint')).toHaveCount(0); // no pills on screen (the boxes to click are back once it is closed)
  // The call ends; the lesson is in the learner's Tutorials and plays.
  await learner.getByRole('button',{name:'End call'}).click();
  await learner.goto('/#tutorials');await learner.reload(); // the tab is read from the hash on load
- await learner.getByRole('button',{name:/lanyard lesson \(from your friend\)/}).click();
+ await learner.getByRole('button',{name:/lanyard lesson/}).first().click();
  await expect(learner.locator('.replay-player canvas')).toBeVisible({timeout:15_000});
  await a.close();await b.close();
 });

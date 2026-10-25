@@ -28,15 +28,23 @@ import { isLanyard } from './remote/kitRig';
 import { DEMO_BASE } from './render/useTwinMesh';
 import { decodePose, decodeSay, decodeTwin, encodePose, encodeSay, encodeTwin, REST_POSE, type TwinInfo, type TwinPose } from './remote/twinWire';
 import { captureFrame } from './useSceneScan';
-import { useObjectFinder } from './useObjectFinder';
-import { ThrowLesson } from './replay/lesson';
+import { bestMatch, MATCH, useObjectFinder, type FoundBox } from './useObjectFinder';
+import { CallLesson } from './replay/lesson';
 import { keepSharedReplay, saveReplay } from './replay/Tutorials';
-// The 3D copy changes hands: whoever holds it drives it, and throwing it gives it to the other screen.
-const THROW = JSON.stringify({ type: 'twin-throw' });
+import { foldParts } from './ai/foldParts';
 // The id of a lesson just saved, so the other person keeps the same recording (with these hands in it).
 const lessonId = (text: string) => { try { const m = text.length < 200 && JSON.parse(text); return m?.type === 'lesson' && typeof m.id === 'string' && m.id.length < 64 ? m.id as string : null; } catch { return null; } };
-// In a call, the agent checks your camera for the lanyard this often (one check at a time) until it is out (README "The call").
+// In a call, Claude checks your camera for the lanyard this often (one check at a time) until it has found it once, to
+// teach the on-device finder what this lanyard looks like (README "The call").
 const LOOK_MS = 1200;
+type Box = [number, number, number, number];
+const iou = (a: Box, b: Box) => { const w = Math.max(0, Math.min(a[2], b[2]) - Math.max(a[0], b[0])), h = Math.max(0, Math.min(a[3], b[3]) - Math.max(a[1], b[1])), i = w * h; return i / ((a[2] - a[0]) * (a[3] - a[1]) + (b[2] - b[0]) * (b[3] - b[1]) - i || 1); };
+/** The boxes to click: the most lanyard-like one as "lanyard", and every other object the detector named that is not the same thing. */
+function pickable(boxes: FoundBox[]): SceneObject[] {
+  const best = bestMatch(boxes);
+  return boxes.filter(b => b === best || (b.label !== 'in hand' && b.sim < MATCH && !(best && iou(b.bbox, best.bbox) > 0.5)))
+    .map((b, i) => ({ objectId: `found-${i}`, label: b === best ? 'lanyard' : b.label, bbox: b.bbox, affordances: [], confidence: b.score, seenAt: 0 }));
+}
 const SLOTS = [0, 1] as const;
 type Facing = 'user' | 'environment';
 type Phase = 'idle' | 'loading' | 'running' | 'error';
@@ -223,7 +231,9 @@ export default function App({communitySession}:{communitySession?:{id:string;tok
           const frame = (both[0] ?? both[1] ?? data.frame) as HandFrame;
           if(document.hidden) return;
           live.current.frame=frame; live.current.hands=both; live.current.receivedAt=performance.now();
-          lesson.current?.tick(performance.now(), both.filter((h): h is HandFrame => !!h), performance.now(), [], lastPose.current);
+          const tNow = performance.now();
+          lesson.current?.tick(tNow, both.filter((h): h is HandFrame => !!h), tNow, [], lastPose.current);
+          lesson.current?.peer(tNow, SLOTS.map(sl => peerHand.current.current(tNow, sl)).filter((h): h is HandFrame => !!h));
           if(handOnRef.current) SLOTS.forEach(sl => { const h = both[sl]; if (h || slotSent.current[sl]) { loop.current?.send(h, sl); rtc.current?.send(h, sl); slotSent.current[sl] = !!h; } });
           const canvas=overlay.current, ctx=canvas.getContext('2d');
           ctx?.clearRect(0,0,canvas.width,canvas.height);
@@ -319,14 +329,16 @@ export default function App({communitySession}:{communitySession?:{id:string;tok
   // The helper's guidance lives in a small box: a 3D copy of the object with their hand on it. Both screens show it.
   const [twin,setTwin] = useState<TwinInfo|null>(null);
   const twinRef = useRef<TwinInfo|null>(null); twinRef.current = twin;
-  // Who holds the copy: whoever brought it out, until they throw it. The holder drives it; the other screen shows their pose.
-  const [holder,setHolder] = useState<'me'|'friend'>('me');
-  const lastPose = useRef<TwinPose>(REST_POSE); // my latest pose of the copy, for the lesson
+  // Who brought the copy out. Both people can take it (TwinScene); this only decides who keeps it if both take it at
+  // once, and whose screen records the lesson.
+  const [owner,setOwner] = useState<'me'|'friend'>('me');
+  const lastPose = useRef<TwinPose>(REST_POSE); // the copy's latest pose, whoever moved it, for the lesson
   // No message pills on screen (clutter): what happened goes to the console, for debugging and the tests.
   const show = (text:string) => console.info(`[call] ${text}`);
-  // Lessons record themselves, silently: from catching the copy until you throw it back. Saved, then sent to your friend too.
-  const lesson = useRef<ThrowLesson|null>(null);
-  if (!lesson.current) lesson.current = new ThrowLesson(r => {
+  // Lessons record themselves, silently: from the copy coming up until it is closed or the call ends, on the screen that
+  // brought it out. Saved, then sent to your friend too.
+  const lesson = useRef<CallLesson|null>(null);
+  if (!lesson.current) lesson.current = new CallLesson(r => {
     // [lesson] logs: each step of saving and sharing, to find where a shared lesson goes missing (both people's consoles).
     console.info(`[lesson] recorded ${r.label}: ${r.durationMs} ms, ${r.hands.filter(x => x.hands.length).length} frames with hands, ${r.twinPoses.length} poses`);
     saveReplay(r, `${r.label} lesson`).then(id => {
@@ -344,7 +356,20 @@ export default function App({communitySession}:{communitySession?:{id:string;tok
   const [scannedFrom,setScannedFrom] = useState<'mine'|'friend'>('mine'); // outlines only make sense over the camera that was scanned
   const prevSelected = useRef<string|null>(null);
   sayRef.current = text => { const dc = controlRef.current; if (dc?.readyState==='open') dc.send(encodeSay(text)); };
-  const sendPose = (p:TwinPose) => { lastPose.current = p; lesson.current?.posed(performance.now(), p); const dc = controlRef.current; if (dc?.readyState==='open') dc.send(encodePose(p)); };
+  const poseSeq = useRef(0), lastSeq = useRef(-1);
+  const sendPose = (p:TwinPose) => { lastPose.current = p; lesson.current?.posed(performance.now(), p); const dc = call.poseChannel; if (dc?.readyState==='open') dc.send(encodePose(p, poseSeq.current++)); };
+  // The friend's pose of the copy, on the unordered channel: one older than the last (overtaken on the way) is dropped.
+  // A much lower count is a friend who reloaded and started counting again.
+  useEffect(() => {
+    const dc = call.poseChannel; if (!dc) return;
+    lastSeq.current = -1;
+    dc.onmessage = e => {
+      const pose = typeof e.data === 'string' ? decodePose(e.data) : null; if (!pose) return;
+      if (pose.seq !== undefined) { if (pose.seq <= lastSeq.current && lastSeq.current - pose.seq < 1000) return; lastSeq.current = pose.seq; }
+      const now = performance.now(); remotePose.current = { ...pose, at: now }; lastPose.current = pose; lesson.current?.posed(now, pose);
+    };
+    return () => { dc.onmessage = null; };
+  }, [call.poseChannel]);
   const sendTwin = (t:TwinInfo|null) => { const dc = controlRef.current; if (dc?.readyState==='open') dc.send(encodeTwin(t)); };
   useEffect(() => {
     const dc = call.controlChannel; controlRef.current = dc;
@@ -352,15 +377,9 @@ export default function App({communitySession}:{communitySession?:{id:string;tok
     dc.onmessage = e => {
       if (typeof e.data !== 'string') return;
       const said = decodeSay(e.data); if (said) { agent.current?.hear('friend', said); return; }
-      const pose = decodePose(e.data); if (pose) { remotePose.current = pose; return; }
-      if (e.data===THROW) { const t = twinRef.current; if (!t) return;
-        // Caught: it is mine to handle now, and the lesson starts.
-        console.info(`[lesson] caught ${t.label}, recording`);
-        setHolder('me'); show(`Your friend threw you the ${t.label}`);
-        lesson.current!.caught(t.objectId, t.label, t.model, live.current.aspect, performance.now(), t); return; }
       const shared = lessonId(e.data);
       if (shared) { console.info(`[lesson] friend shared ${shared}; keeping it on ${import.meta.env.VITE_CONVEX_URL}`); keepSharedReplay(shared).then(() => { console.info('[lesson] kept friend’s lesson'); show('Your friend’s lesson was saved to Tutorials'); }, err => { console.warn('Lesson not kept:', err); show('Your friend’s lesson could not be saved here'); }); return; }
-      const t = decodeTwin(e.data); if (t !== undefined) { remotePose.current = REST_POSE; setTwin(t); setHolder('friend'); if (!t) lesson.current!.end(performance.now()); }
+      const t = decodeTwin(e.data); if (t !== undefined) { remotePose.current = REST_POSE; setTwin(t); setOwner('friend'); }
     };
     const onOpen = () => { if (twinRef.current) dc.send(encodeTwin(twinRef.current)); };
     dc.addEventListener('open', onOpen);
@@ -375,8 +394,13 @@ export default function App({communitySession}:{communitySession?:{id:string;tok
     const kitBox = (): [number,number,number,number] => { const bs = scene.objects.filter(o => isLanyard(`${o.label} ${o.parentLabel ?? ''}`)).map(o => o.bbox); return [Math.min(...bs.map(b => b[0])), Math.min(...bs.map(b => b[1])), Math.max(...bs.map(b => b[2])), Math.max(...bs.map(b => b[3]))]; };
     const t: TwinInfo|null = selected ? { objectId: selected.objectId, label: lanyard ? 'lanyard' : selected.label, bbox: lanyard ? kitBox() : selected.bbox, feedAspect: scanAspect.current,
       model: lanyard ? sanitizeModel(BUILTIN_MODELS.lanyard)! : selected.model ?? sanitizeModel(BUILTIN_MODELS[twinKindForLabel(selected.label, selected.parentLabel)])! } : null;
-    setTwin(t); sendTwin(t); setHolder('me');
+    setTwin(t); sendTwin(t); setOwner('me');
   }, [selectedId, selected]);
+  // The lesson: on the screen that brought the copy out, from when it comes up until it is closed (or the call ends).
+  useEffect(() => {
+    if (screen==='incall' && twin && owner==='me') { if (lesson.current!.recording !== twin.objectId) console.info(`[lesson] ${twin.label} is up, recording`); lesson.current!.start(twin.objectId, twin.label, twin.model, live.current.aspect, performance.now(), twin); }
+    else lesson.current!.end(performance.now());
+  }, [twin, owner, screen]);
   useEffect(() => { if (screen==='home' && !selectedId) setTwin(null); }, [screen]);
   // Objects saved for the demo ship with the app (public/demo): open one without scanning. ?demo=lanyard opens it on load.
   const [saved,setSaved] = useState<{key:string;label:string}[]>([]);
@@ -384,7 +408,7 @@ export default function App({communitySession}:{communitySession?:{id:string;tok
     try {
       const m = await (await fetch(`${DEMO_BASE}${key}.json`)).json();
       const t = decodeTwin(JSON.stringify({ ...m.twin, type:'twin' }));
-      if (t) { setSelectedId(null); prevSelected.current = null; setTwin(t); sendTwin(t); setHolder('me'); return true; }
+      if (t) { setSelectedId(null); prevSelected.current = null; setTwin(t); sendTwin(t); setOwner('me'); return true; }
     } catch { /* not saved after all */ }
     return false;
   };
@@ -393,28 +417,40 @@ export default function App({communitySession}:{communitySession?:{id:string;tok
     let model = sanitizeModel(BUILTIN_MODELS.lanyard)!;
     try { const m = await (await fetch(`${DEMO_BASE}lanyard.json`)).json(); const saved = decodeTwin(JSON.stringify({ ...m.twin, type:'twin' })); if (saved) model = saved.model; } catch { /* not saved: the built-in one */ }
     const t: TwinInfo = { objectId: 'lanyard', label: 'lanyard', bbox, feedAspect: live.current.aspect, model };
-    setSelectedId(null); prevSelected.current = null; setTwin(t); sendTwin(t); setHolder('me');
+    setSelectedId(null); prevSelected.current = null; setTwin(t); sendTwin(t); setOwner('me');
   };
-  const throwTwin = () => {
-    const t = twinRef.current, dc = controlRef.current;
-    if (!t || dc?.readyState!=='open') return;
-    dc.send(THROW); remotePose.current = lastPose.current; setHolder('friend'); show(`Threw the ${t.label} to your friend`);
-    lesson.current!.thrown(t.objectId, performance.now());
+  // Anything else clicked: at once, the built-in shape for what the detector called it (a bottle has a cap that
+  // unscrews). Then Claude looks at the frame and, if it sees that object, its own model and name replace the shape
+  // (the name also finds a SAM 3D model cached under it). No AI server: the built-in shape stays.
+  const openFound = (box: SceneObject) => {
+    const t: TwinInfo = { objectId: `found-${Date.now().toString(36)}`, label: box.label, bbox: box.bbox, feedAspect: live.current.aspect, model: sanitizeModel(BUILTIN_MODELS[twinKindForLabel(box.label)])! };
+    setSelectedId(null); prevSelected.current = null; setTwin(t); sendTwin(t); setOwner('me');
+    const shot = captureFrame(video.current, 768, 0.7); if (!shot) return;
+    aiClient.analyzeScene({ imageBase64: shot.imageBase64, mediaType: 'image/jpeg', now: performance.now() / 1000, prior: [] }).then(found => {
+      const best = foldParts(found).filter(o => o.model && iou(o.bbox, box.bbox) > 0.2).sort((a, b) => iou(b.bbox, box.bbox) - iou(a.bbox, box.bbox))[0];
+      const model = best?.model && sanitizeModel(best.model);
+      if (!best || !model || twinRef.current?.objectId !== t.objectId) return;
+      const better: TwinInfo = { ...t, label: best.label.slice(0, 60), model };
+      setTwin(better); sendTwin(better);
+    }, e => console.warn('Claude model for the clicked object:', e));
   };
   useEffect(() => {
     fetch(`${DEMO_BASE}index.json`).then(r => r.ok ? r.json() : []).then(l => setSaved(Array.isArray(l) ? l.filter(x => typeof x?.key==='string' && typeof x?.label==='string') : [])).catch(() => setSaved([]));
     const want = new URLSearchParams(location.search).get('demo');
     if (want && /^[a-z0-9-]{1,40}$/.test(want)) void openSaved(want);
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
-  // Finding the lanyard, in a call until it is out. On this device: every object boxed ~8 times a second, the most
-  // lanyard-like one picked at once (useObjectFinder). Alongside, Claude's check (a small frame, one yes/no, ~1/s) is
-  // the backup; what it finds is kept as a real picture, so next time the device finds it at once.
-  // The finder switch: off, nothing is looked for, so nothing that merely looks like a lanyard can bring the mesh up.
-  // Every call starts with it off; you switch it on when you are about to show the lanyard.
-  const [findOn,setFindOn] = useState(false);
-  useEffect(() => { if (screen==='home') setFindOn(false); }, [screen]);
-  const looking = findOn && screen==='incall' && (phase==='loading' || active) && !twin; // the camera is on: no need to wait for hand tracking
-  const finder = useObjectFinder(video, looking, () => live.current.hands ?? [], bbox => { console.info('[find] on device'); void showLanyard(bbox); });
+  // Objects on my camera, in a call until a copy is up. On this device every object is boxed ~8 times a second, the
+  // most lanyard-like one named "lanyard" (useObjectFinder). Nothing comes up by itself: you click (or tap) the box you
+  // want. Alongside, Claude's check (a small frame, one yes/no, ~1/s) teaches the finder: the lanyard it finds is kept
+  // as a real picture, so the device names it at once from then on.
+  const looking = screen==='incall' && (phase==='loading' || active) && !twin; // the camera is on: no need to wait for hand tracking
+  const finder = useObjectFinder(video, looking, () => live.current.hands ?? []);
+  const picks = looking ? pickable(finder.boxes) : [];
+  const pick = (id: string) => {
+    const box = picks.find(p => p.objectId===id); if (!box) return;
+    console.info(`[find] picked ${box.label}`);
+    if (box.label==='lanyard') void showLanyard(box.bbox); else openFound(box);
+  };
   useEffect(() => {
     if (!looking) return;
     let live = true, timer = 0;
@@ -423,7 +459,7 @@ export default function App({communitySession}:{communitySession?:{id:string;tok
       const shot = captureFrame(video.current, 448, 0.6);
       if (shot) try {
         const r = await aiClient.findLanyard({ imageBase64: shot.imageBase64, mediaType: 'image/jpeg' });
-        if (live && r.found) { console.info('[find] by Claude'); if (r.bbox) finder.learn(r.bbox); void showLanyard(r.bbox ?? undefined); return; }
+        if (live && r.found && r.bbox) { console.info('[find] Claude saw the lanyard; the finder learns it'); finder.learn(r.bbox); return; }
       } catch (e) { wait = 5000; console.warn('Lanyard check failed:', e); } // no AI server or key: try again later, quietly
       if (live) timer = window.setTimeout(look, wait);
     };
@@ -433,7 +469,7 @@ export default function App({communitySession}:{communitySession?:{id:string;tok
   const wasInCall = useRef(false);
   useEffect(() => {
     if (screen!=='home') { wasInCall.current = true; return; }
-    lesson.current!.end(performance.now()); setHolder('me');
+    lesson.current!.end(performance.now()); setOwner('me');
     if (wasInCall.current) { wasInCall.current = false; stop(); } // the call is over: the camera goes off with it
   }, [screen]); // eslint-disable-line react-hooks/exhaustive-deps
   // Tracking starts with the call (the hands are how you hold the lanyard), on the call's own camera.
@@ -442,13 +478,14 @@ export default function App({communitySession}:{communitySession?:{id:string;tok
   const chooseObject = (id:string|null) => { setSelectedId(id); if (id) agent.current?.tracker.mention(id, 1, performance.now()); };
   const scanMine = () => { void scene.scan(video.current); };
   const scanFriend = () => { void scene.scan(call.friendVideo.current); };
-  const closeTwin = () => { setTwin(null); setSelectedId(null); sendTwin(null); setHolder('me'); lesson.current!.end(performance.now()); };
+  const closeTwin = () => { setTwin(null); setSelectedId(null); sendTwin(null); setOwner('me'); };
   // App re-renders every 250 ms for stats, which also ticks this clock.
   const elapsed = call.connectedAt ? Math.floor((Date.now()-call.connectedAt)/1000) : 0;
   const clock = `${String(Math.floor(elapsed/60)).padStart(2,'0')}:${String(elapsed%60).padStart(2,'0')}`;
   const validCode = ROOM_PATTERN.test(normalizeRoomCode(code));
   const callStatus = call.status==='preparing' ? 'Getting camera and microphone ready…' : call.status==='connecting' ? 'Connecting…' : 'Waiting for your friend…';
-  return <main className={`app ${mobile?'phone':'mac'} ${screen} ${guided && !twin && screen==='incall' ? 'guided' : ''}`}>
+  // Choosing what to bring up: my own camera goes big, with the boxes to click on it.
+  return <main className={`app ${mobile?'phone':'mac'} ${screen} ${(guided || picks.length) && !twin && screen==='incall' ? 'guided' : ''}`}>
     <div className="remote">
       <video ref={call.friendVideo} className="friend-video" autoPlay playsInline/>
       {screen==='incall' && !call.remote && <p className="remote-wait">Waiting for video…</p>}
@@ -458,6 +495,7 @@ export default function App({communitySession}:{communitySession?:{id:string;tok
       <div className={`camera-stage ${facing==='user'?'mirrored':''}`} style={{'--ar':live.current.aspect} as CSSProperties}>
         <video ref={video} autoPlay playsInline muted/><canvas ref={overlay} className={showOverlay?'':'hidden'}/>
         {screen==='home' && active && scannedFrom==='mine' && <SceneOverlay objects={scene.objects} selectedId={selectedId} hoverId={hoverId} aspect={live.current.aspect} mirrored={facing==='user'} onSelect={chooseObject}/>}
+        {picks.length>0 && <SceneOverlay objects={picks} selectedId={null} hoverId={null} aspect={live.current.aspect} mirrored={facing==='user'} onSelect={pick}/>}
       </div>
       <video ref={call.selfVideo} className="self-video" autoPlay muted playsInline/>
       {screen==='home' && !active && <div className="camera-empty">
@@ -471,7 +509,7 @@ export default function App({communitySession}:{communitySession?:{id:string;tok
       </div>}
       {screen!=='home' && call.cameraOff && <p className="self-off">Camera off</p>}
     </div>
-    {twin && (screen==='home' || screen==='incall') && <TwinBox twin={twin} mirror={screen==='home'} hand={holder==='me' ? myHand : peerHand} drive={holder==='me' ? 'local' : 'remote'} remotePose={remotePose} onPose={sendPose} placement={placement} posFlip={screen==='home' ? false : placement.flipX} onClose={closeTwin} onThrow={screen==='incall' ? throwTwin : undefined} stage={screen==='incall'} frame={holder==='me' && scene.objects.some(o => o.objectId===twin.objectId) ? scene.frame.current : null}/>}
+    {twin && (screen==='home' || screen==='incall') && <TwinBox twin={twin} mirror={screen==='home'} hand={myHand} peer={screen==='incall' ? peerHand : undefined} yieldTie={owner==='friend'} drive="local" remotePose={remotePose} onPose={sendPose} placement={placement} posFlip={screen==='home' ? false : placement.flipX} onClose={closeTwin} stage={screen==='incall'} frame={owner==='me' && scene.objects.some(o => o.objectId===twin.objectId) ? scene.frame.current : null}/>}
     {screen==='home' && <section className="home-panel" aria-label="Start a call">
       <PageHeading compact eyebrow="Handoff LIVE" title={<>A hand.<br/><span className="gradient-text">From anywhere.</span></>} description="Show someone what to do with your hands."/>
       <button className="primary" onClick={() => begin()}><Icon name="video" size={20}/>New call</button>
@@ -496,7 +534,6 @@ export default function App({communitySession}:{communitySession?:{id:string;tok
     {screen!=='home' && <div className="controls">
       <button className="round" disabled={!call.local} aria-pressed={call.muted} aria-label={call.muted?'Unmute microphone':'Mute microphone'} onClick={call.toggleMute}><Icon name={call.muted?'micOff':'mic'}/></button>
       <button className="round" disabled={!call.local} aria-pressed={call.cameraOff} aria-label={call.cameraOff?'Turn camera on':'Turn camera off'} onClick={call.toggleCamera}><Icon name={call.cameraOff?'videoOff':'video'}/></button>
-      <button className="round" aria-pressed={findOn} aria-label={findOn ? 'Stop finding the lanyard' : 'Find the lanyard'} title={findOn ? 'Finding the lanyard: it appears when it is seen. Tap to stop.' : 'Not looking: no 3D model will appear. Tap to find the lanyard.'} onClick={() => setFindOn(v => !v)}><Icon name={findOn ? 'scan' : 'scanOff'}/></button>
       <button className="round" aria-pressed={handOn && active} aria-label="Show my hand" onClick={() => { if(!cameraOn) { setHandOn(true); void start(); } else setHandOn(v => !v); }}><Icon name="hand"/></button>
       <button className="round" aria-label="Hand tools" onClick={() => setMoreOpen(true)}><Icon name="more"/></button>
       <button className="round end" aria-label={call.status==='preparing'?'Cancel':'End call'} onClick={call.end}><Icon name="end" size={26}/></button>

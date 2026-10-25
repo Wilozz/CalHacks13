@@ -1,6 +1,6 @@
 # AGENTS.md
 
-Handoff is a CalHacks prototype for remote help with a physical object: the learner's object becomes a cached 3D model (SAM 3 / SAM 3D), they grab and throw it through a WebRTC call, the helper demonstrates on it with tracked hands, throws it back, and the learner keeps a 3D replay (no video). Built on MediaPipe hand tracking in a worker, React Three Fiber, and a two-person call joined by a six-character room code.
+Handoff is a CalHacks prototype for remote help with a physical object: the learner clicks their object on camera and it becomes a 3D model (cached SAM 3 / SAM 3D, or a built-in/Claude shape) shared in a WebRTC call; both people handle it with tracked hands (first grab holds it), and the session is kept as a 3D replay (no video). Built on MediaPipe hand tracking in a worker, React Three Fiber, and a two-person call joined by a six-character room code.
 
 - Goals, core loop, build order, tracks: [docs/GOALS.md](docs/GOALS.md)
 - How it works, plus the planned object/interaction/replay design: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
@@ -29,7 +29,7 @@ Node 20.19+ or 22.12+.
 |---|---|
 | `src/App.tsx` | Camera lifecycle, front/rear switch, frame submission to the worker, UI |
 | `public/tracking.worker.js` | MediaPipe Hand Landmarker in a worker (plain JS, not bundled by Vite) |
-| `public/objects.worker.js`, `src/useObjectFinder.ts` | On-device object boxes + "looks like the stored lanyard" match that brings the lanyard up in a call |
+| `public/objects.worker.js`, `src/useObjectFinder.ts` | On-device object boxes (clickable in a call) + "looks like the stored lanyard" match that labels the lanyard |
 | `src/coordinates.ts` | `HandFrame` type and MediaPipe → Three.js coordinate transform, `BONES` |
 | `src/HandScene.tsx` | R3F scene: joints/bones, smoothing, tracking-loss hiding |
 | `src/device.ts` | `useMobileDevice` |
@@ -37,7 +37,7 @@ Node 20.19+ or 22.12+.
 | `src/CallSession.ts` | WebRTC peer + signaling client |
 | `src/callSignaling.ts` | Room code format/validation, signaling URL |
 | `src/main.tsx` | Tabs: Call (`App`), Tutorials, Community |
-| `src/render/TwinBox.tsx` | The 3D copy in the call (lanyard rig, claw, strap), its Throw, and the same scene for Tutorials playback |
+| `src/render/TwinBox.tsx` | The 3D copy in the call (lanyard rig, claw, strap), shared by both people (first grab holds), and the same scene for Tutorials playback |
 | `src/replay/` | Lessons: recorder, Convex upload, Tutorials list and player |
 | `server/index.mjs` | `createSignalingServer`: rooms, signaling relay, static files |
 | `server/turn.mjs` | `turnConfiguration`: TURN credentials (shared-secret or static) |
@@ -49,12 +49,12 @@ Unit tests sit next to the code (`*.test.ts`, `server/server.test.mjs`). New uni
 
 ## Invariants (do not break)
 
-- Camera frames never leave the browser except as call media to the connected peer (and single-frame AI scans: explicit ones, plus the agent's small-frame check for the lanyard about once a second in a call, only until it is out). Hand landmarks go only to the peer over the call's data channel, and into a replay the learner saves. Community metadata lives in Convex; never send high-frequency hand data through Convex.
+- Camera frames never leave the browser except as call media to the connected peer (and single-frame AI scans: explicit ones, the one frame sent when you click an object, plus the agent's small-frame check for the lanyard about once a second in a call, only until it has seen it once). Hand landmarks go only to the peer over the call's data channel, and into a replay the learner saves. Community metadata lives in Convex; never send high-frequency hand data through Convex.
 - At most one frame in flight to the worker; drop frames rather than queue. Always close transferred `ImageBitmap`s.
 - `HandFrame` stays plain, serializable data (planned future transport boundary).
 - TURN secrets are server-side only. Never put them in a `VITE_` variable.
 - One signaling instance only: rooms are in-memory, capacity two, cleared on restart.
-- Call video and audio are never recorded or stored. A replay is the 3D event log only (hands, object pose, part states, captions). Lessons record from catching a thrown object to throwing it back and save automatically (the owner asked for it), with no recording indicator; always deletable and renamable.
+- Call video and audio are never recorded or stored. A replay is the 3D event log only (hands, object pose, part states, captions). Lessons record from when a 3D copy comes up in a call until it is closed or the call ends, and save automatically (the owner asked for it), with no recording indicator; always deletable and renamable.
 - No simulated hand motion or fake relays. Accounts exist only for Community (Convex Auth); manual calls stay anonymous. Uploaded replays and profiles are validated server-side (size cap, schema), like `sanitizeModel` on the client.
 
 ## Conventions

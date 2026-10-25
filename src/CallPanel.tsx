@@ -17,6 +17,7 @@ export function useCall(getCameraStream:()=>MediaStream|null) {
   const [connectedAt,setConnectedAt]=useState(0);
   const [handChannel,setHandChannel]=useState<RTCDataChannel|null>(null);
   const [controlChannel,setControlChannel]=useState<RTCDataChannel|null>(null);
+  const [poseChannel,setPoseChannel]=useState<RTCDataChannel|null>(null);
   const selfVideo=useRef<HTMLVideoElement>(null);
   const friendVideo=useRef<HTMLVideoElement>(null);
   const session=useRef<CallSession|null>(null);
@@ -34,10 +35,10 @@ export function useCall(getCameraStream:()=>MediaStream|null) {
   useEffect(()=>{if(status==='connected')setConnectedAt(t=>t||Date.now());else if(status==='idle')setConnectedAt(0);},[status]);
   function start(code?:string,community?:{id:string;token:string}) {
     session.current?.close();setError('');setHint('');setRoom('');setMuted(false);setCameraOff(false);setRoute('');
-    const call=new CallSession({status:setStatus,room:(code,hasRelay)=>{setRoom(code);setRelay(hasRelay);},local:setLocal,remote:setRemote,ended:setHint,error:setError,hand:setHandChannel,control:setControlChannel,route:relayed=>setRoute(relayed?'TURN relay':'Direct')},getCameraStream);
+    const call=new CallSession({status:setStatus,room:(code,hasRelay)=>{setRoom(code);setRelay(hasRelay);},local:setLocal,remote:setRemote,ended:setHint,error:setError,hand:setHandChannel,control:setControlChannel,pose:setPoseChannel,route:relayed=>setRoute(relayed?'TURN relay':'Direct')},getCameraStream);
     session.current=call;call.connect(code?normalizeRoomCode(code):undefined,community);
   }
-  return {status,room,relay,route,error,hint,muted,cameraOff,local,remote,playBlocked,connectedAt,handChannel,controlChannel,selfVideo,friendVideo,start,
+  return {status,room,relay,route,error,hint,muted,cameraOff,local,remote,playBlocked,connectedAt,handChannel,controlChannel,poseChannel,selfVideo,friendVideo,start,
     end:()=>{session.current?.close();setHint('Call ended.');},
     toggleMute:()=>{session.current?.mute(!muted);setMuted(!muted);},
     toggleCamera:()=>{session.current?.cameraOff(!cameraOff);setCameraOff(!cameraOff);},

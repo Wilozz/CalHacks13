@@ -4,7 +4,7 @@ import type { HandFrame } from '../coordinates';
 import { BUILTIN_MODELS, sanitizeModel } from '../ai/modelSpec';
 import { REST_POSE } from '../remote/twinWire';
 import { decodeReplay, encodeReplay, indexAt, MAX_REPLAY_MS, Recorder, type ObjPose, type Replay } from './log';
-import { ThrowLesson } from './lesson';
+import { CallLesson } from './lesson';
 
 const label = 'Bottle', model = sanitizeModel(BUILTIN_MODELS.bottle)!;
 const meta = { label, model, aspect: 4 / 3 };
@@ -32,7 +32,7 @@ test('a file that is not a valid replay is refused', () => {
   const good = JSON.parse(encodeReplay(new Recorder(0, meta).finish(10)));
   assert.ok(decodeReplay(JSON.stringify(good)));
   for (const bad of [{ ...good, v: 1 }, { ...good, durationMs: MAX_REPLAY_MS + 1 }, { ...good, model: { parts: [] } }, { ...good, aspect: 'x' },
-    { ...good, h: [[0, ['not base64!']]] }, { ...good, h: [[0, ['AQAA', 'AQAA', 'AQAA']]] }, { ...good, h: [[5000, []]] }, { ...good, p: [[0, [1, 2]]] }])
+    { ...good, h: [[0, ['not base64!']]] }, { ...good, h: [[0, ['AQAA', 'AQAA', 'AQAA']]] }, { ...good, h: [[5000, []]] }, { ...good, p: [[0, [1, 2]]] }, { ...good, ph: [[0, ['not base64!']]] }, { ...good, ph: 'x' }])
     assert.equal(decodeReplay(JSON.stringify(bad)), null);
   assert.equal(decodeReplay('{'), null);
 });
@@ -43,32 +43,32 @@ test('indexAt finds the last event at or before a time', () => {
   assert.equal(indexAt([], 5), -1);
 });
 
-test('a lesson runs from catching an object to throwing that same object back', () => {
+test('a lesson runs from the copy coming up until it is closed, replaced or the call ends, with the friend\'s hands', () => {
   const got: Replay[] = [];
-  const lesson = new ThrowLesson(r => got.push(r));
-  const run = (from: number, to: number, hands: HandFrame[], poses = [{ id: 'm1', ...at(0.5) }]) => { for (let t = from; t < to; t += 33) lesson.tick(t, hands, t, poses); };
-  run(0, 500, [hand(0.4)]); assert.equal(lesson.recording, null);        // nothing caught yet: nothing recorded
-  lesson.caught('m1', label, model, 4 / 3, 1000); assert.equal(lesson.recording, 'm1');
-  lesson.caught('b2', 'Bear', model, 4 / 3, 1100); assert.equal(lesson.recording, 'm1'); // one at a time
+  const lesson = new CallLesson(r => got.push(r));
+  const run = (from: number, to: number, hands: HandFrame[], poses = [{ id: 'm1', ...at(0.5) }]) => { for (let t = from; t < to; t += 33) { lesson.tick(t, hands, t, poses); lesson.peer(t, [hand(0.7)]); } };
+  run(0, 500, [hand(0.4)]); assert.equal(lesson.recording, null);        // no copy up yet: nothing recorded
+  lesson.start('m1', label, model, 4 / 3, 1000); assert.equal(lesson.recording, 'm1');
+  lesson.start('m1', label, model, 4 / 3, 1100); assert.equal(lesson.recording, 'm1'); // the same copy again carries on
   run(1000, 4000, [hand(0.4)]);
-  lesson.thrown('b2', 4000); assert.equal(got.length, 0);               // throwing some other object does not end it
-  lesson.thrown('m1', 4000);
-  assert.equal(got.length, 1); assert.equal(got[0].durationMs, 3000); assert.equal(lesson.recording, null);
+  lesson.start('b2', 'Bear', model, 4 / 3, 4000);                        // another copy replaces it: the first is a lesson
+  assert.equal(got.length, 1); assert.equal(got[0].durationMs, 3000); assert.equal(lesson.recording, 'b2');
   assert.ok(got[0].hands.length > 50 && got[0].poses.length >= 1);
-  lesson.caught('m1', label, model, 4 / 3, 5000); lesson.thrown('m1', 6000); // caught and thrown straight back: not a lesson
-  assert.equal(got.length, 1);
-  lesson.caught('m1', label, model, 4 / 3, 7000); run(7000, 10000, []); lesson.end(10000); // the call ends while holding it
+  assert.equal(got[0].peerHands![5].hands[0].landmarks[0].x, 0.7);
+  assert.ok(Math.abs(decodeReplay(encodeReplay(got[0]))!.peerHands![5].hands[0].landmarks[0].x - 0.7) < 1e-3);
+  lesson.end(5000); assert.equal(got.length, 1);                          // up for a second only: not a lesson
+  lesson.start('m1', label, model, 4 / 3, 7000); run(7000, 10000, []); lesson.end(10000); // the call ends with it up
   assert.equal(got.length, 2);
 });
 
 test('a lesson from the call keeps the lanyard copy and its pose (clip state included), and survives the file round trip', () => {
   const twin = { objectId: 'lanyard', label: 'lanyard', model: sanitizeModel(BUILTIN_MODELS.lanyard)!, bbox: [0.3, 0.2, 0.7, 0.85] as [number, number, number, number], feedAspect: 4 / 3 };
   const got: Replay[] = [];
-  const lesson = new ThrowLesson(r => got.push(r));
-  lesson.caught('lanyard', 'lanyard', twin.model, 4 / 3, 0, twin);
+  const lesson = new CallLesson(r => got.push(r));
+  lesson.start('lanyard', 'lanyard', twin.model, 4 / 3, 0, twin);
   const open = { ...REST_POSE, grabbing: true, kind: 'pinch' as const, target: 0, parts: [{ offset: [0, 0.2, 0] as [number, number, number], rotation: [0, 0, 0, 1] as [number, number, number, number] }], kit: { joined: false, gate: 1, near: false } };
   for (let t = 0; t < 3000; t += 33) lesson.tick(t, [hand(0.5)], t, [], t < 1500 ? REST_POSE : open);
-  lesson.thrown('lanyard', 3000);
+  lesson.end(3000);
   assert.equal(got.length, 1);
   assert.deepEqual(got[0].twinPoses.map(p => p.t), [0, 1518]); // only changes are kept
   const back = decodeReplay(encodeReplay(got[0]))!;

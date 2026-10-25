@@ -4,6 +4,7 @@ import type { GraspKind } from './grasp';
 import type { P3 } from './placement';
 import { QI, qInv, qMul, qRotate, type Q } from './quat';
 import { TwinMover, type MoveInput } from './twinMove';
+import type { TwinPose } from './twinWire';
 
 export type Target = 'whole' | number;
 export const THREADED = /\b(cap|lid|cork|top|cover|stopper)\b/i;
@@ -48,6 +49,8 @@ export interface Rig {
   hoverAt(tip: P3, slot?: 0 | 1, kind?: GraspKind): Target | null;
   loosened(): (number | null)[];
   reset(): void;
+  /** Take the pose the other screen drove it to, so a grab here starts from there. Lets go of anything held. */
+  adopt(p: Pick<TwinPose, 'offset' | 'rotation' | 'parts' | 'kit'>): void;
 }
 const IDLE: Hold = { target: null, hover: null, grabbing: false, kind: 'none', anchor: null };
 const WHOLE_MARGIN = 0.18;
@@ -190,6 +193,10 @@ export class TwinRig {
   update(input: MoveInput | null): RigState { return this.step([input, null]); }
 
   reset() { this.active = [null, null]; this.root.reset(); this.movers.forEach(m => m.reset()); }
+  adopt(p: Pick<TwinPose, 'offset' | 'rotation' | 'parts'>) {
+    this.active = [null, null]; this.root.place(p.offset, p.rotation);
+    this.movers.forEach((m, i) => { if (p.parts[i]) m.place(p.parts[i].offset, p.parts[i].rotation); });
+  }
 }
 
 export const REST_RIG = (n: number): Pick<RigState, 'root' | 'parts'> => ({ root: { offset: [0, 0, 0], rotation: QI }, parts: Array.from({ length: n }, () => ({ offset: [0, 0, 0] as P3, rotation: QI })) });

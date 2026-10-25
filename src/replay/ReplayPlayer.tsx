@@ -68,18 +68,19 @@ function Scene({ replay, clock }: { replay: Replay; clock: MutableRefObject<Cloc
 
 /**
  * A lesson from the call: the same 3D copy as the live box (the lanyard, its claw and strap), driven by the recorded pose,
- * with the catcher's recorded hands on it, exactly as the other screen showed them.
+ * with both people's recorded hands on it.
  */
 function TwinReplay({ replay, twin, clock }: { replay: Replay; twin: TwinInfo; clock: MutableRefObject<Clock> }) {
   const pose = useRef<TwinPose>(REST_POSE), status = useRef<BoxStatus>(IDLE_STATUS), placement = useRef(DEFAULT_PLACEMENT);
   const hands = useRef<HandSource>({ current: (_now, slot) => replay.hands[indexAt(replay.hands, clock.current.t)]?.hands[slot] ?? null });
+  const peer = useRef<HandSource>({ current: (_now, slot) => { const p = replay.peerHands ?? []; return p[indexAt(p, clock.current.t)]?.hands[slot] ?? null; } });
   const sam = useTwinMesh(twin.label, twin.model);
   useFrame((_, dt) => {
     const c = clock.current;
     if (c.playing) { c.t += dt * 1000 * c.speed; if (c.t >= replay.durationMs) { c.t = replay.durationMs; c.playing = false; } }
     pose.current = replay.twinPoses[indexAt(replay.twinPoses, c.t)]?.pose ?? REST_POSE;
   });
-  return <TwinScene mirror={false} twin={twin} hand={hands} placement={placement} posFlip={DEFAULT_PLACEMENT.flipX} drive="remote" remotePose={pose} onPose={() => {}} status={status} resetToken={0} mesh={sam.mesh} />;
+  return <TwinScene mirror={false} twin={twin} hand={hands} placement={placement} posFlip={DEFAULT_PLACEMENT.flipX} drive="remote" remotePose={pose} onPose={() => {}} status={status} resetToken={0} mesh={sam.mesh} peer={peer} />;
 }
 
 /** A recorded lesson: the object and the hands that handled it, from any angle, as often as you like. No video. */

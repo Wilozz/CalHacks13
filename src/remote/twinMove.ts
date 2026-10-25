@@ -128,6 +128,12 @@ export class TwinMover {
     this.twistPrev = input.twist; this.twistAcc = 0;
   }
 
+  /** Put it where the other screen left it (not holding). A threaded piece that has left its neck is loose. */
+  place(offset: P3, rotation: Q) {
+    this.release(); this.offset = [...offset]; this.rotation = rotation;
+    if (this.thread) this.turned = Math.hypot(offset[0], offset[2]) > 0.01 ? this.thread.free : Math.min(this.thread.free, Math.max(this.turned, offset[1] / this.thread.pitch));
+  }
+
   release() { this.grabbing = false; this.kind = 'none'; this.steady = false; this.start = null; }
   reset() { this.release(); this.offset = [0, 0, 0]; this.rotation = QI; this.turned = 0; }
   private state(hover: boolean, atLimit: boolean, anchor: P3 | null): MoveState {

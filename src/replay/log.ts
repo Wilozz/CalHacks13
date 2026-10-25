@@ -8,14 +8,17 @@ import { decodePose, decodeTwin, encodePose, encodeTwin, type TwinInfo, type Twi
 export interface ObjPose { u: number; v: number; h: number; q: [number, number, number, number] }
 
 /**
- * A lesson: from the moment an object was thrown to you until you threw it back. Your tracked hands (all 21 points each)
- * and where the object was, both on your raw camera image, so they line up; times in ms from the start. Never video.
+ * A lesson: from the moment the 3D copy came up in a call until it was closed or the call ended. Your tracked hands
+ * (all 21 points each) and where the object was, both on your raw camera image, so they line up; times in ms from the
+ * start. Never video.
  */
 export interface Replay {
   label: string; model: ModelSpec; aspect: number; durationMs: number;
   hands: { t: number; hands: HandFrame[] }[];
+  /** the friend's hands, as they arrived over the call (absent in older lessons) */
+  peerHands?: { t: number; hands: HandFrame[] }[];
   poses: { t: number; pose: ObjPose | null }[];
-  /** A lesson from the call: the 3D copy that was handed over (the lanyard) and its pose as the catcher moved it, clip state included. */
+  /** A lesson from the call: the 3D copy (the lanyard) and its pose as either person moved it, clip state included. */
   twin?: TwinInfo;
   twinPoses: { t: number; pose: TwinPose }[];
 }
@@ -24,18 +27,28 @@ export const MAX_REPLAY_MS = 5 * 60_000;
 // 5 min of two hands at 30 Hz is ~6 MB of base64 at worst; one hand, the usual case, is half that.
 export const MAX_REPLAY_BYTES = 8_000_000;
 const MAX_EVENTS = 20_000, MAX_HANDS = 2;
+// Recording stops here: with the friend's two hands too, 3 min stays under MAX_REPLAY_BYTES (5 min would not).
+const RECORD_MS = 3 * 60_000;
 
 /** Records a lesson. hands: undefined means unchanged since the last call; [] means none in view. */
 export class Recorder {
   private hands: Replay['hands'] = [];
+  private peerHands: Replay['hands'] = [];
   private poses: Replay['poses'] = [];
   private lastHandsEmpty = false;
+  private lastPeerEmpty = false;
   private twinPoses: Replay['twinPoses'] = [];
   private lastPose = '';
   private lastTwin = '';
   private t = 0;
   constructor(private readonly start: number, private readonly meta: Pick<Replay, 'label' | 'model' | 'aspect' | 'twin'>) {}
-  get full() { return this.t >= MAX_REPLAY_MS || this.hands.length >= MAX_EVENTS || this.poses.length >= MAX_EVENTS || this.twinPoses.length >= MAX_EVENTS; }
+  get full() { return this.t >= RECORD_MS || this.hands.length >= MAX_EVENTS || this.peerHands.length >= MAX_EVENTS || this.poses.length >= MAX_EVENTS || this.twinPoses.length >= MAX_EVENTS; }
+  /** The friend's hands (same rules as `hands` in frame). */
+  peer(now: number, hands: HandFrame[]) {
+    if (this.full || (hands.length === 0 && this.lastPeerEmpty)) return;
+    this.t = Math.max(0, Math.round(now - this.start));
+    this.peerHands.push({ t: this.t, hands: hands.slice(0, MAX_HANDS) }); this.lastPeerEmpty = hands.length === 0;
+  }
   frame(now: number, hands: HandFrame[] | undefined, pose: ObjPose | null, twinPose?: TwinPose | null) {
     if (this.full) return;
     this.t = Math.max(0, Math.round(now - this.start));
@@ -47,7 +60,7 @@ export class Recorder {
   }
   finish(end: number): Replay {
     const durationMs = Math.min(MAX_REPLAY_MS, Math.max(0, Math.round(end - this.start)));
-    return { ...this.meta, durationMs, hands: this.hands.filter(x => x.t <= durationMs), poses: this.poses.filter(x => x.t <= durationMs), twinPoses: this.twinPoses.filter(x => x.t <= durationMs) };
+    return { ...this.meta, durationMs, hands: this.hands.filter(x => x.t <= durationMs), peerHands: this.peerHands.filter(x => x.t <= durationMs), poses: this.poses.filter(x => x.t <= durationMs), twinPoses: this.twinPoses.filter(x => x.t <= durationMs) };
   }
 }
 
@@ -65,9 +78,11 @@ function poseOf(a: unknown): ObjPose | null {
 const b64 = (buf: ArrayBuffer) => btoa(String.fromCharCode(...new Uint8Array(buf)));
 const unb64 = (s: string) => Uint8Array.from(atob(s), c => c.charCodeAt(0)).buffer;
 
+const handsWire = (hs: Replay['hands']) => hs.map((x, i) => [x.t, x.hands.map(f => b64(encodeHand(i & 0xffff, x.t, f)))]);
 export const encodeReplay = (r: Replay): string => JSON.stringify({
   v: 3, label: r.label, model: r.model, aspect: r.aspect, durationMs: r.durationMs,
-  h: r.hands.map((x, i) => [x.t, x.hands.map(f => b64(encodeHand(i & 0xffff, x.t, f)))]),
+  h: handsWire(r.hands),
+  ...(r.peerHands?.length ? { ph: handsWire(r.peerHands) } : {}),
   p: r.poses.map(x => [x.t, x.pose && poseWire(x.pose)]),
   ...(r.twin ? { tw: { ...JSON.parse(encodeTwin(r.twin)), type: undefined }, tp: r.twinPoses.map(x => [x.t, encodePose(x.pose)]) } : {}),
 });
@@ -81,18 +96,26 @@ export function decodeReplay(text: string): Replay | null {
   const model = sanitizeModel(m.model), aspect = num(m.aspect, 0.3, 4), durationMs = typeof m.durationMs === 'number' && m.durationMs >= 0 && m.durationMs <= MAX_REPLAY_MS ? m.durationMs : null;
   if (!model || aspect === null || durationMs === null || typeof m.label !== 'string') return null;
   const time = (t: unknown) => typeof t === 'number' && Number.isFinite(t) && t >= 0 && t <= durationMs;
-  const hands: Replay['hands'] = [], poses: Replay['poses'] = [];
-  for (const e of m.h) {
-    if (!Array.isArray(e) || !time(e[0]) || !Array.isArray(e[1]) || e[1].length > MAX_HANDS) return null;
-    const frames: HandFrame[] = [];
-    for (const s of e[1]) {
-      if (typeof s !== 'string' || s.length > 2000) return null;
-      let msg; try { msg = decodeHand(unb64(s), 0); } catch { return null; }
-      if (!msg?.hand) return null;
-      frames.push(msg.hand);
+  const poses: Replay['poses'] = [];
+  const handsOf = (list: unknown[]): Replay['hands'] | null => {
+    const out: Replay['hands'] = [];
+    for (const e of list) {
+      if (!Array.isArray(e) || !time(e[0]) || !Array.isArray(e[1]) || e[1].length > MAX_HANDS) return null;
+      const frames: HandFrame[] = [];
+      for (const s of e[1]) {
+        if (typeof s !== 'string' || s.length > 2000) return null;
+        let msg; try { msg = decodeHand(unb64(s), 0); } catch { return null; }
+        if (!msg?.hand) return null;
+        frames.push(msg.hand);
+      }
+      out.push({ t: e[0], hands: frames });
     }
-    hands.push({ t: e[0], hands: frames });
-  }
+    return out.sort((a, b) => a.t - b.t);
+  };
+  const hands = handsOf(m.h);
+  if (!hands) return null;
+  let peerHands: Replay['hands'] | undefined;
+  if (m.ph !== undefined) { peerHands = Array.isArray(m.ph) && m.ph.length <= MAX_EVENTS ? handsOf(m.ph) ?? undefined : undefined; if (!peerHands) return null; }
   for (const e of m.p) {
     if (!Array.isArray(e) || !time(e[0])) return null;
     const pose = e[1] === null ? null : poseOf(e[1]);
@@ -110,8 +133,8 @@ export function decodeReplay(text: string): Replay | null {
       twinPoses.push({ t: e[0], pose });
     }
   }
-  hands.sort((a, b) => a.t - b.t); poses.sort((a, b) => a.t - b.t); twinPoses.sort((a, b) => a.t - b.t);
-  return { label: m.label.slice(0, 60) || 'Object', model, aspect, durationMs, hands, poses, ...(twin ? { twin } : {}), twinPoses };
+  poses.sort((a, b) => a.t - b.t); twinPoses.sort((a, b) => a.t - b.t);
+  return { label: m.label.slice(0, 60) || 'Object', model, aspect, durationMs, hands, ...(peerHands ? { peerHands } : {}), poses, ...(twin ? { twin } : {}), twinPoses };
 }
 
 /** Index of the last event at or before t, or -1. Events are sorted by t. */

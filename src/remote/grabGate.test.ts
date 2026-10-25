@@ -34,7 +34,7 @@ test('a fist that is already closed, sweeping onto the object, grabs nothing, ev
 });
 
 test('closing the instant you arrive over the object, with no pause, does not grab', () => {
-  const out = run(new GrabGate(), [{ ms: 330, kind: 'none', hovering: false, speed: 0.1 }, { ms: 66, kind: 'none', hovering: true, speed: 0.1 }, closing()]);
+  const out = run(new GrabGate(), [{ ms: 330, kind: 'none', hovering: false, speed: 0.1 }, { ms: 33, kind: 'none', hovering: true, speed: 0.1 }, closing()]);
   assert.ok(out.every(k => k === 'none'));
 });
 
@@ -53,7 +53,7 @@ test('once held, it stays held however fast you move, and letting go needs no ga
 test('after letting go there is a short cooldown, then it can grab again, but only after opening the hand', () => {
   const g = new GrabGate();
   run(g, [{ ms: 330, kind: 'none', hovering: true, speed: 0.1 }, { ms: 200, kind: 'pinch', hovering: true, speed: 0.1, grabbing: true }]);
-  const soon = run(g, [{ ms: 66, kind: 'none', hovering: true, speed: 0.1 }, { ms: 99, kind: 'pinch', hovering: true, speed: 0.1 }]);
+  const soon = run(g, [{ ms: 33, kind: 'none', hovering: true, speed: 0.1 }, { ms: 99, kind: 'pinch', hovering: true, speed: 0.1 }]);
   assert.ok(soon.every(k => k === 'none'), 'too soon after a release');
   const later = run(g, [{ ms: 600, kind: 'none', hovering: true, speed: 0.1 }, closing()]);
   assert.equal(later.at(-1), 'pinch');

@@ -140,7 +140,7 @@ Built on `src/remote/pinch.ts` (the Throwing prototype that started it, `src/thr
 | `control` (existing) | reliable | `toss` (object id + pose + scale + part states), `part` state changes, `grab` and `release` events |
 
 - Whoever holds the object is the authority for its pose and part states. The other side only displays them, the same rule as `twinMove.ts` today.
-- Built in the call: the holder drives the 3D copy and sends `twin-pose` over `control` (~15 Hz, each piece and the lanyard's clip state); `twin-throw` hands it over, and the catcher drives it from then on (`holder` in `src/App.tsx`).
+- Built in the call: one shared copy. Both screens draw both people's hands on it; whoever takes it first drives it until they let go (a tie goes to whoever brought it out), sending `twin-pose` on the unordered `pose` channel (~15 Hz while it moves, resent every 300 ms, sequence-numbered); the other screen shows that pose and `adopt`s it into its own rig, so its next grab starts from there (`TwinScene` in `src/render/TwinBox.tsx`). There is no throw any more.
 - Hands are drawn in the object's frame (object-relative), so they stay on the model when the viewer orbits.
 
 ### Recording and replay
@@ -148,7 +148,7 @@ Built on `src/remote/pinch.ts` (the Throwing prototype that started it, `src/thr
 - The recorder runs on **both** sides and logs what is in the scene, never video: `{t, kind: 'hand'|'pose'|'part'|'toss'|'caption', data}`. At 2 hands × 30 Hz × 262 B that is about 16 KB/s, or about 2 MB for a 2-minute lesson before compression.
 - On throw-back the helper's log goes with it (or is uploaded and referenced by id). The learner merges both logs into one session timeline.
 - Replay viewer: the same R3F scene fed from the log instead of live input, with scrub, play/pause, speed, orbit, and part-state chapter markers.
-- Built: a lesson runs from catching the lanyard to throwing it back (`ThrowLesson` in `src/replay/lesson.ts`), recorded on the catcher's screen (their raw hands + the copy's `TwinPose` stream, log v3 in `src/replay/log.ts`), saved to Convex by itself, renamable and deletable. The catcher sends the saved id to the thrower over `control`; `replays.copy` gives the thrower their own row pointing at the same log file. Tutorials replays it in `TwinScene` itself (drive `remote`), so it looks like the live box.
+- Built: a lesson runs from the copy coming up until it is closed or the call ends (`CallLesson` in `src/replay/lesson.ts`), recorded on the screen that brought it out (its raw hands, the friend's hands as they arrived, and the copy's `TwinPose` stream whoever moved it; log v3 with optional `ph` in `src/replay/log.ts`), saved to Convex by itself, renamable and deletable. The id goes to the friend over `control`; `replays.copy` gives them their own row pointing at the same log file. Tutorials replays it in `TwinScene` itself (drive `remote`), so it looks like the live box.
 
 ### Backend: Convex
 
