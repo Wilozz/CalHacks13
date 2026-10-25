@@ -187,3 +187,23 @@ test('after taking it off, the claw clips back on once it has been moved clear a
   carry(k, at(k.r.holeAt(), 0, 0.3)); carry(k, at(k.r.holeAt(), 0.02, 0.02)); k.step(null);
   assert.equal(k.r.kit.joined, true);
 });
+
+test('GRABBING: the small clasp has a generous zone (claw, clip and the start of the strap), but a hand on the card face is the card', () => {
+  const k = rig('joined');
+  const c = k.claspAt(), hole = k.r.holeAt();
+  assert.equal(k.r.hoverAt([c[0] + 0.15, c[1], 0.3], 0, 'pinch'), 0, 'a little to the side of the clasp');
+  assert.equal(k.r.hoverAt([c[0], c[1] + 0.25, 0.3], 0, 'pinch'), 0, 'on the strap just above it');
+  assert.equal(k.r.hoverAt([hole[0], hole[1] - 0.16, 0.3], 0, 'pinch'), 'whole', 'on the card just under the claw');
+  assert.equal(k.r.hoverAt([hole[0] + 0.15, hole[1] - 0.3, 0.3], 0, 'grip'), 'whole');
+});
+
+test('TWO HANDS: with the claw open, taking the card unclips it at once and each piece follows its own hand', () => {
+  const k = rig('joined');
+  for (let i = 0; i < 300; i++) k.step(null);
+  const c = k.claspAt(), card = k.cardAt();
+  k.step(inp(c, 'pinch'));
+  k.step(inp(c, 'pinch'), inp(card, 'grip'));
+  assert.equal(k.r.kit.joined, false);
+  for (let i = 1; i <= 10; i++) k.step(inp([c[0] + i * 0.02, c[1], 0.3], 'pinch'), inp([card[0] - i * 0.02, card[1], 0.3], 'grip'));
+  assert.ok(k.r.hookAt()[0] - k.r.holeAt()[0] > 0.3, 'they went their separate ways');
+});

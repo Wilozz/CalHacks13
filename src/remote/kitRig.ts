@@ -44,11 +44,13 @@ export function lanyardProfile(model: ModelSpec): KitProfile {
 }
 
 const ASSIST = 0.13;        // the open claw this close to the hole lines itself up
-const PULL_APART = 0.2;     // with the claw open, the card pulled this far off it comes away
 const GRAVITY = 9, DAMPING = 1.6, MAX_SWING = 1.3;
 const GATE_RATE = 9;        // the claw opens or closes in about a ninth of a second
-const REACH: Record<GraspKind, number> = { none: 0.12, pinch: 0.12, grip: 0.05 };
-const CARD_MARGIN = 0.12;
+// The clasp is small: fingers this close to it (or to its claw, or the first stretch of strap) take it.
+const REACH: Record<GraspKind, number> = { none: 0.17, pinch: 0.17, grip: 0.09 };
+const STRAP_GRAB = 0.3;     // how far up the strap still counts as holding the clasp
+const ON_CLASP = 0.04;      // over the card's face, only this close to the clasp is the clasp; the rest is the card
+const CARD_MARGIN = 0.15;
 const SLIP_OFF = 0.12;       // lifting the open claw this far lets the card slip off it
 /** Where the clasp goes to start apart: up and to the side of the card. */
 export const START_APART: P3 = [0.22, 0.2, 0];
@@ -65,8 +67,9 @@ const IDLE: Hold = { target: null, hover: null, grabbing: false, kind: 'none', a
  *  - Bring the open claw to the card's hole: inside ASSIST it lines itself up and the hole lights. Let go: it clips on.
  *  - Clipped on, the card hangs from the claw and swings when the clasp moves (a damped pendulum driven by how the
  *    clasp accelerates). Holding the card instead moves both as one.
- *  - To take it off: open the claw (pinch the clasp) and lift it, and the card slips off; or, with the claw open, pull
- *    the card away with the other hand. A grip keeps the claw shut, so gripping and lifting carries the card.
+ *  - To take it off: open the claw (pinch the clasp) and lift it, and the card slips off; or hold the card with the
+ *    other hand while the claw is open, and each piece follows its own hand. A grip keeps the claw shut, so gripping and
+ *    lifting carries the card, and with the claw shut the two stay together whichever hands hold them.
  *  - It starts clipped together, as it was scanned (or apart, for practising the clip-on).
  * Poses come out as the twin box expects them: the card is the root, the clasp a component relative to it.
  */
@@ -116,18 +119,23 @@ export class KitRig {
   hookAt(): P3 { return this.onClasp(this.profile.hook); }
   holeAt(): P3 { return this.onCard(this.profile.hole); }
 
-  /** What a hand closing here takes, along the line of sight through the fingertip. The clasp is small, so it is tested first. */
+  /**
+   * What a hand closing here takes, along the line of sight through the fingertip. The clasp is small, so it gets a
+   * generous zone (its claw below and the first stretch of strap above count too), except over the card's face, where
+   * only right next to the clasp is the clasp: a hand on the card is holding the card.
+   */
   private pick(tip: P3, slot: 0 | 1, kind: GraspKind): Target | null {
     const other = this.active[1 - slot], d: P3 = [0, 0, 1], c = this.components[0];
+    const cinv = qInv(this.card.rotation);
+    const onCard = rayBoxDistance(qRotate(cinv, sub(tip, this.card.offset)), qRotate(cinv, d), this.cardBox.lo, this.cardBox.hi, CARD_MARGIN);
     if (other !== 0) {
       const inv = qInv(this.clasp.rotation);
-      // The claw hangs below the clasp's box: it counts as the clasp too.
-      const lo: P3 = [c.lo[0], Math.min(c.lo[1], this.profile.hook[1] - c.center[1] - CLAW.r), c.lo[2]];
-      if (rayBoxDistance(qRotate(inv, sub(tip, this.claspCentre())), qRotate(inv, d), lo, c.hi) <= REACH[kind]) return 0;
+      const lo: P3 = [c.lo[0], Math.min(c.lo[1], this.profile.hook[1] - c.center[1] - CLAW.r), c.lo[2]], hi: P3 = [c.hi[0], c.hi[1] + STRAP_GRAB, c.hi[2]];
+      const near = rayBoxDistance(qRotate(inv, sub(tip, this.claspCentre())), qRotate(inv, d), lo, hi, REACH[kind]);
+      if (near <= REACH[kind] && (near <= ON_CLASP || onCard > 0 || other === 'whole')) return 0;
     }
     if (other === 'whole') return null;
-    const inv = qInv(this.card.rotation);
-    return rayBoxDistance(qRotate(inv, sub(tip, this.card.offset)), qRotate(inv, d), this.cardBox.lo, this.cardBox.hi, CARD_MARGIN) <= CARD_MARGIN ? 'whole' : null;
+    return onCard <= CARD_MARGIN ? 'whole' : null;
   }
   hoverAt(tip: P3, slot: 0 | 1 = 0, kind: GraspKind = 'none'): Target | null { return this.pick(tip, slot, kind); }
 
@@ -171,8 +179,8 @@ export class KitRig {
         this.heldFrom ??= this.hookAt();
         anchors[cs!] = this.clasp.update(ci).anchor; this.rel = null;
         const hook = this.hookAt(), lifted = Math.hypot(hook[0] - this.heldFrom[0], hook[1] - this.heldFrom[1]);
-        if (wi && open && Math.hypot(wi.tip[0] - this.holeAt()[0], wi.tip[1] - this.holeAt()[1]) > PULL_APART) {
-          this.kit.joined = false; this.armed = false;       // pulled off the open claw
+        if (wi && open) {
+          this.kit.joined = false; this.armed = false;       // both held, claw open: each piece goes with its own hand
           anchors[ws!] = this.card.update(wi).anchor;
         } else if (!wi && open) {
           // The claw is open: the card does not ride up with it. Lifted clear, the card has slipped off where it hung.

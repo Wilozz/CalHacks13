@@ -98,6 +98,45 @@ function LobsterClaw({ at, state }: { at: P3; state: MutableRefObject<KitState> 
     </group>
   </group>;
 }
+const STRAP = { color: '#3a63d6', width: 0.05, segments: 28, spread: 0.2, top: 1.75 };
+/**
+ * The lanyard's strap, so the clasp is never a lone claw: two ribbons from the top of the clasp up out of the box, as if
+ * worn around a neck. The bottom end is read from the clasp's live transform every frame, so the strap stays attached
+ * through carrying, swinging, unclipping and clipping back; the top ends stay put, off screen.
+ */
+function Strap({ clasp, at }: { clasp: MutableRefObject<(THREE.Group | null)[]>; at: P3 }) {
+  const N = STRAP.segments;
+  const geoms = useMemo(() => [0, 1].map(() => {
+    const g = new THREE.BufferGeometry(), idx: number[] = [];
+    g.setAttribute('position', new THREE.BufferAttribute(new Float32Array((N + 1) * 6), 3));
+    for (let i = 0; i < N; i++) { const a = 2 * i; idx.push(a, a + 1, a + 2, a + 1, a + 3, a + 2); }
+    g.setIndex(idx);
+    return g;
+  }), [N]);
+  useEffect(() => () => geoms.forEach(g => g.dispose()), [geoms]);
+  const v = useMemo(() => ({ bottom: new THREE.Vector3(), top: new THREE.Vector3(), ctrl: new THREE.Vector3(), pt: new THREE.Vector3(), tan: new THREE.Vector3(), side: new THREE.Vector3(), view: new THREE.Vector3(0, 0, 1) }), []);
+  useFrame(() => {
+    const g = clasp.current[0]; if (!g) return;
+    g.updateWorldMatrix(true, false);
+    const b = v.bottom.set(...at).applyMatrix4(g.matrixWorld);
+    [-1, 1].forEach((dir, s) => {
+      // A gentle curve outward from the clasp to its anchor above the box.
+      v.top.set(dir * STRAP.spread, STRAP.top, b.z - 0.08);
+      v.ctrl.set(b.x + dir * 0.03 + (v.top.x - b.x) * 0.25, b.y + (v.top.y - b.y) * 0.5, (b.z + v.top.z) / 2);
+      const pos = geoms[s].getAttribute('position') as THREE.BufferAttribute;
+      for (let i = 0; i <= N; i++) {
+        const t = i / N, u = 1 - t;
+        v.pt.set(u * u * b.x + 2 * u * t * v.ctrl.x + t * t * v.top.x + dir * 0.008 * u, u * u * b.y + 2 * u * t * v.ctrl.y + t * t * v.top.y, u * u * b.z + 2 * u * t * v.ctrl.z + t * t * v.top.z);
+        v.tan.set(2 * u * (v.ctrl.x - b.x) + 2 * t * (v.top.x - v.ctrl.x), 2 * u * (v.ctrl.y - b.y) + 2 * t * (v.top.y - v.ctrl.y), 2 * u * (v.ctrl.z - b.z) + 2 * t * (v.top.z - v.ctrl.z));
+        v.side.crossVectors(v.tan, v.view).normalize().multiplyScalar(STRAP.width / 2);
+        pos.setXYZ(2 * i, v.pt.x - v.side.x, v.pt.y - v.side.y, v.pt.z - v.side.z);
+        pos.setXYZ(2 * i + 1, v.pt.x + v.side.x, v.pt.y + v.side.y, v.pt.z + v.side.z);
+      }
+      pos.needsUpdate = true; geoms[s].computeVertexNormals(); geoms[s].computeBoundingSphere();
+    });
+  });
+  return <>{geoms.map((g, i) => <mesh key={i} geometry={g} frustumCulled={false}><meshStandardMaterial color={STRAP.color} side={THREE.DoubleSide} roughness={0.85} /></mesh>)}</>;
+}
 /** The card's slot: dark, and it lights up when the open claw is close enough to clip on. */
 function Slot({ at, state }: { at: P3; state: MutableRefObject<KitState> }) {
   const mat = useRef<THREE.MeshBasicMaterial>(null!);
@@ -354,6 +393,7 @@ export function TwinScene({ mirror, twin, hand, placement, posFlip, drive, remot
         {kitProfile && ci === 0 && <LobsterClaw at={[kitProfile.attach[0] - c.center[0], kitProfile.attach[1] - c.center[1], kitProfile.attach[2] - c.center[2]]} state={kit} />}
       </group>)}
     </group>
+    {kitProfile && comps[0] && <Strap clasp={compGroups} at={[kitProfile.attach[0] - comps[0].center[0], comps[0].hi[1], kitProfile.attach[2] - comps[0].center[2]]} />}
     {SLOTS.map(sl => <group key={`hand${sl}`} ref={el => { hg.current[sl].group = el; }} visible={false}>
       {Array.from({ length: 21 }, (_, i) => <mesh key={i} ref={el => { hg.current[sl].joints[i] = el; }} material={mats[sl].joint}><sphereGeometry args={[0.026, 10, 10]} /></mesh>)}
       {BONES.map((_, i) => <mesh key={i} ref={el => { hg.current[sl].bones[i] = el; }} material={mats[sl].bone}><cylinderGeometry args={[0.014, 0.014, 1, 8]} /></mesh>)}

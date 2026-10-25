@@ -259,11 +259,11 @@ Routes on the AI server: `POST /ai/mesh` starts one (returns at once), `GET /ai/
 A lanyard (or badge, lobster clasp, name tag) is one object made of two pieces: the card, and the clasp with the strap above it (`src/remote/kitRig.ts`). It starts clipped together, as it was scanned (↺ puts it back that way):
 
 1. **Grip the clasp and move it:** the claw stays shut, so the card comes along, hanging from it and swinging (a damped pendulum driven by how the clasp moves). Holding the card instead moves both together.
-2. **Pinch the clasp** (thumb and index, as if pulling its lever): the lobster claw opens. **Lift it away** and the card slips off and stays where it hung. (Or, with the claw open, pull the card away with your other hand.)
+2. **Pinch the clasp** (thumb and index, as if pulling its lever): the lobster claw opens. **Lift it away** and the card slips off and stays where it hung. Or hold the card with your other hand: with the claw open, they come apart at once and each piece follows its own hand. The clasp is easy to take: its claw, the clip and the first stretch of strap all count, while a hand on the card's face always takes the card.
 3. **Bring the open claw back to the card's hole.** Close enough, it lines itself up and the slot lights up ("let go to clip it on"). Right after unclipping it does not do this until you have moved it clear, so it never clips straight back on.
 4. **Let go:** it snaps shut on the card ("clipped on ✓").
 
-The claw is drawn, not scanned: SAM 3D makes a blob of small shiny metal, and a scan cannot open. It is drawn bigger than life so it reads in the box. On a call, the other screen sees the claw open, snap shut and swing (the clip state travels in the pose message).
+The lanyard strap is drawn too: two ribbons from the top of the clasp up out of the box, as if worn around a neck. It follows the clasp every frame, so it stays attached through carrying, swinging, unclipping and clipping back. The claw is drawn, not scanned: SAM 3D makes a blob of small shiny metal, and a scan cannot open. It is drawn bigger than life so it reads in the box. On a call, the other screen sees the claw open, snap shut and swing (the clip state travels in the pose message).
 
 **Scan it once, keep it for the demo.** With `npm run dev` and `npm run ai` (with `FAL_KEY`) running:
 
