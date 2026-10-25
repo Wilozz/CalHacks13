@@ -27,7 +27,7 @@ import { twinKindForLabel } from './render/motion';
 import { isLanyard } from './remote/kitRig';
 import { DEMO_BASE } from './render/useTwinMesh';
 import { decodePose, decodeSay, decodeTwin, encodePose, encodeSay, encodeTwin, REST_POSE, type TwinInfo, type TwinPose } from './remote/twinWire';
-import { captureFrame } from './useSceneScan';
+import { captureFrame, type ScanFrame } from './useSceneScan';
 import { bestMatch, MATCH, useObjectFinder, type FoundBox } from './useObjectFinder';
 import { CallLesson } from './replay/lesson';
 import { keepSharedReplay, saveReplay } from './replay/Tutorials';
@@ -422,10 +422,12 @@ export default function App({communitySession}:{communitySession?:{id:string;tok
   // Anything else clicked: at once, the built-in shape for what the detector called it (a bottle has a cap that
   // unscrews). Then Claude looks at the frame and, if it sees that object, its own model and name replace the shape
   // (the name also finds a SAM 3D model cached under it). No AI server: the built-in shape stays.
+  const clicked = useRef<{ id: string; frame: ScanFrame } | null>(null); // the picture it was clicked in: what SAM 3D (the 3D button) is made from
   const openFound = (box: SceneObject) => {
     const t: TwinInfo = { objectId: `found-${Date.now().toString(36)}`, label: box.label, bbox: box.bbox, feedAspect: live.current.aspect, model: sanitizeModel(BUILTIN_MODELS[twinKindForLabel(box.label)])! };
     setSelectedId(null); prevSelected.current = null; setTwin(t); sendTwin(t); setOwner('me');
     const shot = captureFrame(video.current, 768, 0.7); if (!shot) return;
+    clicked.current = { id: t.objectId, frame: shot };
     aiClient.analyzeScene({ imageBase64: shot.imageBase64, mediaType: 'image/jpeg', now: performance.now() / 1000, prior: [] }).then(found => {
       const best = foldParts(found).filter(o => o.model && iou(o.bbox, box.bbox) > 0.2).sort((a, b) => iou(b.bbox, box.bbox) - iou(a.bbox, box.bbox))[0];
       const model = best?.model && sanitizeModel(best.model);
@@ -509,7 +511,7 @@ export default function App({communitySession}:{communitySession?:{id:string;tok
       </div>}
       {screen!=='home' && call.cameraOff && <p className="self-off">Camera off</p>}
     </div>
-    {twin && (screen==='home' || screen==='incall') && <TwinBox twin={twin} mirror={screen==='home'} hand={myHand} peer={screen==='incall' ? peerHand : undefined} yieldTie={owner==='friend'} drive="local" remotePose={remotePose} onPose={sendPose} placement={placement} posFlip={screen==='home' ? false : placement.flipX} onClose={closeTwin} stage={screen==='incall'} frame={owner==='me' && scene.objects.some(o => o.objectId===twin.objectId) ? scene.frame.current : null}/>}
+    {twin && (screen==='home' || screen==='incall') && <TwinBox twin={twin} mirror={screen==='home'} hand={myHand} peer={screen==='incall' ? peerHand : undefined} yieldTie={owner==='friend'} drive="local" remotePose={remotePose} onPose={sendPose} placement={placement} posFlip={screen==='home' ? false : placement.flipX} onClose={closeTwin} stage={screen==='incall'} frame={owner!=='me' ? null : scene.objects.some(o => o.objectId===twin.objectId) ? scene.frame.current : clicked.current?.id===twin.objectId ? clicked.current.frame : null}/>}
     {screen==='home' && <section className="home-panel" aria-label="Start a call">
       <PageHeading compact eyebrow="Handoff LIVE" title={<>A hand.<br/><span className="gradient-text">From anywhere.</span></>} description="Show someone what to do with your hands."/>
       <button className="primary" onClick={() => begin()}><Icon name="video" size={20}/>New call</button>
