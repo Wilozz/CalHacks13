@@ -18,6 +18,7 @@ import type { FocusDecision } from './voice/referent';
 import { useVoice } from './voice/useVoice';
 import { mapToFeed } from './remote/placement';
 import { HandAdvanced, HandQuickControls } from './remote/HandOverlayPanel';
+import { HandOverlay } from './remote/HandOverlay';
 import { DEFAULT_PLACEMENT, type Placement } from './remote/placement';
 import { LoopbackChannel, RemoteHandState, RtcHandChannel } from './remote/remoteHand';
 import { HandSlots } from './remote/handSlots';
@@ -27,26 +28,44 @@ import { twinKindForLabel } from './render/motion';
 import { isLanyard } from './remote/kitRig';
 import { DEMO_BASE } from './render/useTwinMesh';
 import { decodePose, decodeSay, decodeTwin, encodePose, encodeSay, encodeTwin, REST_POSE, type TwinInfo, type TwinPose } from './remote/twinWire';
-import { captureFrame, type ScanFrame } from './useSceneScan';
-import { bestMatch, MATCH, useObjectFinder, type FoundBox } from './useObjectFinder';
+import type { ScanFrame } from './useSceneScan';
+import { useLastSpeaker } from './useLastSpeaker';
 import { CallLesson } from './replay/lesson';
 import { keepSharedReplay, saveReplay } from './replay/Tutorials';
-import { foldParts } from './ai/foldParts';
 // The id of a lesson just saved, so the other person keeps the same recording (with these hands in it).
 const lessonId = (text: string) => { try { const m = text.length < 200 && JSON.parse(text); return m?.type === 'lesson' && typeof m.id === 'string' && m.id.length < 64 ? m.id as string : null; } catch { return null; } };
-// In a call, Claude checks your camera for the lanyard this often (one check at a time) until it has found it once, to
-// teach the on-device finder what this lanyard looks like (README "The call").
-const LOOK_MS = 1200;
+// In a call, until a copy is up, Claude scans your camera for objects this often (one scan at a time; README "The call").
+const LOOK_MS = 6000;
 type Box = [number, number, number, number];
 const iou = (a: Box, b: Box) => { const w = Math.max(0, Math.min(a[2], b[2]) - Math.max(a[0], b[0])), h = Math.max(0, Math.min(a[3], b[3]) - Math.max(a[1], b[1])), i = w * h; return i / ((a[2] - a[0]) * (a[3] - a[1]) + (b[2] - b[0]) * (b[3] - b[1]) - i || 1); };
 /** How much of the smaller box lies inside the other: a box on part of the lanyard (its strap) is mostly inside it. */
 const within = (a: Box, b: Box) => { const w = Math.max(0, Math.min(a[2], b[2]) - Math.max(a[0], b[0])), h = Math.max(0, Math.min(a[3], b[3]) - Math.max(a[1], b[1])); return (w * h) / (Math.min((a[2] - a[0]) * (a[3] - a[1]), (b[2] - b[0]) * (b[3] - b[1])) || 1); };
-/** The boxes to click: the most lanyard-like one as "lanyard", and every other object the detector named that is not
- * part of it (the detector calls the strap a "toothbrush"). */
-function pickable(boxes: FoundBox[]): SceneObject[] {
-  const best = bestMatch(boxes);
-  return boxes.filter(b => b === best || (b.label !== 'in hand' && b.sim < MATCH && !(best && within(b.bbox, best.bbox) > 0.5)))
-    .map((b, i) => ({ objectId: `found-${i}`, label: b === best ? 'lanyard' : b.label, bbox: b.bbox, affordances: [], confidence: b.score, seenAt: 0 }));
+/**
+ * The boxes to click, from Claude's scan: everything it saw, except that the lanyard's pieces (Claude often lists the
+ * badge, the strap and the clasp separately) become one box called "lanyard" around all of them, and nothing that sits
+ * inside it is offered on its own.
+ */
+function pickable(objects: SceneObject[]): SceneObject[] {
+  const kit = objects.filter(o => isLanyard(`${o.label} ${o.parentLabel ?? ''}`));
+  if (!kit.length) return objects;
+  const bbox: Box = [Math.min(...kit.map(o => o.bbox[0])), Math.min(...kit.map(o => o.bbox[1])), Math.max(...kit.map(o => o.bbox[2])), Math.max(...kit.map(o => o.bbox[3]))];
+  const lanyard: SceneObject = { ...kit[0], objectId: 'lanyard', label: 'lanyard', bbox };
+  return [lanyard, ...objects.filter(o => !kit.includes(o) && within(o.bbox, bbox) <= 0.5)];
+}
+// Helper mode, shared over the control channel: {type:'helper', on} says the sender is (or stops being) the helper.
+const helperMsg = (text: string): boolean | null => { try { const m = text.length < 100 && JSON.parse(text); return m?.type === 'helper' && typeof m.on === 'boolean' ? m.on : null; } catch { return null; } };
+// The helpee's boxes, sent to the helper so either can click one: {type:'objects', objects}. Checked like a twin.
+const encodeObjects = (o: SceneObject[]) => JSON.stringify({ type: 'objects', objects: o.slice(0, 12).map(x => ({ objectId: x.objectId, label: x.label, parentLabel: x.parentLabel, bbox: x.bbox, model: x.model })) });
+function decodeObjects(text: string): SceneObject[] | null {
+  if (text.length > 60_000) return null;
+  let m: any; try { m = JSON.parse(text); } catch { return null; }
+  if (m?.type !== 'objects' || !Array.isArray(m.objects)) return null;
+  const c = (n: unknown) => Math.min(1, Math.max(0, Number(n) || 0));
+  return m.objects.slice(0, 12).flatMap((o: any, i: number): SceneObject[] => {
+    const b = Array.isArray(o?.bbox) && o.bbox.length === 4 ? o.bbox.map(c) as Box : null;
+    if (!b || !(b[2] > b[0] && b[3] > b[1]) || typeof o.label !== 'string') return [];
+    return [{ objectId: String(o.objectId ?? '').slice(0, 40) || `o${i}`, label: o.label.slice(0, 60), parentLabel: typeof o.parentLabel === 'string' ? o.parentLabel.slice(0, 60) : undefined, bbox: b, affordances: [], confidence: 1, seenAt: 0, model: sanitizeModel(o.model) ?? undefined }];
+  });
 }
 const SLOTS = [0, 1] as const;
 type Facing = 'user' | 'environment';
@@ -83,9 +102,13 @@ export default function App({communitySession}:{communitySession?:{id:string;tok
   const rtc = useRef<RtcHandChannel|null>(null);
   const [friendAspect,setFriendAspect] = useState(4/3);
   const friendAspectRef = useRef(4/3); friendAspectRef.current = friendAspect;
-  // While a friend's hand is arriving, their guidance is the point: show my own camera big, with their hand on it.
-  const [guided,setGuided] = useState(false);
-  const lastPeerHand = useRef(0);
+  // Helper mode: one person is the helper ('me' or 'friend'; null = nobody). While someone helps, the helpee's video is
+  // big on both screens, the helper's hands are drawn on it, and only the helper handles the 3D copy. Off: no copy, no
+  // hands drawn, and the big screen follows whoever spoke last.
+  const [helper,setHelper] = useState<'me'|'friend'|null>(null);
+  const helperNow = useRef(helper); helperNow.current = helper;
+  const lastSpeaker = useLastSpeaker(call.local, call.remote);
+  const [friendPicks,setFriendPicks] = useState<SceneObject[]>([]); // the helpee's boxes, on the helper's screen
   useEffect(() => {
     const dc = call.handChannel;
     if (!dc) { rtc.current = null; peerHand.current.reset(); return; }
@@ -135,9 +158,6 @@ export default function App({communitySession}:{communitySession?:{id:string;tok
       }
       agent.current?.point(hover); agent.current?.tick();
       setHoverId(hover);
-      const nowMs = performance.now();
-      if (peerHand.current.current(nowMs, 0) || peerHand.current.current(nowMs, 1)) lastPeerHand.current = nowMs;
-      setGuided(nowMs - lastPeerHand.current < 2500 && lastPeerHand.current > 0);
       setStats({fps:Math.round(renderFps),latency:frame ? Math.round(receivedAt-frame.timestamp):0,inference:Math.round(frame?.inferenceMs ?? 0),tracked:!!frame?.landmarks.length && performance.now()-receivedAt<350,hand:frame?.handedness ?? '',world:!!frame?.worldLandmarks.length});
     },250);
     return () => { clearInterval(timer); generation.current++; cleanup.current(); };
@@ -280,7 +300,7 @@ export default function App({communitySession}:{communitySession?:{id:string;tok
   const active=phase==='running';
   const screen = call.status==='idle' ? 'home' : call.status==='connected'||call.status==='disconnected' ? 'incall' : 'calling';
   // Whoever is showing a hand drives the copy; the other screen displays what they send.
-  const helperMode = handOn && active && !guided;
+  const helperMode = screen==='incall' ? helper==='me' : handOn && active;
   helperRef.current = helperMode; placementRef.current = placement;
 
   if (!agent.current) agent.current = new VoiceAgent({
@@ -380,11 +400,14 @@ export default function App({communitySession}:{communitySession?:{id:string;tok
     dc.onmessage = e => {
       if (typeof e.data !== 'string') return;
       const said = decodeSay(e.data); if (said) { agent.current?.hear('friend', said); return; }
+      const h = helperMsg(e.data);
+      if (h !== null) { setHelper(cur => h ? 'friend' : cur==='friend' ? null : cur); return; }
+      const objs = decodeObjects(e.data); if (objs) { setFriendPicks(objs); return; }
       const shared = lessonId(e.data);
       if (shared) { console.info(`[lesson] friend shared ${shared}; keeping it on ${import.meta.env.VITE_CONVEX_URL}`); keepSharedReplay(shared).then(() => { console.info('[lesson] kept friend’s lesson'); show('Your friend’s lesson was saved to Tutorials'); }, err => { console.warn('Lesson not kept:', err); show('Your friend’s lesson could not be saved here'); }); return; }
       const t = decodeTwin(e.data); if (t !== undefined) { remotePose.current = REST_POSE; setTwin(t); setOwner('friend'); }
     };
-    const onOpen = () => { if (twinRef.current) dc.send(encodeTwin(twinRef.current)); };
+    const onOpen = () => { if (helperNow.current==='me') dc.send(JSON.stringify({ type:'helper', on:true })); if (twinRef.current) dc.send(encodeTwin(twinRef.current)); };
     dc.addEventListener('open', onOpen);
     return () => { dc.onmessage = null; dc.removeEventListener('open', onOpen); if (controlRef.current === dc) controlRef.current = null; };
   }, [call.controlChannel]);
@@ -416,57 +439,58 @@ export default function App({communitySession}:{communitySession?:{id:string;tok
     return false;
   };
   // The lanyard, where it was seen (bbox), as the model saved for the demo or else the built-in one.
-  const showLanyard = async (bbox: [number,number,number,number] = [0.3,0.2,0.7,0.85]) => {
+  const showLanyard = async (bbox: [number,number,number,number] = [0.3,0.2,0.7,0.85], aspect = live.current.aspect) => {
     let model = sanitizeModel(BUILTIN_MODELS.lanyard)!;
     try { const m = await (await fetch(`${DEMO_BASE}lanyard.json`)).json(); const saved = decodeTwin(JSON.stringify({ ...m.twin, type:'twin' })); if (saved) model = saved.model; } catch { /* not saved: the built-in one */ }
-    const t: TwinInfo = { objectId: 'lanyard', label: 'lanyard', bbox, feedAspect: live.current.aspect, model };
+    const t: TwinInfo = { objectId: 'lanyard', label: 'lanyard', bbox, feedAspect: aspect, model };
     setSelectedId(null); prevSelected.current = null; setTwin(t); sendTwin(t); setOwner('me');
   };
-  // Anything else clicked: at once, the built-in shape for what the detector called it (a bottle has a cap that
-  // unscrews). Then Claude looks at the frame and, if it sees that object, its own model and name replace the shape
-  // (the name also finds a SAM 3D model cached under it). No AI server: the built-in shape stays.
-  const clicked = useRef<{ id: string; frame: ScanFrame } | null>(null); // the picture it was clicked in: what SAM 3D (the 3D button) is made from
-  const openFound = (box: SceneObject) => {
-    const t: TwinInfo = { objectId: `found-${Date.now().toString(36)}`, label: box.label, bbox: box.bbox, feedAspect: live.current.aspect, model: sanitizeModel(BUILTIN_MODELS[twinKindForLabel(box.label)])! };
+  // Anything else clicked: Claude's own model of it from the scan (a bottle has a cap that unscrews), or the built-in
+  // shape for its name if Claude gave none. The scan's picture is kept: it is what SAM 3D (the 3D button) is made from.
+  const clicked = useRef<{ id: string; frame: ScanFrame } | null>(null);
+  const openFound = (o: SceneObject, aspect = scanAspect.current) => {
+    const t: TwinInfo = { objectId: o.objectId, label: o.label.slice(0, 60), bbox: o.bbox, feedAspect: aspect,
+      model: (o.model && sanitizeModel(o.model)) || sanitizeModel(BUILTIN_MODELS[twinKindForLabel(o.label, o.parentLabel)])! };
     setSelectedId(null); prevSelected.current = null; setTwin(t); sendTwin(t); setOwner('me');
-    const shot = captureFrame(video.current, 768, 0.7); if (!shot) return;
-    clicked.current = { id: t.objectId, frame: shot };
-    aiClient.analyzeScene({ imageBase64: shot.imageBase64, mediaType: 'image/jpeg', now: performance.now() / 1000, prior: [] }).then(found => {
-      const best = foldParts(found).filter(o => o.model && iou(o.bbox, box.bbox) > 0.2).sort((a, b) => iou(b.bbox, box.bbox) - iou(a.bbox, box.bbox))[0];
-      const model = best?.model && sanitizeModel(best.model);
-      if (!best || !model || twinRef.current?.objectId !== t.objectId) return;
-      const better: TwinInfo = { ...t, label: best.label.slice(0, 60), model };
-      setTwin(better); sendTwin(better);
-    }, e => console.warn('Claude model for the clicked object:', e));
   };
   useEffect(() => {
     fetch(`${DEMO_BASE}index.json`).then(r => r.ok ? r.json() : []).then(l => setSaved(Array.isArray(l) ? l.filter(x => typeof x?.key==='string' && typeof x?.label==='string') : [])).catch(() => setSaved([]));
     const want = new URLSearchParams(location.search).get('demo');
     if (want && /^[a-z0-9-]{1,40}$/.test(want)) void openSaved(want);
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
-  // Objects on my camera, in a call until a copy is up. On this device every object is boxed ~8 times a second, the
-  // most lanyard-like one named "lanyard" (useObjectFinder). Nothing comes up by itself: you click (or tap) the box you
-  // want. Alongside, Claude's check (a small frame, one yes/no, ~1/s) teaches the finder: the lanyard it finds is kept
-  // as a real picture, so the device names it at once from then on.
-  const looking = screen==='incall' && (phase==='loading' || active) && !twin; // the camera is on: no need to wait for hand tracking
-  const finder = useObjectFinder(video, looking, () => live.current.hands ?? []);
-  const picks = looking ? pickable(finder.boxes) : [];
+  // Objects on the helpee's camera, while someone helps and no copy is up: Claude scans it (the full scan, with a box and
+  // a model for each object) at once and then every LOOK_MS, on the helpee's screen only. The boxes go to the helper too,
+  // so either person can click one. Nothing comes up by itself.
+  const looking = screen==='incall' && helper==='friend' && (phase==='loading' || active) && !twin; // the camera is on: no need to wait for hand tracking
+  const picks = looking && scannedFrom==='mine' ? pickable(scene.objects) : [];
   const pick = (id: string) => {
-    const box = picks.find(p => p.objectId===id); if (!box) return;
-    console.info(`[find] picked ${box.label}`);
-    if (box.label==='lanyard') void showLanyard(box.bbox); else openFound(box);
+    const o = picks.find(p => p.objectId===id); if (!o) return;
+    console.info(`[find] picked ${o.label}`);
+    const shot = scene.frame.current;
+    if (o.objectId==='lanyard') void showLanyard(o.bbox).then(() => { if (shot) clicked.current = { id: 'lanyard', frame: shot }; });
+    else { openFound(o); if (shot) clicked.current = { id: o.objectId, frame: shot }; }
   };
+  const picksKey = picks.map(p => `${p.objectId}:${p.bbox.map(n => n.toFixed(3)).join(',')}`).join('|');
+  useEffect(() => { const dc = controlRef.current; if (screen==='incall' && dc?.readyState==='open') dc.send(encodeObjects(picks)); }, [picksKey]); // eslint-disable-line react-hooks/exhaustive-deps
+  const friendPick = (id: string) => {
+    const o = friendPicks.find(p => p.objectId===id); if (!o) return;
+    console.info(`[find] picked ${o.label} on the friend's video`);
+    if (o.objectId==='lanyard') void showLanyard(o.bbox, friendAspectRef.current); else openFound(o, friendAspectRef.current);
+  };
+  // Turning helper mode on or off: no copy without a helper, and the other screen's boxes start over.
+  const toggleHelper = () => {
+    const next = helper==='me' ? null : 'me';
+    setHelper(next);
+    const dc = controlRef.current; if (dc?.readyState==='open') dc.send(JSON.stringify({ type:'helper', on: next==='me' }));
+  };
+  useEffect(() => { setFriendPicks([]); if (screen==='incall' && !helper) setTwin(null); }, [helper]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
     if (!looking) return;
     let live = true, timer = 0;
     const look = async () => {
-      let wait = LOOK_MS;
-      const shot = captureFrame(video.current, 448, 0.6);
-      if (shot) try {
-        const r = await aiClient.findLanyard({ imageBase64: shot.imageBase64, mediaType: 'image/jpeg' });
-        if (live && r.found && r.bbox) { console.info('[find] Claude saw the lanyard; the finder learns it'); finder.learn(r.bbox); return; }
-      } catch (e) { wait = 5000; console.warn('Lanyard check failed:', e); } // no AI server or key: try again later, quietly
-      if (live) timer = window.setTimeout(look, wait);
+      const started = performance.now();
+      await scene.scan(video.current);
+      if (live) timer = window.setTimeout(look, Math.max(1000, LOOK_MS - (performance.now() - started)));
     };
     timer = window.setTimeout(look, 300);
     return () => { live = false; clearTimeout(timer); };
@@ -474,7 +498,7 @@ export default function App({communitySession}:{communitySession?:{id:string;tok
   const wasInCall = useRef(false);
   useEffect(() => {
     if (screen!=='home') { wasInCall.current = true; return; }
-    lesson.current!.end(performance.now()); setOwner('me');
+    lesson.current!.end(performance.now()); setOwner('me'); setHelper(null);
     if (wasInCall.current) { wasInCall.current = false; stop(); } // the call is over: the camera goes off with it
   }, [screen]); // eslint-disable-line react-hooks/exhaustive-deps
   // Tracking starts with the call (the hands are how you hold the lanyard), on the call's own camera.
@@ -490,9 +514,13 @@ export default function App({communitySession}:{communitySession?:{id:string;tok
   const validCode = ROOM_PATTERN.test(normalizeRoomCode(code));
   const callStatus = call.status==='preparing' ? 'Getting camera and microphone ready…' : call.status==='connecting' ? 'Connecting…' : 'Waiting for your friend…';
   // Choosing what to bring up: my own camera goes big, with the boxes to click on it.
-  return <main className={`app ${mobile?'phone':'mac'} ${screen} ${(guided || picks.length) && !twin && screen==='incall' ? 'guided' : ''}`}>
+  // Which video is big: the helpee's while someone helps (mine when I am helped), else whoever spoke last.
+  const mineBig = screen==='incall' && (helper ? helper==='friend' : lastSpeaker==='me');
+  return <main className={`app ${mobile?'phone':'mac'} ${screen} ${mineBig ? 'guided' : ''}`}>
     <div className="remote">
       <video ref={call.friendVideo} className="friend-video" autoPlay playsInline/>
+      {screen==='incall' && helper==='me' && !twin && <HandOverlay cover remote={myHand} placement={placement} aspect={friendAspect} onPin={pin => setPlacement(p => ({...p,pin}))}/>}
+      {screen==='incall' && helper==='me' && !twin && friendPicks.length>0 && <SceneOverlay quiet objects={friendPicks} selectedId={null} hoverId={null} aspect={friendAspect} mirrored={false} onSelect={friendPick}/>}
       {screen==='incall' && !call.remote && <p className="remote-wait">Waiting for video…</p>}
       {call.playBlocked && <button className="pill-button play-audio" onClick={call.retryPlay}>Play friend’s audio and video</button>}
     </div>
@@ -503,6 +531,7 @@ export default function App({communitySession}:{communitySession?:{id:string;tok
         {picks.length>0 && <SceneOverlay quiet objects={picks} selectedId={null} hoverId={null} aspect={live.current.aspect} mirrored={facing==='user'} onSelect={pick}/>}
       </div>
       <video ref={call.selfVideo} className="self-video" autoPlay muted playsInline/>
+      {screen==='incall' && helper==='friend' && !twin && <HandOverlay cover mirrored={selfFromCall || facing==='user'} remote={peerHand} placement={placement} aspect={active ? live.current.aspect : 4/3} onPin={pin => setPlacement(p => ({...p,pin}))}/>}
       {screen==='home' && !active && <div className="camera-empty">
         <p role={phase==='error'?'alert':'status'}>{phase==='idle' ? 'Your camera and hand tracking turn on when the call starts.' : message}</p>
         {phase!=='loading' && <button className="pill-button" onClick={() => void start()}>{phase==='error'?'Try again':'Turn on camera'}</button>}
@@ -514,7 +543,7 @@ export default function App({communitySession}:{communitySession?:{id:string;tok
       </div>}
       {screen!=='home' && call.cameraOff && <p className="self-off">Camera off</p>}
     </div>
-    {twin && (screen==='home' || screen==='incall') && <TwinBox twin={twin} mirror={screen==='home'} hand={myHand} peer={screen==='incall' ? peerHand : undefined} yieldTie={owner==='friend'} drive="local" remotePose={remotePose} onPose={sendPose} placement={placement} posFlip={screen==='home' ? false : placement.flipX} onClose={closeTwin} stage={screen==='incall'} frame={owner!=='me' ? null : scene.objects.some(o => o.objectId===twin.objectId) ? scene.frame.current : clicked.current?.id===twin.objectId ? clicked.current.frame : null}/>}
+    {twin && (screen==='home' || (screen==='incall' && helper)) && <TwinBox twin={twin} mirror={screen==='home'} hand={screen==='incall' && helper==='friend' ? peerHand : myHand} drive={screen==='incall' && helper==='friend' ? 'remote' : 'local'} remotePose={remotePose} onPose={sendPose} placement={placement} posFlip={screen==='home' ? false : placement.flipX} onClose={closeTwin} stage={screen==='incall'} frame={owner!=='me' ? null : scene.objects.some(o => o.objectId===twin.objectId) ? scene.frame.current : clicked.current?.id===twin.objectId ? clicked.current.frame : null}/>}
     {screen==='home' && <section className="home-panel" aria-label="Start a call">
       <PageHeading compact eyebrow="Handoff LIVE" title={<>A hand.<br/><span className="gradient-text">From anywhere.</span></>} description="Show someone what to do with your hands."/>
       <button className="primary" onClick={() => begin()}><Icon name="video" size={20}/>New call</button>
@@ -535,11 +564,11 @@ export default function App({communitySession}:{communitySession?:{id:string;tok
       {call.hint && <p className="fine" role="status">{call.hint}</p>}
       {call.room && !call.relay && <p className="fine">No TURN relay on this server, so calls across networks may fail.</p>}
     </section>}
-    {screen==='incall' && <div className="call-pill" role="status"><b data-testid="room-code">{call.room}</b><span data-testid="call-state">{call.status==='connected' ? clock : 'Reconnecting…'}</span>{call.route && <span>{call.route}</span>}</div>}
+    {screen==='incall' && <div className="call-pill" role="status"><b data-testid="room-code">{call.room}</b><span data-testid="call-state">{call.status==='connected' ? clock : 'Reconnecting…'}</span>{call.route && <span>{call.route}</span>}{helper && <span data-testid="helper-state">{helper==='me' ? 'You are helping' : 'Your friend is helping'}</span>}</div>}
     {screen!=='home' && <div className="controls">
       <button className="round" disabled={!call.local} aria-pressed={call.muted} aria-label={call.muted?'Unmute microphone':'Mute microphone'} onClick={call.toggleMute}><Icon name={call.muted?'micOff':'mic'}/></button>
       <button className="round" disabled={!call.local} aria-pressed={call.cameraOff} aria-label={call.cameraOff?'Turn camera on':'Turn camera off'} onClick={call.toggleCamera}><Icon name={call.cameraOff?'videoOff':'video'}/></button>
-      <button className="round" aria-pressed={handOn && active} aria-label="Show my hand" onClick={() => { if(!cameraOn) { setHandOn(true); void start(); } else setHandOn(v => !v); }}><Icon name="hand"/></button>
+      <button className={`round helper-toggle ${helper==='me'?'on':''}`} aria-pressed={helper==='me'} aria-label={helper==='me' ? 'Stop helping' : helper==='friend' ? 'Take over helping' : 'Become the helper'} title={helper==='me' ? 'You are helping: your hands are on your friend\'s video. Click to stop.' : helper==='friend' ? 'Your friend is helping. Click to take over.' : 'Become the helper: your hands go on your friend\'s video, and you handle the 3D copy.'} onClick={toggleHelper}><Icon name="hand"/></button>
       <button className="round" aria-label="Hand tools" onClick={() => setMoreOpen(true)}><Icon name="more"/></button>
       <button className="round end" aria-label={call.status==='preparing'?'Cancel':'End call'} onClick={call.end}><Icon name="end" size={26}/></button>
     </div>}

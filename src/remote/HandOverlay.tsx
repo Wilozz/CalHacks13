@@ -55,7 +55,8 @@ export function HandOverlay({ remote, placement, aspect, onPin, cover = false, m
     const r = e.currentTarget.getBoundingClientRect();
     onPin({ x: Math.min(1, Math.max(0, (e.clientX - r.left) / r.width)), y: Math.min(1, Math.max(0, (e.clientY - r.top) / r.height)) });
   };
-  return <div className={`demo-overlay hand-overlay ${cover ? 'cover' : ''}`} aria-hidden="true">
+  // Clicks go through to what is under the hand (the object boxes), except while placing a pinned hand.
+  return <div className={`demo-overlay hand-overlay ${cover ? 'cover' : ''} ${pinning ? '' : 'passthrough'}`} aria-hidden="true">
     <div className={`demo-frame ${pinning ? 'pinning' : ''}`} style={{ aspectRatio: String(aspect), ['--ar' as string]: aspect }} onPointerDown={tap}>
       <Canvas orthographic dpr={[1, 1.5]} gl={{ alpha: true, antialias: true }} onCreated={({ gl }) => gl.setClearColor(0x000000, 0)}>
         <FrameCamera aspect={aspect} />

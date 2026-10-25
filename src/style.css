@@ -303,3 +303,5 @@ button:disabled{opacity:.4;cursor:default}
 .phone .twin-box.stage .twin-tools{top:calc(env(safe-area-inset-top) + 104px)}
 /* In a call: no status pill or PINCH/GRIP badge over the lanyard, just the lanyard and its tools. */
 .twin-box.stage .twin-label,.twin-box.stage .twin-badge{display:none}
+/* The drawn hand never takes clicks (they reach the object boxes under it), except while placing a pinned hand. */
+.hand-overlay.passthrough,.hand-overlay.passthrough *{pointer-events:none!important} /* !important: three.js sets it inline on its canvas */

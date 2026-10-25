@@ -2,8 +2,7 @@ import {test,expect,type Page} from '@playwright/test';
 import {readFileSync} from 'node:fs';
 // A mug photo (Wikimedia Commons) as the other object on the desk.
 const MUG=`data:image/jpeg;base64,${readFileSync('tests/fixtures/mug.jpg').toString('base64')}`;
-// The learner's camera is a canvas: a cluttered desk picture with the stored lanyard's reference picture held up in it.
-// The on-device finder boxes the objects; the person clicks the one to bring up.
+// The learner's camera is a canvas: a desk picture with a mug and the lanyard held up in it.
 async function cameraShows(page:Page,images:string[]){
  await page.addInitScript(images=>{
   const real=navigator.mediaDevices.getUserMedia.bind(navigator.mediaDevices);
@@ -17,44 +16,62 @@ async function cameraShows(page:Page,images:string[]){
   };
  },images);
 }
+// Claude's scan of that picture, as it reports a lanyard: the badge and the strap as separate objects, plus the mug.
+const SCAN=[
+ {objectId:'badge_1',label:'ID badge',bbox:[0.56,0.3,0.83,0.72],affordances:['lift'],confidence:0.9,seenAt:1},
+ {objectId:'strap_1',label:'lanyard strap',bbox:[0.62,0.08,0.76,0.32],affordances:['lift'],confidence:0.8,seenAt:1},
+ {objectId:'mug_1',label:'mug',bbox:[0.03,0.37,0.38,0.92],affordances:['lift'],confidence:0.9,seenAt:1,
+  model:{parts:[{shape:'cylinder',size:[0.6,0.8,0.6],position:[0,0,0],color:'#d8d2c8',moving:false}],pivot:[0,0,0]}},
+];
+async function scanned(page:Page){
+ let scans=0;
+ // Matched on the path: a glob like **/ai/mesh** would also catch the app's own module /src/ai/mesh.ts.
+ await page.route(u=>u.pathname==='/ai/scene',r=>{scans++;return r.fulfill({status:200,contentType:'application/json',body:JSON.stringify(SCAN)});});
+ await page.route(u=>u.pathname.startsWith('/ai/mesh'),r=>r.fulfill({status:503,contentType:'application/json',body:'{"error":"no FAL_KEY"}'}));
+ return ()=>scans;
+}
 async function inCall(learner:Page,helper:Page){
- const ready=new Promise<void>(r=>learner.on('console',m=>{if(/models ready/.test(m.text()))r();}));
- await learner.goto('/');await helper.goto('/');await ready;
+ await learner.goto('/');await helper.goto('/');
  await learner.getByRole('button',{name:'New call',exact:true}).click();
  await expect(learner.getByTestId('room-code')).toHaveText(/^[A-HJ-NP-Z2-9]{6}$/,{timeout:20_000});
  await helper.getByLabel('Join with a code').fill(await learner.getByTestId('room-code').innerText());
  await helper.getByRole('button',{name:'Join',exact:true}).click();
  await expect(learner.getByTestId('call-state')).toHaveText(/^\d\d:\d\d$/,{timeout:35_000});
+ // The helper presses the helper button: both screens know who helps.
+ await helper.getByRole('button',{name:'Become the helper'}).click();
+ await expect(helper.getByTestId('helper-state')).toHaveText('You are helping');
+ await expect(learner.getByTestId('helper-state')).toHaveText('Your friend is helping',{timeout:10_000});
 }
-test('the objects on camera get boxes; nothing comes up by itself; clicking the lanyard brings it up on both screens',async({browser})=>{
+test('helper mode: Claude scans only the helpee\'s camera (the lanyard\'s pieces as one box); the helpee clicks it and it comes up on both; turning helper mode off takes it away',async({browser})=>{
  const a=await browser.newContext({permissions:['camera','microphone']}),b=await browser.newContext({permissions:['camera','microphone']});
  const learner=await a.newPage(),helper=await b.newPage();
  await cameraShows(learner,['/demo/lanyard-ref.png',MUG]);
- learner.on('console',m=>{if(/\[find\]|Object finder/.test(m.text()))console.log('learner:',m.text());});
+ const scans=await scanned(learner),helperScans=await scanned(helper);
  await inCall(learner,helper);
- await expect(learner.getByRole('button',{name:'Find the lanyard'})).toHaveCount(0); // no finder switch any more
  const box=learner.locator('.scene-box',{hasText:'lanyard'});
- await expect(box).toBeVisible({timeout:10_000});
- await learner.waitForTimeout(2000);
+ await expect(box).toHaveCount(1,{timeout:15_000});                         // badge and strap: one lanyard box
+ await expect(learner.locator('.scene-box',{hasText:'ID badge'})).toHaveCount(0);
  for(const p of [learner,helper])await expect(p.locator('.twin-box')).toHaveCount(0); // seen, but not clicked: nothing up
- const t0=Date.now();
  await box.click();
  for(const p of [learner,helper])await expect(p.locator('.twin-box.stage')).toBeVisible({timeout:10_000});
- console.log(`lanyard up ${Date.now()-t0} ms after the click`);
- await expect(learner.locator('.scene-box')).toHaveCount(0); // the boxes go once a copy is up
- await expect(learner.getByRole('button',{name:'Throw to your friend'})).toHaveCount(0);
+ const n=scans(); await learner.waitForTimeout(7000);
+ expect(scans()).toBe(n);                                                     // scanning stops while it is up
+ expect(helperScans()).toBe(0);                                               // and never ran on the helper's screen
+ await helper.getByRole('button',{name:'Stop helping'}).click();
+ for(const p of [learner,helper])await expect(p.locator('.twin-box')).toHaveCount(0,{timeout:10_000});
+ await expect(learner.getByTestId('helper-state')).toHaveCount(0);
  await a.close();await b.close();
 });
 
-test('clicking another object brings up a built-in shape for it',async({browser})=>{
+test('helper mode: the helpee\'s boxes show on the helper\'s screen too, and the helper can click one',async({browser})=>{
  const a=await browser.newContext({permissions:['camera','microphone']}),b=await browser.newContext({permissions:['camera','microphone']});
  const learner=await a.newPage(),helper=await b.newPage();
  await cameraShows(learner,['/demo/lanyard-ref.png',MUG]);
+ await scanned(learner); await scanned(helper);
  await inCall(learner,helper);
- const other=learner.locator('.scene-box').filter({hasNotText:'lanyard'}).first();
- await expect(other).toBeVisible({timeout:10_000});
- const label=(await other.innerText()).trim();
- await other.click();
- for(const p of [learner,helper])await expect(p.getByRole('complementary',{name:`3D copy of ${label}`})).toBeVisible({timeout:10_000});
+ const mug=helper.locator('.scene-box',{hasText:'mug'});
+ await expect(mug).toHaveCount(1,{timeout:15_000});
+ await mug.click();
+ for(const p of [learner,helper])await expect(p.getByRole('complementary',{name:'3D copy of mug'})).toBeVisible({timeout:10_000});
  await a.close();await b.close();
 });
