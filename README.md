@@ -1,4 +1,4 @@
-# GHOST — hand tracking prototype
+# Handoff — hand tracking prototype
 
 A local browser proof of concept: webcam on the left, a live cyan 21-joint skeleton on the right. Includes a two-person WebRTC audio/video call panel. Includes a small shared signaling server; no simulated hand movement or recorded video uploads. Community adds optional accounts for assistance matchmaking; manual calls remain anonymous.
 
@@ -169,13 +169,11 @@ Scan (Hand tools → AI scan) a camera view, or in a call your friend's view, an
 
 Pinch (thumb to index) with the fingertip on the 3D copy to grab it; while pinched it follows the hand, and letting go leaves it where it was dropped. The ↺ button puts it back. A ring on the fingertip closes as the fingers meet, the object is outlined when in reach and yellow while held, and a ghost outline plus dashed line show where it started. Logic: `src/remote/pinch.ts` (hysteresis, palm-relative so it ignores distance) and `src/remote/twinMove.ts`. The helper's screen computes the movement and sends the pose over the control channel; the recipient's screen only displays it. "Rip" and other interactions are not built yet.
 
-## Tutorials: record and replay (`src/replay/`, `convex/replays.ts`)
+## Tutorials: lessons record themselves (`src/replay/`, `convex/replays.ts`)
 
-Lessons record themselves while the 3D copy is open; there is no record button. A hand arriving on the copy starts one (a red **● LESSON** badge shows), and 6 s with no hand and nothing held ends it, trimmed to just after the last activity. Switching objects or closing the copy ends it at once. It is kept only if the object was grabbed or a hand stayed for 4 s, so a hand passing through the view is not a lesson; 5 minutes at most. These are plain rules, not an AI call, so capture is certain, instant and works offline. Claude names it: the voice agent's current topic becomes the default name.
+On the Throwing screen, a lesson starts the moment an object is thrown to you and ends when you throw that same object back; then it saves itself to **Tutorials**. Nothing on screen says it is recording; a "Lesson saved to Tutorials" toast appears once it is saved. Catching and throwing straight back (under 2 s) is not a lesson; 5 minutes at most; leaving the screen or the call keeps what was recorded. Alone, an uncaught throw comes back to you, so you can try it without a second person.
 
-A recording is what the copy showed, never video: each hand frame (all 21 points, drawn as the same 3D hand) in the call's wire format and the object's pose, about 30 times a second. Each lesson is **saved automatically** to Tutorials the moment it ends. A **Lesson saved** card appears without interrupting the call; **Watch** plays it straight away (play/pause, scrub, 0.5–2× speed, drag to look from any angle), and you can **Rename** or **Delete** it there or on the Tutorials page. If saving fails (no Convex, offline), the card says so and offers **Try saving again**.
-
-Saved tutorials are under **Tutorials**, a live Convex query, newest first, each with its own player and **Delete**. The log is uploaded to Convex file storage. Then the `replays.save` action checks its size (6 MB cap) and every field with the same decoders the call uses, and deletes an upload that fails the check. Tutorials belong to this browser through a random key in `localStorage`, not an account. Saving needs Convex (`npm run convex` locally; the Render build deploys it); without it a lesson can still be watched from its card until the tab closes.
+A lesson is never video: your tracked hands (up to two, all 21 points each, with depth) and where the object was, both on your raw camera image so they line up, about 30 times a second. **Tutorials** is a live Convex query, newest first; each lesson plays the object with the hands as a 3D skeleton (play/pause, scrub, 0.5–2× speed, drag to look from any angle), and can be renamed or deleted. The log is uploaded to Convex file storage, then the `replays.save` action checks its size (8 MB cap) and every field (the model like a Claude scan, hands with the call's own decoder) and deletes an upload that fails. Tutorials belong to this browser through a random key in `localStorage`, not an account. Saving needs Convex (`npm run convex` locally; the Render build deploys it).
 
 ## Throwing prototype (`src/throw/`)
 
@@ -198,7 +196,7 @@ Manual checks (a real camera cannot run headless): the drawn hand sits on your h
 
 ## Voice: the listening agent (`src/voice/`)
 
-GHOST listens to the whole conversation and uses it to decide which object to show.
+Handoff listens to the whole conversation and uses it to decide which object to show.
 
 - **Speech to text:** `cartesia.ts` streams the mic to Cartesia's STT WebSocket (`ink-whisper`, 16 kHz PCM) using a short-lived token from `POST /ai/voice-token` (set `CARTESIA_API_KEY` in `.env`). Audio is only sent around speech (an energy detector gates it, with a 300 ms pre-roll), which keeps credits down. With no key it falls back to the browser's recognizer. The first start asks for consent.
 - **Both sides of the call:** each person's device transcribes its own mic and sends the *text* to the other over the control channel, so both agents hear everything and no audio is relayed.

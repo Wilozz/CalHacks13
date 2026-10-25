@@ -4,7 +4,7 @@ This is the baseline plan, not the final one. Add ideas under **Ideas** or **Ope
 
 ## Purpose
 
-GHOST lets someone show you how to do something with your object, over a call. Video calls flatten the thing you need help with: "press the button on the left side" doesn't land when you can't see your phone the way the helper sees it. In GHOST the object becomes a shared 3D hologram that both people hold with their own hands, and you can watch the lesson again later.
+Handoff lets someone show you how to do something with your object, over a call. Video calls flatten the thing you need help with: "press the button on the left side" doesn't land when you can't see your phone the way the helper sees it. In Handoff the object becomes a shared 3D hologram that both people hold with their own hands, and you can watch the lesson again later.
 
 Users: anyone getting remote help with a physical thing (a new phone, a pill bottle cap, a router, a camera). That covers family tech support, elderly relatives, and teaching across distance and language. The pitch for the Meta track is that AI brings two people closer together through a shared object instead of a screen.
 
@@ -32,7 +32,7 @@ Must work live, on two laptops, on event Wi-Fi:
 - [ ] Throw with zero accidental throws in a 2-minute handling test.
 - [ ] Both hands of the holder are sent to the other side and drawn on the model.
 - [ ] Part interactions (press, twist, slide, hinge) driven by the hand, synced over the call.
-- [x] Session recording, a saved replay list, and a replay viewer with scrub and orbit (the 3D copy's hand and pose; part-state chapters not yet).
+- [x] Session recording, a saved replay list, and a replay viewer with scrub and orbit (throw-to-throw-back lessons; part-state chapters not yet).
 - [ ] Convex backend: cached models, replays, and a live-updating replay list.
 - [ ] Recorded demo video for Devpost.
 
@@ -49,7 +49,7 @@ Done:
 - Wilson's branch merged: voice agent (Cartesia STT, `src/voice/`), pinch/grip turning of the Call tab's 3D copy (`src/remote/grasp.ts`, `quat.ts`)
 - Claude vision scan into a primitive `ModelSpec` twin, and an action library (`twist press pull push slide lift flip tilt`) with procedural animation (`src/render/motion.ts`)
 - Helper hand over the call (`src/remote/handWire.ts`, 262 B/frame on the `hand` channel), drawn on the friend's feed and the 3D copy
-- Tutorials (`src/replay/`): lessons on the 3D copy capture themselves (hand on the copy starts, 6 s idle ends), saved to Convex automatically and named after Claude's topic, rename/delete, live list, player with scrub, speed and orbit
+- Tutorials (`src/replay/`): on the Throwing screen a lesson records itself from catching an object to throwing it back (your hands + the object's pose), saves to Convex, live list, player with scrub, speed and orbit, rename/delete
 - Unit tests and Playwright e2e (direct and relay)
 
 Next, in build order (each step demoable on its own):
@@ -90,7 +90,7 @@ Possible but not planned: Tiger Data (we chose Convex for storage), Elastic (sea
 
 - Live uncached scan on a Vultr GPU, with the cached model shown first and swapped in when the real one is ready
 - AI step detection: split a replay into "Step 1: hold power 3 s" chapters from the part-state events
-- Learner "try it" mode: after the replay, the learner repeats the steps and GHOST checks each part state
+- Learner "try it" mode: after the replay, the learner repeats the steps and Handoff checks each part state
 - Ghost hands: play the helper's recorded hands on the learner's model while the learner follows along
 - Share a replay link with someone else
 

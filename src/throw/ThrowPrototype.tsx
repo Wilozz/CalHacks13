@@ -6,6 +6,8 @@ import { Icon } from '../icons';
 import { decodePoses, decodeToss, encodePoses, encodeToss, TOSS_OBJECTS, type Pose, type Toss, type TossKind } from './toss';
 import { TossScene, type TossApi, type TossStatus } from './TossScene';
 import { useTracker } from './useTracker';
+import { ThrowLesson } from '../replay/lesson';
+import { saveReplay } from '../replay/Tutorials';
 
 // Bump when the throwing messages change, so two different builds say so instead of silently showing nothing.
 const VERSION = 2, HELLO = JSON.stringify({ type: 'throw-hello', v: VERSION });
@@ -34,6 +36,11 @@ export default function ThrowPrototype() {
     setToasts(t => [...t.slice(-2), { id, text }]);
     toastTimers.current.push(window.setTimeout(() => setToasts(t => t.filter(x => x.id !== id)), 2600));
   };
+  // Lessons record themselves, silently: from catching an object someone threw you until you throw it back.
+  const lesson = useRef<ThrowLesson | null>(null);
+  if (!lesson.current) lesson.current = new ThrowLesson(r => { saveReplay(r, `${r.label} lesson`).then(() => show('Lesson saved to Tutorials'), e => console.warn('Lesson not saved:', e)); });
+  const caught = (t: Toss) => lesson.current!.caught(t.id, t.label, t.model, tracker.hand.current.aspect, performance.now());
+  useEffect(() => () => lesson.current?.end(performance.now()), []);
   const screen = call.status === 'idle' ? 'home' : call.status === 'connected' || call.status === 'disconnected' ? 'incall' : 'calling';
   const tracking = tracker.phase === 'running' || tracker.phase === 'loading';
 
@@ -44,7 +51,7 @@ export default function ThrowPrototype() {
     const onMessage = (e: MessageEvent) => {
       const v = helloVersion(e.data);
       if (v !== null) { clearTimeout(timer); setPeer(v === VERSION ? 'ok' : 'other'); return; }
-      const t = decodeToss(e.data); if (t) { api.current?.receive(t); if (t.give) show(`Your friend tossed you ${article(t.label)}`); }
+      const t = decodeToss(e.data); if (t) { api.current?.receive(t); if (t.give) { show(`Your friend tossed you ${article(t.label)}`); caught(t); } }
     };
     const onOpen = () => {
       dc.send(HELLO); api.current?.announce(); // objects made before the friend joined show up for them too
@@ -66,13 +73,18 @@ export default function ThrowPrototype() {
 
   function onToss(t: Toss) {
     const dc = call.controlChannel;
+    if (t.give) lesson.current!.thrown(t.id, performance.now());
     if (dc?.readyState === 'open') { dc.send(encodeToss(t)); if (t.give) show(`Tossed ${article(t.label)} to your friend`); return; }
     if (!t.give) return;
     // Nobody on the other end: it comes back, so the effect can be tried alone.
-    window.setTimeout(() => { api.current?.receive(t); show('Nobody caught it, so it came back'); }, 700);
+    window.setTimeout(() => { api.current?.receive(t); caught(t); show('Nobody caught it, so it came back'); }, 700);
   }
   // Unreliable channel: a lost pose is replaced by the next one 33 ms later.
-  const onPoses = (p: Pose[]) => { const dc = call.handChannel; if (dc?.readyState === 'open') dc.send(encodePoses(p)); };
+  const onPoses = (p: Pose[]) => {
+    const dc = call.handChannel; if (dc?.readyState === 'open') dc.send(encodePoses(p));
+    const h = tracker.hand.current;
+    lesson.current!.tick(performance.now(), h.frames.length ? h.frames : h.frame?.landmarks.length === 21 ? [h.frame] : [], h.at, p);
+  };
   const friendAspect = () => { const v = call.friendVideo.current; return v?.videoWidth ? v.videoWidth / v.videoHeight : 4 / 3; };
   async function begin(room?: string) {
     if (tracker.phase !== 'running') await tracker.start(); // the call reuses this camera track

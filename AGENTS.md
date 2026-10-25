@@ -1,6 +1,6 @@
 # AGENTS.md
 
-GHOST is a CalHacks prototype for remote help with a physical object: the learner's object becomes a cached 3D model (SAM 3 / SAM 3D), they grab and throw it through a WebRTC call, the helper demonstrates on it with tracked hands, throws it back, and the learner keeps a 3D replay (no video). Built on MediaPipe hand tracking in a worker, React Three Fiber, and a two-person call joined by a six-character room code.
+Handoff is a CalHacks prototype for remote help with a physical object: the learner's object becomes a cached 3D model (SAM 3 / SAM 3D), they grab and throw it through a WebRTC call, the helper demonstrates on it with tracked hands, throws it back, and the learner keeps a 3D replay (no video). Built on MediaPipe hand tracking in a worker, React Three Fiber, and a two-person call joined by a six-character room code.
 
 - Goals, core loop, build order, tracks: [docs/GOALS.md](docs/GOALS.md)
 - How it works, plus the planned object/interaction/replay design: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
@@ -52,7 +52,7 @@ Unit tests sit next to the code (`*.test.ts`, `server/server.test.mjs`). New uni
 - `HandFrame` stays plain, serializable data (planned future transport boundary).
 - TURN secrets are server-side only. Never put them in a `VITE_` variable.
 - One signaling instance only: rooms are in-memory, capacity two, cleared on restart.
-- Call video and audio are never recorded or stored. A replay is the 3D event log only (hands, object pose, part states, captions). Lessons are captured and saved automatically (the owner asked for it), always deletable and renamable.
+- Call video and audio are never recorded or stored. A replay is the 3D event log only (hands, object pose, part states, captions). Lessons record from catching a thrown object to throwing it back and save automatically (the owner asked for it), with no recording indicator; always deletable and renamable.
 - No simulated hand motion or fake relays. Accounts exist only for Community (Convex Auth); manual calls stay anonymous. Uploaded replays and profiles are validated server-side (size cap, schema), like `sanitizeModel` on the client.
 
 ## Conventions

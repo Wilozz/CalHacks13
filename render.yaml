@@ -32,3 +32,6 @@ services:
       # Optional: Cartesia speech-to-text. Without it, the browser's own speech recognition is used.
       - key: CARTESIA_API_KEY
         sync: false
+      # Optional: SAM 3D meshes on fal.ai (server/ai.ts), made when someone presses 3D in the box. Without it the box keeps the simple shapes.
+      - key: FAL_KEY
+        sync: false

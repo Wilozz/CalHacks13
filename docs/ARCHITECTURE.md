@@ -148,7 +148,7 @@ Builds on `src/throw/TossScene.tsx` and `src/remote/pinch.ts`.
 - The recorder runs on **both** sides and logs what is in the scene, never video: `{t, kind: 'hand'|'pose'|'part'|'toss'|'caption', data}`. At 2 hands × 30 Hz × 262 B that is about 16 KB/s, or about 2 MB for a 2-minute lesson before compression.
 - On throw-back the helper's log goes with it (or is uploaded and referenced by id). The learner merges both logs into one session timeline.
 - Replay viewer: the same R3F scene fed from the log instead of live input, with scrub, play/pause, speed, orbit, and part-state chapter markers.
-- Replays save themselves: a lesson captured on the 3D copy (`LessonCapture` in `src/replay/log.ts`) uploads at once, the learner sees "Lesson saved", and can rename or delete it.
+- Built: a lesson runs from catching a thrown object to throwing it back (`ThrowLesson` in `src/replay/lesson.ts`), recorded on the catcher's screen (their hands + the object's pose on their raw camera image), saved to Convex by itself, renamable and deletable. Nothing on screen says it is recording. The catcher keeps it; sending it to the thrower on throw-back is not built yet.
 
 ### Backend: Convex
 

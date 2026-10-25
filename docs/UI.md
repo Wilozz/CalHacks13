@@ -1,4 +1,4 @@
-# GHOST UI
+# Handoff UI
 
 The supplied globe-hero reference is adapted to the existing Vite/React/TypeScript app. No shadcn or Tailwind migration is needed: existing camera, chat, call and tracking components keep their behavior and share the same native CSS design tokens.
 

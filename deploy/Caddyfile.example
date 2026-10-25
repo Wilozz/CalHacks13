@@ -1,6 +1,6 @@
 # Run on a public signaling/web host; DNS must point here.
 # Caddy obtains normal trusted HTTPS automatically.
-ghost.example.com {
+handoff.example.com {
   reverse_proxy 127.0.0.1:8787
 }
 # TURN TLS on port 443 needs a different public IP/host from this HTTPS server.

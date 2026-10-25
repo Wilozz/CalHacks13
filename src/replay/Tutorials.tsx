@@ -31,32 +31,6 @@ export async function saveReplay(replay: Replay, name: string): Promise<Id<'repl
   return await convex.action(api.replays.save, { storageId, name, ownerKey: ownerKey() });
 }
 
-/** A lesson as the call screen holds it: saved by itself as soon as it was captured. */
-export interface Take { id: number; replay: Replay; name: string; state: 'saving' | 'saved' | 'failed'; replayId?: Id<'replays'>; error?: string }
-
-/** Watch a captured lesson straight away; it is already saved, so this only renames or deletes it. */
-export function TakeDialog({ take, onClose, onRenamed, onDeleted, onRetry }: { take: Take; onClose: () => void; onRenamed: (name: string) => void; onDeleted: () => void; onRetry: () => void }) {
-  const [name, setName] = useState(take.name);
-  const [error, setError] = useState('');
-  const [confirm, setConfirm] = useState(false);
-  const act = async (f: () => Promise<unknown>) => { setError(''); try { await f(); } catch (e) { setError(e instanceof Error ? e.message : 'Something went wrong. Try again.'); } };
-  const id = take.replayId;
-  return <div className="community-modal replay-modal"><section role="dialog" aria-modal="true" aria-label="Captured lesson">
-    <div className="community-row"><h2>Captured lesson</h2><span className="replay-meta">{take.replay.twin.label} · {fmt(take.replay.durationMs)}</span></div>
-    <ReplayPlayer replay={take.replay} />
-    <form className="replay-actions" onSubmit={e => { e.preventDefault(); if (id && convex) void act(async () => { await convex!.mutation(api.replays.rename, { id, name, ownerKey: ownerKey() }); onRenamed(name.trim() || take.name); }); }}>
-      <p role="status">{take.state === 'saved' ? 'Saved to Tutorials.' : take.state === 'saving' ? 'Saving to Tutorials…' : `Not saved: ${take.error ?? 'unknown error'}`}</p>
-      {id && <label>Name<span className="replay-rename"><input value={name} maxLength={80} onChange={e => setName(e.target.value)} /><button type="submit" disabled={name.trim() === take.name || !name.trim()}>Rename</button></span></label>}
-      {error && <p className="community-error" role="alert">{error}</p>}
-      <div className="community-actions">
-        <button type="button" className="primary" onClick={onClose}>Done</button>
-        {take.state === 'failed' && convex && <button type="button" onClick={onRetry}>Try saving again</button>}
-        {id && convex && <button type="button" onClick={() => { if (!confirm) { setConfirm(true); return; } void act(async () => { await convex!.mutation(api.replays.remove, { id, ownerKey: ownerKey() }); onDeleted(); }); }}>{confirm ? 'Tap again to delete' : 'Delete'}</button>}
-      </div>
-    </form>
-  </section></div>;
-}
-
 function OpenTutorial({ id, onDeleted }: { id: Id<'replays'>; onDeleted: () => void }) {
   const meta = useQuery(api.replays.get, { id, ownerKey: ownerKey() });
   const remove = useMutation(api.replays.remove);
@@ -93,7 +67,7 @@ export function Tutorials() {
     <div className="community-grid">
       <section aria-label="Saved tutorials">
         {list === undefined ? <p className="community-empty">Loading…</p>
-          : !list.length ? <p className="community-empty">Nothing saved yet. When someone shows you something on the 3D copy of an object, the lesson is recorded and saved here by itself, named after what you were talking about.</p>
+          : !list.length ? <p className="community-empty">Nothing saved yet. On the Throwing screen, when someone throws you an object, everything you show with it until you throw it back is saved here by itself.</p>
           : list.map(r => <button key={r._id} className={`community-card replay-item ${open === r._id ? 'active' : ''}`} aria-pressed={open === r._id} onClick={() => setOpen(r._id)}>
             <b>{r.name}</b><small>{r.label} · {fmt(r.durationMs)} · {new Date(r._creationTime).toLocaleString()}</small>
           </button>)}
