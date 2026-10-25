@@ -1,274 +1,305 @@
-# Handoff — hand tracking prototype
+<div align="center">
 
-A local browser proof of concept: webcam on the left, a live cyan 21-joint skeleton on the right. Includes a two-person WebRTC audio/video call panel. Includes a small shared signaling server; no simulated hand movement or recorded video uploads. Community adds optional accounts for assistance matchmaking; manual calls remain anonymous.
+<img src="docs/design/source/assets/camera-lanyard.png" alt="A 3D copy of a lanyard, made from one camera frame" width="150" />
 
-## Docs
+# Handoff
 
-- [AGENTS.md](AGENTS.md): commands, file map, invariants (for coding agents and contributors)
-- [docs/GOALS.md](docs/GOALS.md): goals and status
-- [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md): how tracking and calling work
-- [deploy/README.md](deploy/README.md): public server and TURN relay
+### Hand someone your problem, not your screen.
 
-## Run
+Remote help for physical things. Point your camera at an object, click it, and it becomes a 3D copy that both people on the call can grab, turn and take apart with their real hands. Every session is saved as a 3D lesson you can replay from any angle.
 
-Requires Node.js 20.19+ or 22.12+ and a recent desktop Chrome/Edge, Android Chrome, or iOS Safari (17+ with worker OffscreenCanvas support) with WebGL, WebAssembly, workers, and camera access.
+<p>
+  <img alt="React 19" src="https://img.shields.io/badge/React_19-20232a?style=for-the-badge&logo=react&logoColor=61dafb" />
+  <img alt="Three.js" src="https://img.shields.io/badge/Three.js_+_R3F-000000?style=for-the-badge&logo=threedotjs&logoColor=white" />
+  <img alt="MediaPipe" src="https://img.shields.io/badge/MediaPipe_Hands-0097a7?style=for-the-badge&logo=google&logoColor=white" />
+  <img alt="WebRTC" src="https://img.shields.io/badge/WebRTC-333333?style=for-the-badge&logo=webrtc&logoColor=white" />
+</p>
+<p>
+  <img alt="Claude" src="https://img.shields.io/badge/Claude_vision-d97757?style=for-the-badge&logo=anthropic&logoColor=white" />
+  <img alt="SAM 3D" src="https://img.shields.io/badge/Meta_SAM_3D-0467df?style=for-the-badge&logo=meta&logoColor=white" />
+  <img alt="Convex" src="https://img.shields.io/badge/Convex-ee342f?style=for-the-badge&logoColor=white" />
+  <img alt="TypeScript" src="https://img.shields.io/badge/TypeScript_strict-3178c6?style=for-the-badge&logo=typescript&logoColor=white" />
+</p>
+
+<sub>Built at Cal Hacks 13</sub>
+
+</div>
+
+<br />
+
+## The problem
+
+Video calls are great for faces and terrible for things.
+
+"Press the little button on the left." *Which left? Yours or mine?* "No, the other one." Anyone who has helped a parent set up a router, talked a friend through changing a bike tube, or tried to fix a printer over FaceTime knows the feeling. The camera flattens the object, the helper can't touch it, and the person who needs help is left holding a phone in one hand and the problem in the other.
+
+## The idea
+
+Handoff turns the object itself into the shared space.
+
+<table>
+<tr>
+<td width="33%" align="center"><h3>1. Click it</h3>Hold your object up on the call. Claude finds every object in view and puts a box around each one. Click the one you need help with.</td>
+<td width="33%" align="center"><h3>2. Hand it over</h3>It appears as a 3D copy on both screens, built from that one camera frame by Claude and Meta's SAM 3D. Your helper's tracked hands reach in and show you how.</td>
+<td width="33%" align="center"><h3>3. Keep the lesson</h3>The whole demonstration is saved as a 3D replay, not a video. Scrub it, slow it down, and watch from any angle the next time you forget.</td>
+</tr>
+</table>
+
+<div align="center">
+<img src="docs/design/source/assets/lanyard-3d.png" alt="SAM 3D mesh of a lanyard badge generated from a single webcam frame" width="260" />
+<br />
+<sub>A real SAM 3D mesh of our hero object, made from a single webcam frame and cut into movable parts.</sub>
+</div>
+
+<br />
+
+## Who it helps
+
+| | |
+|---|---|
+| 👵 **Family tech support** | Grandparents and parents get help with a new phone, TV remote or router from family who live far away, without needing to describe what they see. |
+| 💊 **Accessibility and health** | Child-proof pill caps, inhalers, glucose meters, hearing aid batteries. Small, fiddly objects where "push down and twist" is much easier to show than to say. |
+| 🌍 **Across languages** | A gesture on a shared object needs no translation. A helper and learner who share no language can still work through a task hand to hand. |
+| 🔧 **Repairs and field work** | A remote expert guides someone on site through a valve, a connector or a latch, and the session becomes reusable training for the next person. |
+| 🎓 **Teaching at a distance** | Lab equipment, instruments, crafts and assembly steps, taught with hands instead of slides, and kept as lessons students can replay. |
+
+The common thread: the person who needs help keeps their hands on the real thing, the helper gets to *show* instead of *tell*, and the knowledge doesn't vanish when the call ends.
+
+<br />
+
+## What's under the hood
+
+Handoff runs entirely in the browser. There is no app to install, and it works on a laptop or a phone.
+
+```mermaid
+flowchart LR
+    subgraph A["Learner's browser"]
+        CamA["Camera"] --> WorkerA["Hand tracking<br/>(MediaPipe in a Web Worker)"]
+        CamA -- "1 frame on click" --> AI
+        WorkerA --> SceneA["Shared 3D copy<br/>(React Three Fiber)"]
+    end
+    subgraph B["Helper's browser"]
+        CamB["Camera"] --> WorkerB["Hand tracking"]
+        WorkerB --> SceneB["Shared 3D copy"]
+    end
+    AI["AI server<br/>Claude vision + SAM 3D"] -- "boxes, parts, mesh" --> SceneA
+    A <-- "WebRTC: video, audio<br/>+ 3 data channels" --> B
+    A -. "room code" .- Sig["Signaling server<br/>(WebSocket)"] -. "room code" .- B
+    SceneA -- "3D event log" --> Convex[("Convex<br/>lessons, accounts")]
+```
+
+### 🖐️ Real-time hand tracking, off the main thread
+
+- Google's **MediaPipe Hand Landmarker** runs on WebAssembly inside a **Web Worker**, tracking **two hands at 21 joints each**, with depth, at up to 60 FPS on desktop.
+- Frames move to the worker as transferable `ImageBitmap`s with **at most one frame in flight**. A slow frame is dropped, never queued, so tracking never falls behind real time.
+- Each hand keeps its own slot by position and velocity, because MediaPipe's left and right labels swap when hands cross.
+- Fingertips are smoothed with a **One Euro filter**, which stays steady when the hand is still and responsive when it moves.
+
+### ✋ Grabs that feel natural
+
+- **Pinch** (thumb and index) takes a small part and turns it like a knob. **Grip** (thumb, index and middle) holds the whole object and follows the wrist in full 3D: roll, tilt and turn.
+- Grabbing is **intent-gated**: a grab only starts when the hand was open, rested over the part for a moment, and closed slowly. A hand waving past the object never catches it.
+- What your finger is touching is decided by a **ray through the fingertip**, so it stays correct however the object has been turned.
+- Each hand can hold a different piece. Steady a bottle with one hand and twist the cap off with the other.
+
+### 🧠 From one camera frame to an interactive 3D object
+
+- **Claude vision** scans the camera and returns, for every object, a bounding box, a name, and a parametric 3D model with its **moving parts** labeled (a cap that unscrews, a clasp that opens). Small objects sitting inside related larger ones are folded in as parts.
+- Press **3D** and the frame goes to **Meta's SAM 3D** (via fal.ai). About 15 seconds later a real textured mesh swaps in.
+- The mesh is **fitted onto Claude's model and cut into the same parts**, finding the cut where the scan itself changes color or width. SAM 3D returns one solid blob; this step is what makes its pieces movable.
+- Half a million triangles are **decimated to tens of thousands** (about 5 to 12 MB down to 1 to 2 MB) and cached by name, so an object is only ever modeled once.
+
+### 🔗 The hero demo: clipping a lanyard onto its badge
+
+A small kinematic system built for one hard, physical task:
+
+- Grip the clasp and the badge **hangs and swings** from it as a damped pendulum.
+- Pinch the clasp and the **lobster claw opens**. Lift it away and the badge stays where it hung.
+- Bring the open claw near the badge's slot and it **lines itself up** and lights up. Let go and it snaps shut.
+- The lanyard strap follows the clasp every frame, through carrying, swinging, unclipping and clipping back on.
+
+### 📡 A call built for 3D, not just video
+
+- Two people join with a **six-character room code** over a small WebSocket signaling server, then connect peer to peer with **WebRTC** and trickle ICE.
+- On top of audio and video, the call opens **three data channels**, each tuned for what it carries:
+
+| Channel | Delivery | Carries |
+|---|---|---|
+| `hand` | unordered, no retransmit | Both hands as a compact **262-byte binary frame**, about 30 times a second |
+| `pose` | unordered, no retransmit, sequence-numbered | The 3D copy's pose and part states, so a lost packet on bad Wi-Fi never blocks the next |
+| `control` | reliable, ordered | The object itself, helper mode, saved lesson ids |
+
+- Ownership is simple and predictable: **whoever grabs first holds it** until they let go, and ties go to the person who brought it out. Your own grab uses your own camera, so it never waits on the network.
+- **TURN relay support** (self-hosted coturn with short-lived HMAC credentials, or a managed provider) keeps calls working on locked-down event and campus Wi-Fi. Credentials never leave the server.
+
+### 🎬 Lessons that record themselves, as data
+
+- A lesson starts when a 3D copy appears and saves itself when it closes. Both people get a copy in **Tutorials**.
+- It is **not a video**. It is an event log of both people's hands (every joint, with depth) and every piece's pose, so it plays back in the same 3D scene: pause, scrub, 0.5x to 2x speed, and **orbit to any angle**.
+- Logs go to **Convex file storage** and are validated server-side (size cap and every field decoded with the call's own decoders) before they are kept. The Tutorials list is a live reactive query.
+
+### 👥 Community
+
+Optional accounts with **Convex Auth** let people offer help, post requests, message each other, and see who is online through **reactive presence**. Calls between friends stay anonymous with just a room code.
+
+<br />
+
+## Privacy by design
+
+- **Call video and audio are never recorded or stored.** A lesson is hand positions and object poses only.
+- Camera frames stay in the browser. The only exceptions are the call itself (encrypted by WebRTC, peer to peer) and single frames sent to Claude to find objects, or to SAM 3D when someone presses **3D**.
+- Hand data travels only to the other person on the call, never through a server.
+- API keys and TURN secrets live on the server only.
+
+<br />
+
+## Getting started
+
+**Requirements:** Node.js 20.19+ or 22.12+, and a recent Chrome, Edge, Android Chrome, or iOS Safari 17+.
 
 ```sh
 npm install
 npm run dev
 ```
 
-Open the printed localhost URL, start a call with **New call**, and allow camera and microphone access; hand tracking starts with the call (see "The call" below). The UI follows FaceTime: an iPhone layout on phones and narrow windows (≤800 px or touch), a Mac-window layout on computers. The flip button in the preview switches front/rear camera (on the home screen only). **Turn off camera** releases the webcam; Cancel also cancels initialization. The hand button in a call turns hand tracking on or off; **Hand tools** (or **⋯** in a call) opens placement, tuning and the AI scan. Permission errors include retry guidance. Camera access needs localhost or HTTPS.
+Open the printed localhost URL, click **New call**, and allow camera and microphone. In a second window (or on a second device using the same server), enter the code under **Join with a code**. Use headphones when testing on one machine.
+
+### Turn on the AI
+
+Copy `.env.example` to `.env` and add the keys you have. Everything is optional; without them the call and hand tracking still work.
+
+| Variable | Enables |
+|---|---|
+| `ANTHROPIC_API_KEY` | Claude object finding, 3D parts and the action parser |
+| `FAL_KEY` | The **3D** button (SAM 3D meshes) |
+| `CARTESIA_API_KEY` | Streaming speech to text for the voice agent (falls back to the browser's recognizer) |
+| `TURN_URLS` + `TURN_SHARED_SECRET` | Relay for restrictive networks (see [deploy/README.md](deploy/README.md)) |
+
+### Turn on Tutorials and Community
 
 ```sh
-npm test       # coordinate transform invariants
-npm run build # TypeScript and production bundle
-npm run preview
+npm run convex           # local Convex backend, keep it running
+npm run community:auth   # once: local auth keys
+npm run dev
 ```
 
-MediaPipe 0.10.32's runtime and WASM are copied from the installed npm package into ignored local assets by postinstall/predev/prebuild. The first session requires internet to download the hand model from Google's storage. Fonts also load from Google Fonts, with local fallbacks. Hand tracking frames and landmarks stay in your browser; these asset requests do not carry camera data. When you explicitly start/join a call, its camera and microphone streams are transmitted to the connected peer. Hand landmarks and the 3D scene are not transmitted. This is not a fully offline distribution.
+After the first setup, `npm run dev:community` starts everything together. Full walkthrough: [docs/COMMUNITY.md](docs/COMMUNITY.md).
 
-## Pipeline
+### Commands
 
-See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the tracking pipeline and calling flow.
+| Command | What it does |
+|---|---|
+| `npm run dev` | App on 127.0.0.1:5173, signaling on :8787, AI server on :8790 |
+| `npm run dev:https` | HTTPS on your local network so phones can use the camera |
+| `npm test` | Unit tests: coordinates, grabs, rotations, wire formats, room protocol, TURN |
+| `npm run build` | Strict TypeScript check and production bundle |
+| `npm run test:e2e` | Playwright: two real Chromium peers on a live call with synthetic media |
+| `npm run test:e2e:relay` | The same, forced through a local coturn relay over UDP and TCP |
+| `npm start` | Production server: app, signaling, AI and `/health` on one port |
 
-## Performance and limitations
+<br />
 
-Rendering targets 30–60 FPS; actual tracking speed depends on your CPU, camera frame rate, browser, and lighting. Desktop inference runs as quickly as available frames allow (capped at 60 submissions/sec). Mobile camera capture and inference are capped at 30 FPS, with capture limited to a 640 px long edge while retaining its aspect ratio. Mobile 3D rendering targets up to 60 FPS at device pixel ratio 1; idle/background rendering is suspended, and inference pauses in hidden tabs. These limits reduce workload but cannot guarantee thermals or frame rate on every phone. CPU mode in a worker prioritizes UI responsiveness over device-specific GPU integration.
+<details>
+<summary><b>📱 Testing on a real phone</b></summary>
 
-The FPS display measures the **render loop**, not inference throughput. Pipeline latency measures frame submission through bitmap creation, worker inference, and result receipt. Inference time measures MediaPipe alone. Neither measures true camera-exposure-to-display latency; camera buffering, presentation time, and smoothing add delay.
+<br />
 
-MediaPipe world landmarks are **monocular estimates**, not accurate full 3D reconstruction. Occluded fingers, fists, edge-on palms, rapid motion, and poor lighting can cause jumps or wrong depth. Global distance from the camera is unobservable here: wrist depth is intentionally anchored at zero, with screen XY estimated from the image. Wrist orientation comes from the landmark geometry without a rigid wrist rotation model. Bone lengths may fluctuate with model uncertainty; smoothing reduces jitter but adds lag. Image-only fallback is weaker and less metrically consistent. Handedness is MediaPipe's raw label (which can differ under selfie mirroring).
-
-## Manual camera validation
-
-Turn on the camera and verify live mirrored video; open and close the palm, point, move each finger, and rotate the wrist. Compare joint alignment using the landmark overlay. Remove the hand and confirm the skeleton disappears; return it and confirm immediate reacquisition. Stop and restart the camera. Test denying permission and retry after changing browser site settings. Test disconnecting the camera and a blocked model download. Observe the render and inference metrics in Hand tools → Hand tracking lab; performance is not guaranteed from build checks alone.
-
-Implementation follows the [MediaPipe Hand Landmarker web guide](https://ai.google.dev/edge/mediapipe/solutions/vision/hand_landmarker/web_js).
-
-
-## Test on an actual phone
-
-Use Safari on an iPhone or Chrome on Android, in a regular browser tab. Connect the phone and laptop to the same Wi-Fi. Desktop setup remains `npm run dev`; desktop panels stay side by side. Phone panels stack vertically in portrait and landscape, with touch controls outside the views and safe-area padding.
-
-A phone cannot access its camera from `http://192.168.…:5173`. HTTPS must be trusted **by the phone**; your laptop's localhost exception does not apply to its LAN address. See [camera secure-context requirements](https://developer.mozilla.org/en-US/docs/Web/API/MediaDevices/getUserMedia).
-
-### Local-network HTTPS (no paid services or npm additions)
-
-Use the free [mkcert utility](https://github.com/FiloSottile/mkcert) to make a development certificate. On macOS, install it with `brew install mkcert` if needed; other OS installation options are in its README. Then, in this project:
+Phones only allow the camera on HTTPS, and the certificate has to be trusted by the phone itself. With [mkcert](https://github.com/FiloSottile/mkcert) (`brew install mkcert` on macOS):
 
 ```sh
 mkcert -install
 mkdir -p .cert
-# Replace 192.168.1.42 with your laptop's Wi-Fi IPv4 address.
+# Replace 192.168.1.42 with your laptop's Wi-Fi IP (ipconfig getifaddr en0)
 mkcert -key-file .cert/localhost-key.pem -cert-file .cert/localhost.pem localhost 127.0.0.1 ::1 192.168.1.42
 npm run dev:https
 ```
 
-Find your laptop's Wi-Fi IP in its network settings (on macOS, `ipconfig getifaddr en0` usually works). The HTTPS command serves on all network interfaces; use the printed port, normally 5173. `.cert/` is Git-ignored. Regenerate the certificate if the laptop's IP changes.
+Run `mkcert -CAROOT` and copy **only `rootCA.pem`** to the phone. Never copy `rootCA-key.pem`.
 
-The phone needs the development CA too. Run `mkcert -CAROOT` on the laptop and transfer **only `rootCA.pem`** from that directory to your own test phone. Never transfer `rootCA-key.pem` or the server private key.
+- **iPhone:** install the profile in Settings, then turn on full trust under Settings › General › About › Certificate Trust Settings.
+- **Android:** Settings › Security › Install a certificate › CA certificate (wording varies).
 
-- **iPhone:** open the certificate, install the downloaded profile in Settings, then enable full trust for that CA under Settings → General → About → Certificate Trust Settings.
-- **Android:** install it as a CA certificate in Settings → Security / Encryption & credentials → Install a certificate → CA certificate (wording varies by manufacturer).
+Open `https://<your-ip>:5173` on the phone. If it won't load, check your firewall and whether the Wi-Fi isolates clients.
 
-Open **`https://192.168.1.42:5173`** on the phone, using your actual IP. It should show no certificate warning. Allow camera access after tapping **Turn on camera**. If the page cannot load, allow the dev server through your laptop firewall and check Wi-Fi client isolation / guest-network restrictions. If there is a certificate warning, confirm the IP matches the certificate and the phone trusts the CA. After testing, you can remove the development CA profile from the phone.
+**Checklist:** no sideways scrolling at 320 to 390 px, call controls fit in one row, hands line up in portrait and landscape, front camera mirrors and rear does not, switching cameras stops the old one, and backgrounding the tab pauses tracking.
 
-### Device checklist
+</details>
 
-1. In portrait, verify no sideways scroll at small widths (including 320/375/390 px), the call controls fit in one row, and 44+ px touch controls. Check notch and home-indicator spacing.
-2. Enable tracking and allow permission. Check palm opening/closing, individual fingers, pointing, and wrist rotation against the 2D overlay. Front camera video and skeleton should both behave like a mirror.
-3. Switch to rear camera while tracking. Confirm the old camera stops, the new camera starts, and video/landmarks/3D move together without selfie mirroring. Switch back. Camera switches restart the tracking worker/model; a brief loading state is expected.
-4. Rotate portrait ↔ landscape during tracking. The video stays uncropped, overlay stays aligned, and the scene resizes. Resize events refresh actual stream dimensions; stale frames with the old aspect ratio are discarded.
-5. Toggle landmarks, stop/restart, cancel loading, deny permission and retry after allowing it in site settings. Stop must turn off the phone's camera indicator.
-6. Background the browser, return, and navigate away/back. Inference and mobile rendering pause while hidden; leaving the page releases the stream and worker, and returning may require **Turn on camera** again. If the OS suspends the camera, stop/restart it.
-7. Run for several minutes and observe FPS, inference latency, and device temperature. Test both iOS Safari and Android Chrome: desktop build checks cannot establish real-device tracking accuracy, battery use, camera orientation, or sustained FPS.
+<details>
+<summary><b>🌐 Calling between two computers</b></summary>
 
+<br />
 
-## Laptop-to-laptop video calls
+Both people must reach **the same signaling server**. Two separate `npm run dev` instances have separate rooms.
 
-Calling now uses **one six-character room code**, automatic WebSocket signaling, and trickle ICE. The invitation/reply text exchange has been removed.
+- **Easiest:** deploy once (Render works well, see [deploy/README.md](deploy/README.md)) and both people open the same HTTPS URL.
+- **Or:** run the app locally on both machines with the same `VITE_SIGNALING_URL=wss://your-server/signal` in `.env.local`.
 
-### Local test on one laptop
+On networks that block direct peer connections (most event Wi-Fi), add a TURN relay. With relay settings present, the server defaults to relay-only so a broken relay can't hide behind a direct connection. The call shows **TURN relay** only when WebRTC stats confirm the relay is actually in use.
 
-```sh
-npm install
-npm run dev
+</details>
+
+<details>
+<summary><b>🔗 Saving the lanyard model for the demo</b></summary>
+
+<br />
+
+With `npm run dev` running and `FAL_KEY` set:
+
+1. Hold the lanyard with the badge clipped on and scan it (**⋯ › AI scan to 3D model › Scan my camera**). Pick the lanyard or the badge.
+2. Press **3D**. In about 15 seconds the SAM 3D mesh replaces the simple shapes.
+3. If it looks right, press **★**. This writes `public/demo/lanyard.ghm`, `lanyard.json` and `index.json`. Commit them.
+
+From then on it ships with the app: **Saved for the demo** opens it without scanning, `?demo=lanyard` opens it on load, and no AI server is needed to show it. Other finished meshes are cached in `.cache/meshes/`, which is committed so every machine starts with them.
+
+</details>
+
+<details>
+<summary><b>⚙️ Performance and honest limits</b></summary>
+
+<br />
+
+- Desktop tracking runs as fast as frames arrive (capped at 60 per second). Phones cap capture at 30 FPS and 640 px, render at device pixel ratio 1, and pause when hidden.
+- MediaPipe depth is a **monocular estimate**. Fists, edge-on palms, fast motion and dim light can cause jumps. Interactions are designed around this: alignment works in the screen plane and the system snaps the last few degrees for you.
+- Grab and turn thresholds are first tuning passes on real hands and can be refined further.
+- Camera and tracking behavior cannot be verified headlessly. Unit and browser tests cover the logic, the wire formats and real peer connections; the rest needs a person in front of a camera.
+
+</details>
+
+<br />
+
+## Project layout
+
+```
+src/
+  App.tsx            Call screen: camera, object boxes, helper mode, the shared 3D copy
+  CallSession.ts     WebRTC peer, data channels and signaling client
+  render/            3D scene, mesh fitting, the lanyard rig, lesson playback
+  remote/            Hand wire format, grasp detection, two-hand slots, grab gate, rotations
+  ai/                Scene cache, part folding, action parser and confidence policy
+  replay/            Lesson recorder, Convex upload, Tutorials
+  community/         Accounts, requests, presence, messages
+  voice/             Listening agent (Cartesia STT); built, currently switched off in the call
+public/
+  tracking.worker.js MediaPipe hand tracking in a worker
+server/
+  index.mjs          Signaling, static files, health
+  turn.mjs           TURN credentials
+  ai.ts              Claude and SAM 3D routes, mesh cache
+convex/              Schema, lessons, profiles, presence, messages
 ```
 
-This starts Vite on localhost:5173 and a signaling server on localhost:8787. Open two browser windows (or separate Chrome profiles), click **New call** in one, and type its code under **Join with a code → Join** in the other (or tap **Share code**). Allow camera and microphone in both. Both sides connect automatically; no reply code is needed. Use headphones.
-
-A host can wait up to 30 minutes without a media connection timer. The 60-second connection timer starts only after **both** participants have accepted camera/microphone permissions and are ready. Rooms have capacity two; ending/leaving the call invalidates the room. A broken signaling connection ends the call; start a new room to retry.
-
-### Calling between separate laptops
-
-**Both laptops must connect to the same signaling server.** Running a separate default `npm run dev` on each laptop creates two independent sets of rooms, so codes will not be found across laptops until a shared server URL is configured.
-
-The easiest deployed arrangement is one public HTTPS site serving the app and signaling. Both people open it, create/join, and allow camera/microphone. Or run the frontend locally on each laptop and put the **same** `VITE_SIGNALING_URL=wss://your-shared-server.example/signal` in `.env.local` on each laptop before restarting Vite. The server must allow both localhost Origins.
-
-There is **no public server or TURN relay already activated** in this repository. Follow [deployment and TURN setup](deploy/README.md) to provision them. Local calling works without TURN on networks that allow direct WebRTC, but reliable calling on event Wi-Fi requires an internet-reachable relay. A local relay behind the event firewall cannot fix that. The relay must support the transports permitted by that network; TLS/TCP 443 is included in the example configuration.
-
-### TURN relay integration
-
-For the easiest managed setup, see **Render + managed TURN** in the [deployment guide](deploy/README.md): provider-issued `TURN_USERNAME` and `TURN_PASSWORD` are supported alongside `TURN_URLS`. Provider-managed credential expiry follows that provider’s settings.
-
-For self-hosted coturn, on the **server**, copy `.env.example` to `.env` and configure `TURN_URLS` and `TURN_SHARED_SECRET` to match coturn's `use-auth-secret` configuration. Credentials are generated server-side, expire after 24 hours, and are delivered only to room participants. The shared secret never goes into a frontend `VITE_` variable. With relay settings present, the server defaults to **relay-only** ICE so a broken TURN service cannot be masked by a direct connection. Set `RELAY_ONLY=false` for automatic direct/relay selection.
-
-The UI distinguishes configured relay settings from the actual selected candidate route. **TURN relay** after connection comes from WebRTC connection statistics, not just an environment flag. See [.env.example](.env.example), [coturn configuration](deploy/turnserver.conf.example), and [deployment guide](deploy/README.md). This implements [coturn's credential flow](https://github.com/coturn/coturn/wiki/turnserver); it does not create a public relay account or host for you.
-
-### Media and cleanup
-
-Mute, camera off/on, playback recovery, and End call work independently of hand tracking. Calls clone an existing tracking video track when available and request microphone permission separately. Stopping tracking does not stop the call; ending the call does not stop tracking. The camera indicator stays on while either still uses it. Camera-off disables the outgoing call video track; End call releases tracks, peer connection, signaling socket, and timers. Cancelling during a permission prompt also stops any media returned afterward. Leaving the page releases calling resources.
-
-Camera/microphone media is encrypted by WebRTC. The signaling server handles room membership and connection metadata, not media. A configured TURN server forwards encrypted media when used. Hand landmarks/3D overlays are not sent to the friend. No recordings are stored. Room codes are invitations: share only with the intended friend. Rooms are in-memory and do not survive a signaling server restart.
-
-### Tests
-
-```sh
-npm test                       # coordinate, room protocol, TURN HMAC and cleanup tests
-npm run build                  # TypeScript + production build
-npx playwright install chromium # one-time browser-test setup
-npm run test:e2e                # real Chromium peers with synthetic media
-npm run test:e2e:relay          # actual local coturn + relay-only calls over UDP and TCP
-```
-
-The relay test needs the free `turnserver` binary (`brew install coturn` on macOS or your OS package manager). It starts a temporary loopback-only test relay, and shuts it down afterward; no public relay is provisioned. `GHOST_TEST_TURN_BINARY` can point to an existing binary. Normal app use does not need coturn installed on each laptop.
-
-Browser tests use synthetic audio/video to check actual peer connections, received audio/video RTP data, decoded video frames, media tracks, controls, resource release, permission errors, waiting beyond the old timeout, and delayed permission acceptance. Relay tests additionally require selected-candidate stats to report **TURN relay**. These local checks cannot prove a public provider's availability, physical camera/microphone behavior, or event-network connectivity: perform a two-laptop relay-only test on the actual network after deployment.
-
-For a real call, follow the two-laptop sequence above and check both audio directions, both video directions, mute/unmute, camera off/on, tracking before/during the call, stop tracking while a call continues, end call from either laptop, cancel while permissions are pending, malformed codes, denied microphone access, and a blocked-network failure. Test two tabs on one laptop first if a second laptop is unavailable (wear headphones); a successful same-device test does not prove event-Wi-Fi connectivity.
-
-## AI integration (`src/ai/`, `server/ai.ts`)
-
-Implements the pipeline in `ai-integration.md`: hand history (2 s) and pointing detection, scene cache, transcript, the pointing + verb gate, Claude action parser with a fixed action library, the section 6 confidence policy (0.85 play, 0.6 confirm, else ask), a local offline fallback, and the context summarizer.
-
-```sh
-cp .env.example .env   # set ANTHROPIC_API_KEY
-npm run dev            # also starts the AI server on :8790 (Vite proxies /ai to it)
-```
-
-`npm start` (production, Render) runs it too, behind the main server's `/ai` route. Set `ANTHROPIC_API_KEY` (and optionally `CARTESIA_API_KEY`) in the host's environment.
-
-Wire-up: `new Orchestrator(new Transcript(), {client: httpAiClient(), clock, viewerLanguage, onOutcome})`, feed it `orchestrator.hands.pushLandmarks(t, landmarks)` and `orchestrator.scene.update(objects, t)`, and finalize speech with `transcript.finalize(...)`. `Outcome.decision` is `play`, `confirm` or `ask` for the helper UI. The model proposes; `policy.ts` enforces the rules, so a confident wrong answer cannot skip confirmation, and fallback parses never auto-play.
-
-Not built or unverified: streaming Cartesia STT (the browser Web Speech adapter gives turn-level timing only), the on-device segmentation, the helper confirm UI, the 3D renderer, and latency numbers. Model IDs and cutoffs are defaults to tune.
-
-## Helper hand on the recipient's feed (`src/remote/`)
-
-The core product path: the helper's tracked hand is sent as compact binary frames (`handWire.ts`, 262 bytes, unordered data channel) and drawn over the recipient's live camera view (`HandOverlay.tsx`). `placement.ts` anchors the index fingertip, sizes the hand from the rigid palm, and supports "follow" and "pin to a spot" modes. `RemoteHandState` drops out-of-order packets, counts loss and hides a stale hand after 350 ms.
-
-Solo demo: the page encodes your own hand, sends it through `LoopbackChannel` (adjustable latency, jitter and loss) and draws it on your own camera view through the same decoder a remote helper's hand would use. `RtcHandChannel` is the real-transport adapter (`createHandDataChannel(pc)` on the offering side, wrap the channel from `ondatachannel` on the other); it is not yet connected to the call code and has not been run in a browser.
-
-Placement puts the hand on the feed. It does not align it to a real component: monocular landmarks do not know where an object is.
-
-## 3D copy of the object (corner box)
-
-Scan (Hand tools → AI scan) a camera view, or in a call your friend's view, and pick an object. Claude builds a small parametric 3D model of it, and a grey box in the bottom-right corner shows that copy with the helper's hand on it: the helper's fingertip is mapped from the feed into the object's box (`src/remote/twinPlacement.ts`) and onto the model, sized as the hand is on the feed. The object (label, box, model) is shared over a reliable `control` data channel so both screens show the same box; the hand rides the unreliable `hand` channel. While the box is up, the full-screen hand is hidden on the recipient's screen. The view is fixed on purpose: spinning the object would break the meaning of "the hand is here on the object".
-
-### Moving the copy
-
-Pinch (thumb to index) with the fingertip on the 3D copy to grab it; while pinched it follows the hand, and letting go leaves it where it was dropped. The ↺ button puts it back. A ring on the fingertip closes as the fingers meet, the object is outlined when in reach and yellow while held, and a ghost outline plus dashed line show where it started. Logic: `src/remote/pinch.ts` (hysteresis, palm-relative so it ignores distance) and `src/remote/twinMove.ts`. The helper's screen computes the movement and sends the pose over the control channel; the recipient's screen only displays it. "Rip" and other interactions are not built yet.
-
-## The call: click the object, both handle it, and that is the lesson (`src/App.tsx`)
-
-There is one call screen. **New call** makes a room code; the other person types it into **Join with a code**. Hand tracking starts by itself once the call has the camera (it shares the call's camera track, so there is one camera and one permission prompt) and stops when the call ends. There are no preset objects and no hand skeleton drawn over the video.
-
-1. **Objects on your camera get boxes; you click the one you want.** While no 3D copy is up, Claude scans your camera (`/ai/scene`, the full scan: a box, a name and a simple 3D model for each object, moving parts folded into their object) as soon as the call has a camera and then every 6 s (`LOOK_MS`, one scan at a time). Claude often lists a lanyard's badge, strap and clasp separately: they become one box, **lanyard**, around all of them (`pickable` in `src/App.tsx`). While there are boxes, your own camera goes big so you can click (Mac) or tap (phone) one. **Nothing ever comes up by itself.** Scanning stops while a copy is up. Each scan sends one camera frame to Claude.
-   - **lanyard**: the lanyard kit, using the SAM 3D lanyard model if one is cached, with the drawn claw and strap.
-   - **anything else**: Claude's own model of it from the scan (a bottle gets a cap that unscrews), or the built-in shape for its name if Claude gave none; a SAM 3D model cached under that name is used too.
-   With `FAL_KEY` set, a clicked object also gets the **3D** button: SAM 3D is made from the picture of the scan it was clicked in. **⋯ → AI scan to 3D model → Saved for the demo → ★ lanyard** brings it out by hand. (An earlier on-device finder, `src/useObjectFinder.ts` with `public/objects.worker.js`, is no longer used: its boxes were far less accurate.)
-2. **It appears on the screen itself**, over the video, on both screens, and **both people can handle it**. Both people's hands are drawn on it (yours cool, your friend's warm). Whoever takes it first holds it until they let go; meanwhile the other screen shows what they do, and its hands can point but not take it. If both take it at the same moment, the person who brought it out keeps it. Each new grab starts from where the last one left it. Tools (↺, ×) are top right. No message pills or notifications appear in the call; what happened goes to the browser console as `[call]`, `[find]` and `[lesson]` lines.
-3. **That is the lesson.** It records on the screen that brought the copy out, from the moment it comes up until it is closed (×), another copy replaces it, or the call ends, and saves itself to **Tutorials** for both people ("… (from your friend)" on the other side).
-
-Channels: the copy's pose (`twin-pose`, ~15 Hz while it moves, clip state included, resent every 300 ms by whoever moved it last) rides its own **unordered, no-retransmit** `pose` channel with a sequence number, so a lost packet on bad Wi-Fi never holds the next one up and a late one is dropped; a hold with nothing heard for 1 s has ended. The reliable `control` channel carries `twin` (the copy) and `lesson` (a saved lesson's id). Hands ride the `hand` channel as before. Grabbing uses your own camera's tracking, so your grab never waits on the network; only the other screen's view of it does.
-
-Why on the device first: Claude takes about a second per look and the full scan (Hand tools → AI scan, Sonnet, a model of everything) many seconds; the device needs ~100 ms per frame. Generic "is this a lanyard" is weak on the device (other people's lanyards score 0.0–0.37 against the render, cards and keys up to ~0.3, measured on Wikimedia photos), but your own lanyard, the one the mesh was made from, scores far higher, and a learned crop of it higher still. Override Claude's model with `GHOST_FIND_MODEL`.
-
-Manual checks (not headless): held up, the lanyard gets a **lanyard** box within about a second and a bottle a **bottle** box; nothing comes up until you click; clicked, it appears over the video on both screens; either person can grab, unclip and clip it, and the other sees it move with both people's hands on it; letting go and grabbing on the other screen continues from the same place; on throttled Wi-Fi it lags but does not freeze; after closing it both people find the lesson in Tutorials, with both people's hands and the claw opening and shutting.
-
-## Tutorials: lessons record themselves (`src/replay/`, `convex/replays.ts`)
-
-A lesson starts the moment a 3D copy comes up in a call and ends when it is closed, replaced, or the call ends; then it saves itself to **Tutorials**. It records on the screen that brought the copy out. Nothing on screen says it is recording; `[call] Lesson saved to Tutorials` is logged once it is saved. The other person gets the same recording in their Tutorials too (the saved id goes over the call's data channel and `replays.copy` adds it for them as "… (from your friend)", within 10 minutes of saving). Either person can rename or delete their copy; the file goes when both have deleted it. Under 2 s is not a lesson; recording stops at 3 minutes (four hands stay under the 8 MB cap).
-
-A lesson is never video: both people's tracked hands (up to two each, all 21 points, with depth; the friend's as they arrived over the call) and the 3D copy's pose, whoever moved it (each piece, and whether the claw is open or clipped on). **Tutorials** is a live Convex query, newest first; a lesson plays in the same 3D box as the call, the lanyard with the hands on it, claw and strap included (play/pause, scrub, 0.5–2× speed, drag to look from any angle), and can be renamed or deleted. Older lessons from the removed Throwing prototype still play as before. The log is uploaded to Convex file storage, then the `replays.save` action checks its size (8 MB cap) and every field (the model like a Claude scan, hands with the call's own decoder, poses with the call's pose decoder) and deletes an upload that fails. Tutorials belong to this browser through a random key in `localStorage`, not an account. Saving needs Convex (`npm run convex` locally; the Render build deploys it).
-
-## Voice: the listening agent (`src/voice/`)
-
-The voice bar ("Handoff can listen to the conversation…") is not shown on the call screen any more, so the listening agent is off; the code is kept.
-
-Handoff listens to the whole conversation and uses it to decide which object to show.
-
-- **Speech to text:** `cartesia.ts` streams the mic to Cartesia's STT WebSocket (`ink-whisper`, 16 kHz PCM) using a short-lived token from `POST /ai/voice-token` (set `CARTESIA_API_KEY` in `.env`). Audio is only sent around speech (an energy detector gates it, with a 300 ms pre-roll), which keeps credits down. With no key it falls back to the browser's recognizer. The first start asks for consent.
-- **Both sides of the call:** each person's device transcribes its own mic and sends the *text* to the other over the control channel, so both agents hear everything and no audio is relayed.
-- **Which object:** `referent.ts` matches names and synonyms locally (instant) and `FocusTracker` combines that with pointing. Say an object's name and it is shown and remembered with no time limit; point at something (steady ~0.45 s) and that takes over; naming a different object after you began pointing takes over again; moving your hand away keeps the last focus. Ambiguous or descriptive sentences ("the thing with the screen", "it") go to Claude (`/ai/focus`) with the conversation and the visible objects.
-- **Render everything first:** while listening, the view is re-scanned whenever it changes (not on a timer), so every visible object already has its 3D model before you mention it; the box then shows whichever one you mean. Chips above the camera list what was spotted; tapping one is the strongest signal.
-
-Cartesia protocol details are from its docs (`wss://api.cartesia.ai/stt/websocket`, `cartesia_version=2026-08-14`, `access_token` for browsers). The live Cartesia connection has not been exercised without a key; the protocol is covered by tests against a fake socket and by a browser run against a mocked Cartesia endpoint.
-
-### Turning the copy: pinch and grip
-
-- **Pinch** (thumb + index): grabs at the point between the two fingertips. The copy follows your hand, and turning your hand like a knob spins it about its vertical axis. Opening your fingers never spins it (the twist is read from the palm, not the thumb-to-index line).
-- **Grip** (thumb + index + middle together): a firmer hold. The copy follows your whole hand's orientation in 3D: roll, tilt or turn your wrist and it turns with you, 1.4 times as far (a wrist only turns so far, and the camera sees less of the turn than there is).
-- It turns about the spot you are holding, so that spot stays under your fingers. Switching between pinch and grip mid-hold does not make it jump. Letting go keeps the turn; ↺ puts it back.
-- The box shows a PINCH or GRIP badge, lights the fingertips that hold, and outlines the object (yellow for pinch, orange for grip). The other person's box shows the same turn.
-
-Logic: `src/remote/grasp.ts` (detection with hysteresis), `src/remote/twinMove.ts` (grab, move, turn), `src/remote/quat.ts` (rotation math). Pinch and grip are measured on the 2D image landmarks and checked against real hand photos (`src/remote/turn.test.ts`); turning gains are first guesses to tune on real hands. The Throwing prototype uses the same palm-orientation math to turn what you hold.
-
-### Parts: the cap and the whole
-
-An object is a **whole plus separately movable pieces**: Claude marks and names the moving parts when it builds the model (`moving: true`, `name: "cap"`), and `src/remote/components.ts` groups touching moving pieces into components. Nothing is selected first. Pinch or grip **on the cap** and only the cap moves or turns (twist it loose, then pull it clear of the bottle); do it **anywhere else** and the whole object moves, cap included. Hovering outlines whatever you would take, and the box says what you are holding ("pinching the cap"). Logic: `src/remote/twinRig.ts`. The other person's box shows the same, because each piece's movement travels in the pose message.
-
-The box also has a **magnify** button (top right) and, when you are alone, shows a **mirrored** view so the hand moves the way your mirrored video does.
-
-**Why a part is reachable:** vision lists a bottle and its cap as two objects, so `src/ai/foldParts.ts` folds a small object that sits inside a larger, related one (a cap in a bottle, a button in a box) into the larger object as a named moving part, and drops it from the list. Saying "the cap" still finds the bottle. Caps and lids sit on their thread: a shaky hand cannot drag one off the neck, but **a firm pull (about a tenth of the object) pops it straight off**. Twisting works too and is optional: the cap turns in place and climbs, and about two-thirds of a turn frees it (the box shows "pull it off, or twist · 70%"). Holding uses the index fingertip, and the hold is frozen while the fingers open, so letting go never drags the object.
-
-## Community assistance
-
-Community adds email/password accounts, profiles, reactive helper availability, public/direct help requests, notifications and participant-authorized call assignments. Manual calls and the existing hand/3D features remain available. Start local Convex with `npm run convex`, configure auth once with `npm run community:auth`, then run `npm run dev`. After initial setup, `npm run dev:community` launches both together. See [the complete local setup and two-user checklist](docs/COMMUNITY.md). The hosted Render app uses a production Convex deployment; see the production section there.
-
-### Two hands, and grabs that are deliberate
-
-**Two hands.** The tracker follows up to two hands and keeps each in its own slot by where it is and how fast it is moving (`src/remote/handSlots.ts`), because MediaPipe's left/right label swaps and hands cross. Both hands are drawn in the box and on the call (a second hand message slot on the wire), and each can hold a different piece: steady the bottle with one hand and twist the cap with the other. A piece one hand holds cannot be taken by the other; closing on it takes the body under it instead. The second hand is tinted purple.
-
-**Bottle or cap?** Each hand takes the nearest free thing, judged by the gesture as well as the position (`pick` in `src/remote/twinRig.ts`):
-- **Fingertips** (a pinch, or an open hand about to pinch) take the cap when they are on it or just around it, and also when they land a little low on the neck.
-- **A fist** (grip) takes the bottle unless it is squarely on the cap. Grip the bottle by its shoulder or neck and you get the bottle.
-- Once one hand holds the bottle, the other hand closing anywhere near the cap takes the cap.
-- While the other hand works on the cap, the hand on the bottle **steadies** it: the bottle follows that hand's position but no longer turns with it, so wobbles do not swing it.
-- A hand that holds something and drops out of tracking for a moment (two hands close together hide each other) keeps its hold for 350 ms.
-- What a hand is on is decided along the line of sight through the fingertip, so it stays right however the object has been turned: tip the bottle toward you and the cap under your finger is still the cap.
-
-**Deliberate grabs.** Waving a hand over the object used to move it, because opening and closing your fingers while swinging looks like a pinch. A grab now only starts when the hand was open just before, had been over the part for a moment, and is closing slowly (`src/remote/grabGate.ts`). That is judged only at the moment of closing, so a closed hand sweeping over the object, or one that closes mid-swing, never catches it. Once held, it stays held. The fingertip is also smoothed (One Euro filter), which steadies the hover and the hold. Thresholds (open 120 ms, over it 110 ms, slower than 1.4 object-heights per second, 250 ms cooldown after letting go) are first guesses to tune on real hands.
-
-### Real 3D models with SAM 3D (fal.ai)
-
-The copy starts as Claude's simple shapes, which appear at once. Press **3D** in the box's corner and the AI server sends the scanned picture, with Claude's box around the object, to SAM 3D on fal.ai (`fal-ai/sam-3/3d-objects`). In about 15 seconds the box swaps in a real mesh of the object, in the scan's own colours. Needs `FAL_KEY` in `.env` (server-side only); without it the button does not appear.
-
-- **The parts still work.** The mesh is fitted onto the model and cut into the same pieces (`src/render/meshFit.ts`). A cap at the top is cut where the scan itself changes colour or width (a black cap on a clear bottle), searching near Claude's guess, so the cut lands on the real edge; other pieces take the scan inside their box. SAM 3D cannot do this itself: asked for the bottle and the cap as two boxes, it returns one object. A piece the scan has nothing for keeps Claude's shape.
-- **The hands work on what you see.** With a mesh shown, the hands are hit-tested against the mesh's own shape (the body in eight horizontal slices, the cap as one box), not Claude's rougher shapes, and specks of background the scan picked up are dropped before fitting.
-- **Facing the right way.** SAM 3D returns an upright mesh plus the pose it had in the photo. The box keeps it upright and turns it about the vertical so the side the camera saw faces you (`samYaw` in `src/ai/mesh.ts`, checked on a real result).
-- **The cache.** A finished model is stored on disk by the object's name (`.cache/meshes/`, or `GHOST_MESH_CACHE`), so a good model is never made twice: next time that object is scanned, its model appears at once. The folder is committed to the repo, so every machine and the hosted app start with the models made so far, whoever scanned them; commit new ones the same way. Both screens of a call read the same cache, so the other person sees the model too. In the enlarged box, ⟳ remakes it (the new one replaces the old one only if it succeeds), and ◆/◇ switches between the model and the simple shapes.
-- **Smaller downloads.** fal's mesh is about half a million triangles (5-12 MB). The server merges nearby vertices down to tens of thousands (about 1-2 MB) and stores that compact format (`.ghm`) next to the original `.glb`.
-- **Privacy.** Nothing goes to fal.ai unless someone presses 3D, and then only the one picture from the scan. It is sent whole: the box only tells SAM 3D which object to model.
-
-Routes on the AI server: `POST /ai/mesh` starts one (returns at once), `GET /ai/mesh?key=` reports what the cache has and whether one is being made, `GET /ai/mesh/file/<key>` serves the compact mesh.
-
-
-### The lanyard demo: clipping the clasp onto the card
-
-A lanyard (or badge, lobster clasp, name tag) is one object made of two pieces: the card, and the clasp with the strap above it (`src/remote/kitRig.ts`). It starts clipped together, as it was scanned (↺ puts it back that way):
-
-1. **Grip the clasp and move it:** the claw stays shut, so the card comes along, hanging from it and swinging (a damped pendulum driven by how the clasp moves). Holding the card instead moves both together.
-2. **Pinch the clasp** (thumb and index, as if pulling its lever): the lobster claw opens. **Lift it away** and the card slips off and stays where it hung. Or hold the card with your other hand: with the claw open, they come apart at once and each piece follows its own hand. The clasp is easy to take: its claw, the clip and the first stretch of strap all count, while a hand on the card's face always takes the card.
-3. **Bring the open claw back to the card's hole.** Close enough, it lines itself up and the slot lights up ("let go to clip it on"). Right after unclipping it does not do this until you have moved it clear, so it never clips straight back on.
-4. **Let go:** it snaps shut on the card ("clipped on ✓").
-
-The lanyard strap is drawn too: two ribbons from the top of the clasp up out of the box, as if worn around a neck. It follows the clasp every frame, so it stays attached through carrying, swinging, unclipping and clipping back. The claw is drawn, not scanned: SAM 3D makes a blob of small shiny metal, and a scan cannot open. It is drawn bigger than life so it reads in the box. On a call, the other screen sees the claw open, snap shut and swing (the clip state travels in the pose message).
-
-**Scan it once, keep it for the demo.** With `npm run dev` and `npm run ai` (with `FAL_KEY`) running:
-
-1. Hold the lanyard with the card clipped on, in front of the camera, and scan (Hand tools → AI scan to 3D model → Scan my camera). Choose the lanyard or the card; either opens the lanyard, with a box around both.
-2. Press **3D** in the box. In about 15 s the SAM 3D model replaces the simple shapes. It is cut where the scan narrows from the card to the strap (`fitLanyard` in `src/render/meshFit.ts`); the scan's own claw is replaced by the drawn one.
-3. If it looks right, press **★** (keep for the demo). That writes `public/demo/lanyard.ghm`, `lanyard.json` and `index.json` into the app. Commit them.
-
-From then on it comes with the app: **Saved for the demo** in the scan panel opens it without scanning, `?demo=lanyard` opens it on load, and any lanyard Claude scans uses it. No AI server is needed to show it. Saving only works while developing (`GHOST_KEEP=0` turns it off; the production start script does).
+## Learn more
+
+- [docs/GOALS.md](docs/GOALS.md): the core loop, milestones and sponsor tracks
+- [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md): tracking pipeline, call protocol, assembly and replay design
+- [docs/COMMUNITY.md](docs/COMMUNITY.md): accounts, requests and local Convex setup
+- [docs/DESIGN.md](docs/DESIGN.md): the approved iPhone and Mac interface design
+- [deploy/README.md](deploy/README.md): public server and TURN relay
+- [AGENTS.md](AGENTS.md): conventions and invariants for contributors
+
+<br />
+
+<div align="center">
+<sub>Made with two hands each at Cal Hacks 13.</sub>
+</div>
