@@ -520,7 +520,7 @@ export default function App({communitySession}:{communitySession?:{id:string;tok
     <div className="remote">
       <video ref={call.friendVideo} className="friend-video" autoPlay playsInline/>
       {screen==='incall' && helper==='me' && !twin && <HandOverlay cover remote={myHand} placement={placement} aspect={friendAspect} onPin={pin => setPlacement(p => ({...p,pin}))}/>}
-      {screen==='incall' && helper==='me' && !twin && friendPicks.length>0 && <SceneOverlay quiet objects={friendPicks} selectedId={null} hoverId={null} aspect={friendAspect} mirrored={false} onSelect={friendPick}/>}
+      {screen==='incall' && helper==='me' && !twin && friendPicks.length>0 && <SceneOverlay objects={friendPicks} selectedId={null} hoverId={null} aspect={friendAspect} mirrored={false} onSelect={friendPick}/>}
       {screen==='incall' && !call.remote && <p className="remote-wait">Waiting for video…</p>}
       {call.playBlocked && <button className="pill-button play-audio" onClick={call.retryPlay}>Play friend’s audio and video</button>}
     </div>
@@ -528,7 +528,7 @@ export default function App({communitySession}:{communitySession?:{id:string;tok
       <div className={`camera-stage ${facing==='user'?'mirrored':''}`} style={{'--ar':live.current.aspect} as CSSProperties}>
         <video ref={video} autoPlay playsInline muted/><canvas ref={overlay} className={showOverlay?'':'hidden'}/>
         {screen==='home' && active && scannedFrom==='mine' && <SceneOverlay objects={scene.objects} selectedId={selectedId} hoverId={hoverId} aspect={live.current.aspect} mirrored={facing==='user'} onSelect={chooseObject}/>}
-        {picks.length>0 && <SceneOverlay quiet objects={picks} selectedId={null} hoverId={null} aspect={live.current.aspect} mirrored={facing==='user'} onSelect={pick}/>}
+        {picks.length>0 && <SceneOverlay objects={picks} selectedId={null} hoverId={null} aspect={live.current.aspect} mirrored={facing==='user'} onSelect={pick}/>}
       </div>
       <video ref={call.selfVideo} className="self-video" autoPlay muted playsInline/>
       {screen==='incall' && helper==='friend' && !twin && <HandOverlay cover mirrored={selfFromCall || facing==='user'} remote={peerHand} placement={placement} aspect={active ? live.current.aspect : 4/3} onPin={pin => setPlacement(p => ({...p,pin}))}/>}
@@ -568,7 +568,7 @@ export default function App({communitySession}:{communitySession?:{id:string;tok
     {screen!=='home' && <div className="controls">
       <button className="round" disabled={!call.local} aria-pressed={call.muted} aria-label={call.muted?'Unmute microphone':'Mute microphone'} onClick={call.toggleMute}><Icon name={call.muted?'micOff':'mic'}/></button>
       <button className="round" disabled={!call.local} aria-pressed={call.cameraOff} aria-label={call.cameraOff?'Turn camera on':'Turn camera off'} onClick={call.toggleCamera}><Icon name={call.cameraOff?'videoOff':'video'}/></button>
-      <button className={`round helper-toggle ${helper==='me'?'on':''}`} aria-pressed={helper==='me'} aria-label={helper==='me' ? 'Stop helping' : helper==='friend' ? 'Take over helping' : 'Become the helper'} title={helper==='me' ? 'You are helping: your hands are on your friend\'s video. Click to stop.' : helper==='friend' ? 'Your friend is helping. Click to take over.' : 'Become the helper: your hands go on your friend\'s video, and you handle the 3D copy.'} onClick={toggleHelper}><Icon name="hand"/></button>
+      <button className={`round helper-toggle ${helper==='me'?'on':''}`} disabled={helper==='friend'} aria-pressed={helper==='me'} aria-label={helper==='me' ? 'Stop helping' : helper==='friend' ? 'Your friend is helping' : 'Become the helper'} title={helper==='me' ? 'You are helping: your hands are on your friend\'s video. Click to stop.' : helper==='friend' ? 'Your friend is helping. Only they can turn it off.' : 'Become the helper: your hands go on your friend\'s video, and you handle the 3D copy.'} onClick={toggleHelper}><Icon name="hand"/></button>
       <button className="round" aria-label="Hand tools" onClick={() => setMoreOpen(true)}><Icon name="more"/></button>
       <button className="round end" aria-label={call.status==='preparing'?'Cancel':'End call'} onClick={call.end}><Icon name="end" size={26}/></button>
     </div>}

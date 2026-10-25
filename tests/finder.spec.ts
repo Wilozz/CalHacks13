@@ -41,6 +41,7 @@ async function inCall(learner:Page,helper:Page){
  await helper.getByRole('button',{name:'Become the helper'}).click();
  await expect(helper.getByTestId('helper-state')).toHaveText('You are helping');
  await expect(learner.getByTestId('helper-state')).toHaveText('Your friend is helping',{timeout:10_000});
+ await expect(learner.getByRole('button',{name:'Your friend is helping'})).toBeDisabled(); // the helpee's helper button is greyed out
 }
 test('helper mode: Claude scans only the helpee\'s camera (the lanyard\'s pieces as one box); the helpee clicks it and it comes up on both; turning helper mode off takes it away',async({browser})=>{
  const a=await browser.newContext({permissions:['camera','microphone']}),b=await browser.newContext({permissions:['camera','microphone']});
