@@ -410,7 +410,9 @@ export default function App({communitySession}:{communitySession?:{id:string;tok
   // lanyard-like one picked at once (useObjectFinder). Alongside, Claude's check (a small frame, one yes/no, ~1/s) is
   // the backup; what it finds is kept as a real picture, so next time the device finds it at once.
   // The finder switch: off, nothing is looked for, so nothing that merely looks like a lanyard can bring the mesh up.
-  const [findOn,setFindOn] = useState(true);
+  // Every call starts with it off; you switch it on when you are about to show the lanyard.
+  const [findOn,setFindOn] = useState(false);
+  useEffect(() => { if (screen==='home') setFindOn(false); }, [screen]);
   const looking = findOn && screen==='incall' && (phase==='loading' || active) && !twin; // the camera is on: no need to wait for hand tracking
   const finder = useObjectFinder(video, looking, () => live.current.hands ?? [], bbox => { console.info('[find] on device'); void showLanyard(bbox); });
   useEffect(() => {
