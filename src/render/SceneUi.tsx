@@ -1,9 +1,12 @@
 import type { SceneObject } from '../ai/types';
 
-/** Boxes over the camera view for what the AI saw. Click one, or point at it for about a second. */
-export function SceneOverlay({ objects, selectedId, hoverId, aspect, mirrored, onSelect }:
-  { objects: SceneObject[]; selectedId: string | null; hoverId: string | null; aspect: number; mirrored: boolean; onSelect: (id: string) => void }) {
-  return <div className="demo-overlay scene-overlay">
+/**
+ * Boxes over the camera view for what the AI saw. Click one, or point at it for about a second.
+ * quiet: invisible until the mouse is over one (or a finger presses it); then only that one shows.
+ */
+export function SceneOverlay({ objects, selectedId, hoverId, aspect, mirrored, onSelect, quiet = false }:
+  { objects: SceneObject[]; selectedId: string | null; hoverId: string | null; aspect: number; mirrored: boolean; onSelect: (id: string) => void; quiet?: boolean }) {
+  return <div className={`demo-overlay scene-overlay ${quiet ? 'quiet' : ''}`}>
     <div className="demo-frame" style={{ aspectRatio: String(aspect) }}>
       {objects.map(o => {
         const [x0, y0, x1, y1] = o.bbox;

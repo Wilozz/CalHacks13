@@ -154,6 +154,11 @@ button:disabled{opacity:.4;cursor:default}
 .scene-box span{position:absolute;left:-1px;top:-22px;margin:0;padding:3px 6px;border-radius:5px;background:rgba(0,0,0,.65);font-size:11px;font-weight:600;white-space:nowrap}
 .scene-box.hover{border-color:#fff;background:rgba(255,255,255,.12)}
 .scene-box.selected{border:2px solid var(--green);background:rgba(48,209,88,.15)}
+.scene-overlay.quiet .scene-box{border-color:transparent;-webkit-tap-highlight-color:transparent}
+.scene-overlay.quiet .scene-box span{display:none;top:6px;left:6px}
+.scene-overlay.quiet .scene-box:hover,.scene-overlay.quiet .scene-box:active{border-color:#fff;background:rgba(255,255,255,.1)}
+.scene-overlay.quiet .scene-box:hover span,.scene-overlay.quiet .scene-box:active span{display:block}
+@media (hover:none){.scene-overlay.quiet .scene-box:hover:not(:active){border-color:transparent;background:transparent}.scene-overlay.quiet .scene-box:hover:not(:active) span{display:none}}
 .pin-mark{position:absolute;width:26px;height:26px;margin:-13px 0 0 -13px;border:1.5px solid #fff;border-radius:50%;pointer-events:none}
 .pin-mark::before,.pin-mark::after{content:'';position:absolute;background:#fff}
 .pin-mark::before{left:50%;top:-6px;bottom:-6px;width:1.5px}

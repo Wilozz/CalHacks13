@@ -39,10 +39,13 @@ const lessonId = (text: string) => { try { const m = text.length < 200 && JSON.p
 const LOOK_MS = 1200;
 type Box = [number, number, number, number];
 const iou = (a: Box, b: Box) => { const w = Math.max(0, Math.min(a[2], b[2]) - Math.max(a[0], b[0])), h = Math.max(0, Math.min(a[3], b[3]) - Math.max(a[1], b[1])), i = w * h; return i / ((a[2] - a[0]) * (a[3] - a[1]) + (b[2] - b[0]) * (b[3] - b[1]) - i || 1); };
-/** The boxes to click: the most lanyard-like one as "lanyard", and every other object the detector named that is not the same thing. */
+/** How much of the smaller box lies inside the other: a box on part of the lanyard (its strap) is mostly inside it. */
+const within = (a: Box, b: Box) => { const w = Math.max(0, Math.min(a[2], b[2]) - Math.max(a[0], b[0])), h = Math.max(0, Math.min(a[3], b[3]) - Math.max(a[1], b[1])); return (w * h) / (Math.min((a[2] - a[0]) * (a[3] - a[1]), (b[2] - b[0]) * (b[3] - b[1])) || 1); };
+/** The boxes to click: the most lanyard-like one as "lanyard", and every other object the detector named that is not
+ * part of it (the detector calls the strap a "toothbrush"). */
 function pickable(boxes: FoundBox[]): SceneObject[] {
   const best = bestMatch(boxes);
-  return boxes.filter(b => b === best || (b.label !== 'in hand' && b.sim < MATCH && !(best && iou(b.bbox, best.bbox) > 0.5)))
+  return boxes.filter(b => b === best || (b.label !== 'in hand' && b.sim < MATCH && !(best && within(b.bbox, best.bbox) > 0.5)))
     .map((b, i) => ({ objectId: `found-${i}`, label: b === best ? 'lanyard' : b.label, bbox: b.bbox, affordances: [], confidence: b.score, seenAt: 0 }));
 }
 const SLOTS = [0, 1] as const;
@@ -497,7 +500,7 @@ export default function App({communitySession}:{communitySession?:{id:string;tok
       <div className={`camera-stage ${facing==='user'?'mirrored':''}`} style={{'--ar':live.current.aspect} as CSSProperties}>
         <video ref={video} autoPlay playsInline muted/><canvas ref={overlay} className={showOverlay?'':'hidden'}/>
         {screen==='home' && active && scannedFrom==='mine' && <SceneOverlay objects={scene.objects} selectedId={selectedId} hoverId={hoverId} aspect={live.current.aspect} mirrored={facing==='user'} onSelect={chooseObject}/>}
-        {picks.length>0 && <SceneOverlay objects={picks} selectedId={null} hoverId={null} aspect={live.current.aspect} mirrored={facing==='user'} onSelect={pick}/>}
+        {picks.length>0 && <SceneOverlay quiet objects={picks} selectedId={null} hoverId={null} aspect={live.current.aspect} mirrored={facing==='user'} onSelect={pick}/>}
       </div>
       <video ref={call.selfVideo} className="self-video" autoPlay muted playsInline/>
       {screen==='home' && !active && <div className="camera-empty">
