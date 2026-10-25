@@ -253,3 +253,22 @@ The copy starts as Claude's simple shapes, which appear at once. Press **3D** in
 
 Routes on the AI server: `POST /ai/mesh` starts one (returns at once), `GET /ai/mesh?key=` reports what the cache has and whether one is being made, `GET /ai/mesh/file/<key>` serves the compact mesh.
 
+
+### The lanyard demo: clipping the clasp onto the card
+
+A lanyard (or badge, lobster clasp, name tag) is one object made of two pieces: the card, and the clasp with the strap above it (`src/remote/kitRig.ts`). It starts clipped together, as it was scanned (↺ puts it back that way):
+
+1. **Grip the clasp and move it:** the claw stays shut, so the card comes along, hanging from it and swinging (a damped pendulum driven by how the clasp moves). Holding the card instead moves both together.
+2. **Pinch the clasp** (thumb and index, as if pulling its lever): the lobster claw opens. **Lift it away** and the card slips off and stays where it hung. (Or, with the claw open, pull the card away with your other hand.)
+3. **Bring the open claw back to the card's hole.** Close enough, it lines itself up and the slot lights up ("let go to clip it on"). Right after unclipping it does not do this until you have moved it clear, so it never clips straight back on.
+4. **Let go:** it snaps shut on the card ("clipped on ✓").
+
+The claw is drawn, not scanned: SAM 3D makes a blob of small shiny metal, and a scan cannot open. It is drawn bigger than life so it reads in the box. On a call, the other screen sees the claw open, snap shut and swing (the clip state travels in the pose message).
+
+**Scan it once, keep it for the demo.** With `npm run dev` and `npm run ai` (with `FAL_KEY`) running:
+
+1. Hold the lanyard with the card clipped on, in front of the camera, and scan (Hand tools → AI scan to 3D model → Scan my camera). Choose the lanyard or the card; either opens the lanyard, with a box around both.
+2. Press **3D** in the box. In about 15 s the SAM 3D model replaces the simple shapes. It is cut where the scan narrows from the card to the strap (`fitLanyard` in `src/render/meshFit.ts`); the scan's own claw is replaced by the drawn one.
+3. If it looks right, press **★** (keep for the demo). That writes `public/demo/lanyard.ghm`, `lanyard.json` and `index.json` into the app. Commit them.
+
+From then on it comes with the app: **Saved for the demo** in the scan panel opens it without scanning, `?demo=lanyard` opens it on load, and any lanyard Claude scans uses it. No AI server is needed to show it. Saving only works while developing (`GHOST_KEEP=0` turns it off; the production start script does).

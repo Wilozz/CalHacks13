@@ -17,10 +17,12 @@ export function SceneOverlay({ objects, selectedId, hoverId, aspect, mirrored, o
   </div>;
 }
 
-export function ScenePanel({ objects, selectedId, onSelect, cameraOn, inCall, scanning, error, auto, onAuto, onScan, onScanFriend, lastMs }: {
+export function ScenePanel({ objects, selectedId, onSelect, cameraOn, inCall, scanning, error, auto, onAuto, onScan, onScanFriend, lastMs, saved = [], onOpenSaved }: {
   objects: SceneObject[]; selectedId: string | null; onSelect: (id: string) => void;
   cameraOn: boolean; inCall: boolean; scanning: boolean; error: string; auto: boolean; onAuto: (v: boolean) => void;
   onScan: () => void; onScanFriend: () => void; lastMs: number | null;
+  /** objects saved for the demo: open one without scanning */
+  saved?: { key: string; label: string }[]; onOpenSaved?: (key: string) => void;
 }) {
   return <section className="panel scene-panel" aria-label="AI scene understanding">
     <div className="panel-heading"><span>OBJECT → 3D COPY</span><span className="cyan">{lastMs ? `LAST SCAN ${(lastMs / 1000).toFixed(1)}s` : 'CLAUDE VISION'}</span></div>
@@ -31,6 +33,10 @@ export function ScenePanel({ objects, selectedId, onSelect, cameraOn, inCall, sc
         <label><input type="checkbox" checked={auto} disabled={!cameraOn} onChange={e => onAuto(e.target.checked)} /> Re-scan my camera every 6 s</label>
       </div>
       {!cameraOn && !inCall && <p className="scene-hint">Turn on the camera, point it at a bottle, button, knob or drawer, then scan.</p>}
+      {!!saved.length && <div className="scene-row" role="group" aria-label="Saved for the demo">
+        <span className="scene-hint">Saved for the demo:</span>
+        {saved.map(s => <button key={s.key} className="secondary" onClick={() => onOpenSaved?.(s.key)}>★ {s.label}</button>)}
+      </div>}
       {error && <p className="scene-error-text" role="alert">{error}</p>}
       {!objects.length && !error && !scanning && (cameraOn || inCall) && <p className="scene-hint">Nothing scanned yet. Pick an object after scanning and a small 3D copy appears in the corner, with the helper's hand on it.</p>}
       {!!objects.length && <>

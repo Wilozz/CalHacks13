@@ -41,6 +41,14 @@ export interface RigState {
   target: Target | null; hover: Target | null; grabbing: boolean; kind: GraspKind; anchor: P3 | null;
 }
 type Slot2<T> = [T, T];
+/** What the 3D box drives: a whole with parts (TwinRig), or pieces that clip together (KitRig). */
+export interface Rig {
+  readonly components: Component[];
+  step(inputs: Slot2<MoveInput | null>): RigState;
+  hoverAt(tip: P3, slot?: 0 | 1, kind?: GraspKind): Target | null;
+  loosened(): (number | null)[];
+  reset(): void;
+}
 const IDLE: Hold = { target: null, hover: null, grabbing: false, kind: 'none', anchor: null };
 const WHOLE_MARGIN = 0.18;
 

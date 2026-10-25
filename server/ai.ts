@@ -1,10 +1,11 @@
 import Anthropic from '@anthropic-ai/sdk';
 import { fal } from '@fal-ai/client';
-import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
+import { copyFileSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import { join } from 'node:path';
 import { ACTION_TOOLS, isActionType, sanitizeSpec } from '../src/ai/actionLibrary';
 import { boxPrompt, encodeMesh, MESH_KEY, orient, readGlb, samYaw, simplify, type Quat } from '../src/ai/mesh';
+import { decodeTwin, encodeTwin } from '../src/remote/twinWire';
 import { sanitizeModel } from '../src/ai/modelSpec';
 import { ACTION_PARSER_SYSTEM, CONTEXT_SUMMARIZER_SYSTEM, FOCUS_SYSTEM, SCENE_SYSTEM } from '../src/ai/prompts';
 import type { ContextState, ParseRequest, ParseResult, SceneObject } from '../src/ai/types';
@@ -169,6 +170,9 @@ if (FAL_KEY) fal.config({ credentials: FAL_KEY });
 const SAM3D = 'fal-ai/sam-3/3d-objects';
 const MESH_DIR = process.env.GHOST_MESH_CACHE ?? '.cache/meshes';
 const MAX_GLB = 60_000_000;
+// Models kept for the demo are written into the app itself (public/demo), to be committed. Off on the hosted app.
+const DEMO_DIR = process.env.GHOST_DEMO_DIR ?? 'public/demo';
+const CAN_KEEP = process.env.GHOST_KEEP !== '0';
 interface MeshMeta { key: string; label: string; version: number; ms: number; triangles: number; sourceTriangles: number }
 const meshJobs = new Map<string, { startedAt: number; error?: string }>();
 const metaOf = (key: string): MeshMeta | null => { try { return JSON.parse(readFileSync(join(MESH_DIR, `${key}.json`), 'utf8')); } catch { return null; } };
@@ -179,7 +183,26 @@ function meshStatus(key: string) {
   if (!FAL_KEY) throw Object.assign(new Error('FAL_KEY is not set'), { status: 503 });
   if (!MESH_KEY.test(key)) throw Object.assign(new Error('bad key'), { status: 400 });
   const job = meshJobs.get(key), meta = metaOf(key);
-  return { key, running: !!job && !job.error, startedAt: job?.startedAt ?? null, error: job?.error ?? null, ready: meta };
+  return { key, running: !!job && !job.error, startedAt: job?.startedAt ?? null, error: job?.error ?? null, ready: meta, canKeep: CAN_KEEP };
+}
+
+/** Saves the cached model of an object into the app for the demo: its mesh, the twin it belongs to, and the list. */
+async function keepMesh(b: { key: string; twin: unknown }) {
+  if (!CAN_KEEP) throw Object.assign(new Error('saving demo models is off here'), { status: 403 });
+  const key = String(b?.key ?? ''), meta = MESH_KEY.test(key) ? metaOf(key) : null;
+  if (!meta) throw Object.assign(new Error('no model of that object to keep'), { status: 404 });
+  const twin = decodeTwin(JSON.stringify({ ...(b.twin as object), type: 'twin' }));
+  if (!twin) throw Object.assign(new Error('bad twin'), { status: 400 });
+  mkdirSync(DEMO_DIR, { recursive: true });
+  copyFileSync(join(MESH_DIR, `${key}.ghm`), join(DEMO_DIR, `${key}.ghm.tmp`)); renameSync(join(DEMO_DIR, `${key}.ghm.tmp`), join(DEMO_DIR, `${key}.ghm`));
+  const saved = { key, label: twin.label, version: meta.version, savedAt: Date.now(), twin: { ...JSON.parse(encodeTwin({ ...twin, objectId: `saved-${key}` })), type: undefined } };
+  writeAtomic(join(DEMO_DIR, `${key}.json`), JSON.stringify(saved, null, 1));
+  let list: { key: string; label: string }[] = [];
+  try { list = JSON.parse(readFileSync(join(DEMO_DIR, 'index.json'), 'utf8')); } catch { /* first one */ }
+  list = [...list.filter(x => x.key !== key), { key, label: twin.label }];
+  writeAtomic(join(DEMO_DIR, 'index.json'), JSON.stringify(list, null, 1));
+  console.log(`Kept ${key} for the demo in ${DEMO_DIR}`);
+  return { ok: true, key, version: meta.version };
 }
 
 interface MeshBody { key: string; label: string; imageBase64: string; mediaType: 'image/jpeg' | 'image/png'; width: number; height: number; bbox: [number, number, number, number]; force?: boolean }
@@ -228,7 +251,7 @@ async function readJson(req: IncomingMessage): Promise<any> {
   try { return JSON.parse(Buffer.concat(chunks).toString('utf8')); } catch { throw Object.assign(new Error('invalid JSON'), { status: 400 }); }
 }
 
-const routes: Record<string, (b: any) => Promise<unknown>> = { '/parse': parse, '/context': context, '/scene': scene, '/focus': focus, '/voice-token': voiceToken, '/mesh': startMesh };
+const routes: Record<string, (b: any) => Promise<unknown>> = { '/parse': parse, '/context': context, '/scene': scene, '/focus': focus, '/voice-token': voiceToken, '/mesh': startMesh, '/mesh/keep': keepMesh };
 const NEEDS_CLAUDE = new Set(['/parse', '/context', '/scene', '/focus']);
 
 createServer(async (req: IncomingMessage, res: ServerResponse) => {

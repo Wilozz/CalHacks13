@@ -6,7 +6,7 @@ import { DEFAULT_PLACEMENT, HandPlacer, type Placement } from './placement';
 import { fingertipOnTwin, modelBounds, placeHandOnTwin } from './twinPlacement';
 import { fistRatio, PinchDetector, pinchCloseness, pinchRatio } from './pinch';
 import PHOTOS from './handPhotos.json';
-import { decodePose, decodeTwin, encodePose, encodeTwin, type TwinInfo } from './twinWire';
+import { decodePose, decodeTwin, encodePose, encodeTwin, REST_POSE, type TwinInfo } from './twinWire';
 
 const pl = (o: Partial<Placement> = {}): Placement => ({ ...DEFAULT_PLACEMENT, depth: 0, ...o });
 function hand(tip: { x: number; y: number }): HandFrame {
@@ -190,4 +190,13 @@ test('the second hand\'s hold travels in the pose and is validated', () => {
   assert.equal(decodePose(encodePose(base))!.second, null);
   const bad = decodePose(JSON.stringify({ type: 'twin-pose', o: [0, 0, 0], c: [[0, 0, 0, 0, 0, 0, 1]], s: [99, 7, [1, 2]] }))!;
   assert.equal(bad.second!.target, -2); assert.equal(bad.second!.kind, 'none'); assert.equal(bad.second!.anchor, null);
+});
+
+test('a lanyard pose carries whether it is clipped on, how open the claw is, and whether it is at the hole', () => {
+  const p = { ...REST_POSE, parts: [{ offset: [0.1, 0.2, 0] as [number, number, number], rotation: [0, 0, 0, 1] as [number, number, number, number] }], kit: { joined: true, gate: 0.42, near: false } };
+  const back = decodePose(encodePose(p))!;
+  assert.deepEqual(back.kit, { joined: true, gate: 0.42, near: false });
+  assert.equal(decodePose(encodePose(REST_POSE))!.kit, undefined, 'not a lanyard: no clip state');
+  const bad = JSON.parse(encodePose(p)); bad.j = [1, 9999, 'x'];
+  assert.deepEqual(decodePose(JSON.stringify(bad))!.kit, { joined: true, gate: 1, near: false }, 'clamped, never trusted');
 });

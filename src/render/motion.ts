@@ -1,8 +1,9 @@
+import { isLanyard } from '../remote/kitRig';
 import { twistAngleRad } from '../ai/actionLibrary';
 import type { ActionSpec, ActionType, Direction } from '../ai/types';
 
 export type Vec3 = [number, number, number];
-export type TwinKind = 'bottle' | 'knob' | 'button' | 'switch' | 'box';
+export type TwinKind = 'bottle' | 'knob' | 'button' | 'switch' | 'box' | 'lanyard';
 
 /** Pose of the moving part of the twin, in twin units (object ~1 unit tall), plus ghost-hand weight. */
 export interface Pose { pos: Vec3; rot: Vec3; progress: number }
@@ -60,6 +61,7 @@ export function poseAt(spec: ActionSpec, loopT: number, reverseThread = false): 
 /** Tier 1: choose a procedural model from the label, falling back on the action. */
 export function twinKindForLabel(label: string, parentLabel = '', action?: ActionType): TwinKind {
   const text = `${label} ${parentLabel}`.toLowerCase();
+  if (isLanyard(text)) return 'lanyard';
   if (/bottle|cap|lid|jar|tube|瓶/.test(text)) return 'bottle';
   if (/knob|dial|valve|handle|旋钮/.test(text)) return 'knob';
   if (/button|key|switch button|reset|按/.test(text)) return 'button';

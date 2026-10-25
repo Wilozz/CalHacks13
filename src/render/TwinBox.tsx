@@ -10,7 +10,8 @@ import { pinchCloseness } from '../remote/pinch';
 import { depthScale, type P3, type Placement } from '../remote/placement';
 import { palmQuat, qAngle, QI, type Q } from '../remote/quat';
 import type { RemoteHandState } from '../remote/remoteHand';
-import { TwinRig, type Hold, type Target } from '../remote/twinRig';
+import { CLAW, isLanyard, KitRig, lanyardProfile, seatOffset, type KitState } from '../remote/kitRig';
+import { TwinRig, type Hold, type Rig, type Target } from '../remote/twinRig';
 import type { MoveInput } from '../remote/twinMove';
 import { fingertipOnTwin, HOLD_FINGERS, placeHandOnTwin } from '../remote/twinPlacement';
 import { REST_POSE, type TwinInfo, type TwinPose } from '../remote/twinWire';
@@ -41,6 +42,10 @@ export interface BoxStatus {
   hands: number; kind2: GraspKind; target2: string;
   /** how far the screwed-on piece in hand (or under a hand) is unscrewed, 0-100, or -1 */
   unscrew: number;
+  /** the lanyard: '' (not one), the clasp is 'apart' from the card, its claw is 'open', 'near' the hole, or clipped 'on' */
+  kit: '' | 'apart' | 'open' | 'near' | 'on';
+  /** it clipped on in the last moment (for the "clipped on" message) */
+  kitJust: boolean;
 }
 
 interface SceneProps {
@@ -65,7 +70,41 @@ function MeshView({ piece, onMat }: { piece: MeshPiece; onMat: (m: THREE.MeshSta
   useEffect(() => () => geom.dispose(), [geom]);
   return <mesh geometry={geom}><meshStandardMaterial ref={onMat} vertexColors side={THREE.DoubleSide} roughness={0.7} metalness={0.05} emissive="#fff36b" emissiveIntensity={0} /></mesh>;
 }
-export const IDLE_STATUS: BoxStatus = { mode: 'none', kind: 'none', moved: false, turned: false, remote: false, angle: 0, target: '', partAngle: 0, partMoved: false, thumb: '', partLift: 0, partPos: '', hands: 0, kind2: 'none', target2: '', unscrew: -1 };
+const METAL = { color: '#d5dae2', metalness: 0.85, roughness: 0.28 };
+const GAP = 1.1; // the claw's opening, radians of its ring
+/**
+ * The lobster claw, hanging from the clasp at `at`: a ring with a gap that a spring gate closes. The gate swings in about
+ * its lower hinge as `state.gate` goes from 0 (shut) to 1 (open). Drawn, not scanned: a scan of small shiny metal is a
+ * blob, and a scan cannot open.
+ */
+function LobsterClaw({ at, state }: { at: P3; state: MutableRefObject<KitState> }) {
+  const gate = useRef<THREE.Group>(null!), glow = useRef<THREE.MeshStandardMaterial[]>([]);
+  const { r, tube, stem } = CLAW, hinge: P3 = [r * Math.cos(-GAP / 2), r * Math.sin(-GAP / 2), 0];
+  useFrame(({ clock }) => {
+    const k = state.current;
+    if (gate.current) gate.current.rotation.z = k.gate * 1.05;
+    const snap = k.sinceJoin >= 0 && k.sinceJoin < 700 ? 1 - k.sinceJoin / 700 : 0;
+    glow.current.forEach(m => { m.emissive.set(snap > 0 ? '#7dffb2' : '#64f5ed'); m.emissiveIntensity = snap > 0 ? snap : k.near ? 0.35 + 0.25 * Math.sin(clock.elapsedTime * 10) : 0; });
+  });
+  const mat = (i: number) => <meshStandardMaterial ref={m => { if (m) glow.current[i] = m; }} {...METAL} emissive="#64f5ed" emissiveIntensity={0} />;
+  return <group position={at} rotation={[0, 0.9, 0]}>
+    <mesh position={[0, -stem / 2, 0]}><cylinderGeometry args={[tube * 1.3, tube * 1.3, stem, 10]} />{mat(0)}</mesh>
+    <group position={[0, -stem - r, 0]}>
+      <mesh rotation={[0, 0, GAP / 2]}><torusGeometry args={[r, tube, 10, 40, 2 * Math.PI - GAP]} />{mat(1)}</mesh>
+      <group ref={gate} position={hinge}>
+        <mesh position={[-hinge[0], -hinge[1], 0]} rotation={[0, 0, -GAP / 2]}><torusGeometry args={[r, tube * 0.85, 8, 12, GAP]} />{mat(2)}</mesh>
+        <mesh position={[0.008, r * Math.sin(GAP / 2), 0]}><boxGeometry args={[0.02, 0.014, 0.02]} />{mat(3)}</mesh>
+      </group>
+    </group>
+  </group>;
+}
+/** The card's slot: dark, and it lights up when the open claw is close enough to clip on. */
+function Slot({ at, state }: { at: P3; state: MutableRefObject<KitState> }) {
+  const mat = useRef<THREE.MeshBasicMaterial>(null!);
+  useFrame(({ clock }) => { const k = state.current; if (mat.current) mat.current.color.set(k.near ? (Math.sin(clock.elapsedTime * 10) > 0 ? '#64f5ed' : '#2a7f7a') : '#1d2228'); });
+  return <mesh position={[at[0], at[1], at[2] + 0.003]}><planeGeometry args={[0.1, 0.028]} /><meshBasicMaterial ref={mat} color="#1d2228" side={THREE.DoubleSide} /></mesh>;
+}
+export const IDLE_STATUS: BoxStatus = { mode: 'none', kind: 'none', moved: false, turned: false, remote: false, angle: 0, target: '', partAngle: 0, partMoved: false, thumb: '', partLift: 0, partPos: '', hands: 0, kind2: 'none', target2: '', unscrew: -1, kit: '', kitJust: false };
 
 const shapeGeometry = (shape: string) => shape === 'box' ? new THREE.BoxGeometry(1, 1, 1) : shape === 'sphere' ? new THREE.SphereGeometry(0.5, 20, 20) : shape === 'cone' ? new THREE.ConeGeometry(0.5, 1, 24) : new THREE.CylinderGeometry(0.5, 0.5, 1, 24);
 // How close the helper's hand is to their camera (1 = reference distance); closer pulls a held object toward the viewer.
@@ -93,7 +132,10 @@ const view = () => ({ pos: new THREE.Vector3(), quat: new THREE.Quaternion(), wa
 export function TwinScene({ mirror, twin, hand, placement, posFlip, drive, remotePose, onPose, status, resetToken, mesh }: SceneProps) {
   // With a scanned mesh, the hands work on the mesh's own shape (see fitToModel), so they land on what you see.
   const model = mesh?.model ?? twin.model;
-  const rig = useMemo(() => new TwinRig(model), [model]);
+  // A lanyard is two pieces that clip together (KitRig); anything else is a whole with parts (TwinRig).
+  const kitProfile = useMemo(() => (isLanyard(twin.label) && componentsOf(model).length ? mesh?.kit ?? lanyardProfile(model) : null), [twin.label, model, mesh]);
+  const rig: Rig = useMemo(() => (kitProfile ? new KitRig(model, kitProfile) : new TwinRig(model)), [model, kitProfile]);
+  const kit = useRef<KitState>({ joined: false, gate: 0, near: false, sinceJoin: -1 });
   const comps = rig.components;
   const grasps = useMemo(() => SLOTS.map(() => new GraspDetector()), []);
   const gates = useMemo(() => SLOTS.map(() => new GrabGate()), []);
@@ -172,21 +214,26 @@ export function TwinScene({ mirror, twin, hand, placement, posFlip, drive, remot
       root = m.root; parts = m.parts; holds = m.holds;
       SLOTS.forEach(sl => { const f = frames[sl], fr = froms[sl]; if (f && fr) handPts[sl] = place(f, m.holds[sl].grabbing && m.holds[sl].anchor ? m.holds[sl].anchor! : undefined, fr); });
       // Tell the other screen where everything is, but not more than ~15 times a second.
+      if (rig instanceof KitRig) kit.current = { ...rig.kit };
       const cur: TwinPose = {
         offset: m.root.offset, rotation: m.root.rotation, grabbing: m.holds[0].grabbing, kind: m.holds[0].kind, anchor: m.holds[0].anchor, parts: m.parts,
         target: m.holds[0].target === null ? -2 : m.holds[0].target === 'whole' ? -1 : m.holds[0].target,
         second: { target: m.holds[1].target === null ? -2 : m.holds[1].target === 'whole' ? -1 : m.holds[1].target, kind: m.holds[1].kind, anchor: m.holds[1].anchor },
+        ...(rig instanceof KitRig ? { kit: { joined: rig.kit.joined, gate: rig.kit.gate, near: rig.kit.near } } : {}),
       };
       shown = cur;
       const sent = v.sent;
       const changed = cur.grabbing !== sent.grabbing || cur.kind !== sent.kind || cur.target !== sent.target || !same(cur.offset, sent.offset, 0.004) || qAngle(cur.rotation, sent.rotation) > 0.01
         || cur.parts.some((p, i) => !sent.parts[i] || !same(p.offset, sent.parts[i].offset, 0.004) || qAngle(p.rotation, sent.parts[i].rotation) > 0.01)
-        || cur.second!.target !== (sent.second?.target ?? -2) || cur.second!.kind !== (sent.second?.kind ?? 'none');
+        || cur.second!.target !== (sent.second?.target ?? -2) || cur.second!.kind !== (sent.second?.kind ?? 'none')
+        || (!!cur.kit && (!sent.kit || cur.kit.joined !== sent.kit.joined || cur.kit.near !== sent.kit.near || Math.abs(cur.kit.gate - sent.kit.gate) > 0.05));
       if (changed && now - v.sentAt > 66) { v.sent = cur; v.sentAt = now; onPose(cur); }
     } else {
       const rp = remotePose.current; shown = rp;
+      if (rp.kit) { const was = kit.current; kit.current = { ...rp.kit, sinceJoin: rp.kit.joined ? (was.joined ? (was.sinceJoin < 0 ? -1 : was.sinceJoin + dt * 1000) : 0) : -1 }; }
       root = { offset: rp.offset, rotation: rp.rotation };
-      parts = comps.map((_, i) => rp.parts[i] ? { offset: rp.parts[i].offset, rotation: rp.parts[i].rotation } : { offset: [0, 0, 0] as P3, rotation: QI });
+      // Before any pose arrives, a lanyard shows clipped together, as it starts.
+      parts = comps.map((_, i) => rp.parts[i] ? { offset: rp.parts[i].offset, rotation: rp.parts[i].rotation } : { offset: i === 0 && kitProfile ? seatOffset(kitProfile) : [0, 0, 0] as P3, rotation: QI });
       const asTarget = (t: number): Target | null => (t === -2 ? null : t === -1 ? 'whole' : t < comps.length ? t : null);
       holds = [
         { target: asTarget(rp.target), hover: null, grabbing: rp.grabbing, kind: rp.kind, anchor: rp.anchor },
@@ -234,9 +281,9 @@ export function TwinScene({ mirror, twin, hand, placement, posFlip, drive, remot
     const partMoved = views.parts.some((p, i) => p.pos.distanceTo(v.a.set(...comps[i].center)) > MOVED);
     const tp = trail.geometry.getAttribute('position') as THREE.BufferAttribute;
     tp.setXYZ(0, 0, 0, 0); tp.setXYZ(1, views.root.pos.x, views.root.pos.y, views.root.pos.z); tp.needsUpdate = true; trail.computeLineDistances();
-    trail.visible = rootMoved;
+    trail.visible = rootMoved && !kitProfile; // a lanyard's card swings about: a trail from where it began says nothing
     // The white "where it started" outline is for moving the whole object. For a lifted cap it only looked like the bottle still had one.
-    ghosts.current.forEach((g, i) => { if (g) g.visible = owner[i] < 0 && rootMoved && !mesh; }); // box outlines around a scanned mesh would only confuse
+    ghosts.current.forEach((g, i) => { if (g) g.visible = owner[i] < 0 && rootMoved && !mesh && !kitProfile; }); // box outlines around a scanned mesh would only confuse
 
     // Hands: the fingers that hold light up, and a ring closes around where they meet.
     SLOTS.forEach(sl => {
@@ -280,6 +327,8 @@ export function TwinScene({ mirror, twin, hand, placement, posFlip, drive, remot
       thumb: handPts[0] ? ((thumbPts[4].x - thumbPts[8].x) * (mirror ? -1 : 1) > 0 ? 'right' : 'left') : '',
       hands: present, kind2: holds[1].grabbing ? holds[1].kind : 'none', target2: nameOf(holds[1].target ?? holds[1].hover),
       unscrew: loose === null || loose === undefined ? -1 : Math.round(loose * 20) * 5,
+      kit: !kitProfile ? '' : kit.current.joined ? 'on' : kit.current.near ? 'near' : kit.current.gate > 0.5 ? 'open' : 'apart',
+      kitJust: kit.current.sinceJoin >= 0 && kit.current.sinceJoin < 1800,
     };
   });
 
@@ -298,9 +347,11 @@ export function TwinScene({ mirror, twin, hand, placement, posFlip, drive, remot
     <group ref={rootGroup}>
       {mesh ? <MeshView piece={mesh.body} onMat={m => { if (m) meshMats.current.set(-1, m); else meshMats.current.delete(-1); }} />
         : model.parts.map((_, i) => owner[i] < 0 ? <group key={i}>{partMesh(i)}{outline(i)}</group> : null)}
+      {kitProfile && <Slot at={kitProfile.hole} state={kit} />}
       {comps.map((c, ci) => <group key={`c${ci}`} ref={el => { compGroups.current[ci] = el; }} position={c.center}>
         {mesh?.pieces[ci] ? <MeshView piece={mesh.pieces[ci]!} onMat={m => { if (m) meshMats.current.set(ci, m); else meshMats.current.delete(ci); }} />
           : c.parts.map(i => <group key={i}>{partMesh(i, c.center)}{outline(i, c.center)}</group>)}
+        {kitProfile && ci === 0 && <LobsterClaw at={[kitProfile.attach[0] - c.center[0], kitProfile.attach[1] - c.center[1], kitProfile.attach[2] - c.center[2]]} state={kit} />}
       </group>)}
     </group>
     {SLOTS.map(sl => <group key={`hand${sl}`} ref={el => { hg.current[sl].group = el; }} visible={false}>
@@ -336,6 +387,7 @@ export function TwinBox({ twin, hand, placement, posFlip, mirror = false, drive,
   const [resetToken, setResetToken] = useState(0);
   const [big, setBig] = useState(false);
   const sam = useTwinMesh(twin.label, twin.model);
+  const [kept, setKept] = useState('');
   const [shapes, setShapes] = useState(false); // show Claude's shapes even though a mesh is ready (to compare)
   const showMesh = !!sam.mesh && !shapes;
   const [now, setNow] = useState(Date.now());
@@ -356,14 +408,22 @@ export function TwinBox({ twin, hand, placement, posFlip, mirror = false, drive,
   // A screwed-on piece in hand: say it comes off with a pull (twisting works too, and shows how far it has gone).
   const screwing = ui.unscrew >= 0 && ui.unscrew < 100 && (holding || ui.mode === 'hover');
   const piece = partNames.find(n => n === ui.target || n === ui.target2) ?? 'cap';
-  const text = ui.remote
+  // The lanyard has its own steps: open the claw, bring it to the hole, let go, and it hangs.
+  const heldClasp = holding && (ui.target === 'clasp' || ui.target2 === 'clasp'), heldCard = holding && (ui.target === 'whole' || ui.target2 === 'whole');
+  const kitText = !ui.kit ? '' : ui.remote
+    ? (ui.kit === 'on' ? (ui.kitJust ? 'clipped on ✓' : heldClasp ? 'friend lifts it: it swings' : 'clipped on ✓') : ui.kit === 'near' ? 'friend is clipping it on' : ui.kit === 'open' ? 'friend opens the clasp' : '')
+    : ui.kit === 'on' ? (ui.kitJust ? 'clipped on ✓' : heldClasp && ui.kind === 'pinch' ? 'claw open · lift to unclip' : heldClasp ? 'clipped on · it swings' : heldCard ? 'moving both' : 'pinch the clasp to unclip')
+    : ui.kit === 'near' ? 'let go to clip it on'
+    : ui.kit === 'open' ? 'bring the claw to the hole'
+    : heldClasp ? 'pinch to open the claw' : heldCard ? 'holding the card' : ui.mode === 'waiting' ? '' : 'pinch the clasp, clip it on';
+  const text = kitText ? kitText : ui.remote
     ? (both ? 'friend uses both hands' : holding ? `friend holds ${what}` : changed && ui.mode !== 'waiting' ? 'moved by your friend' : ui.mode === 'waiting' ? 'waiting for hand' : 'friend is pointing')
     : screwing ? (holding ? (ui.unscrew > 0 ? `pull it off, or twist · ${ui.unscrew}%` : 'pull up to take it off') : `pinch the ${piece}, pull it off`)
     : holding && ui.unscrew === 100 && ui.partLift < 15 ? `${piece} is loose · pull it off`
     : both ? `both hands: ${what} + ${ui.target2 === 'whole' ? 'the whole' : `the ${ui.target2}`}`
     : holding ? `${ui.kind === 'grip' ? 'gripping' : 'pinching'} ${what}`
     : ui.mode === 'hover' ? `pinch ${what}` : ui.mode === 'idle' && changed ? 'moved · pinch to move again' : ui.mode === 'waiting' ? 'waiting for hand' : partNames.length ? `pinch the ${partNames[0]} or the whole` : 'point at it, then pinch';
-  return <aside className={`twin-box ${mirror ? 'mirror' : ''} ${big ? 'big' : ''}`} aria-label={`3D copy of ${twin.label}`} data-mode={ui.mode} data-kind={ui.kind} data-moved={ui.moved ? '1' : '0'} data-turned={ui.turned ? '1' : '0'} data-angle={ui.angle} data-target={ui.target} data-part-angle={ui.partAngle} data-part-moved={ui.partMoved ? '1' : '0'} data-big={big ? '1' : '0'} data-thumb={ui.thumb} data-part-lift={ui.partLift} data-part-pos={ui.partPos} data-hands={ui.hands} data-kind2={ui.kind2} data-target2={ui.target2} data-unscrew={ui.unscrew}>
+  return <aside className={`twin-box ${mirror ? 'mirror' : ''} ${big ? 'big' : ''}`} aria-label={`3D copy of ${twin.label}`} data-mode={ui.mode} data-kind={ui.kind} data-moved={ui.moved ? '1' : '0'} data-turned={ui.turned ? '1' : '0'} data-angle={ui.angle} data-target={ui.target} data-part-angle={ui.partAngle} data-part-moved={ui.partMoved ? '1' : '0'} data-big={big ? '1' : '0'} data-thumb={ui.thumb} data-part-lift={ui.partLift} data-part-pos={ui.partPos} data-hands={ui.hands} data-kind2={ui.kind2} data-target2={ui.target2} data-unscrew={ui.unscrew} data-kit={ui.kit} data-kit-just={ui.kitJust ? '1' : '0'}>
     <Canvas dpr={[1, 2]} camera={{ position: [0.5, 0.4, 3.4], fov: 40 }} gl={{ antialias: true, alpha: true }} onCreated={({ gl }) => gl.setClearColor(0x000000, 0)}>
       <Lookat />
       <ambientLight intensity={1.2} />
@@ -371,10 +431,11 @@ export function TwinBox({ twin, hand, placement, posFlip, mirror = false, drive,
       <TwinScene key={twin.objectId} mirror={mirror} twin={twin} hand={hand} placement={pl} posFlip={posFlip} drive={drive} remotePose={remotePose} onPose={onPose} status={status} resetToken={resetToken} mesh={showMesh ? sam.mesh : null} />
     </Canvas>
     {holding && <span className={`twin-badge ${ui.kind}`}>{both ? '2 HANDS' : ui.kind === 'grip' ? 'GRIP' : 'PINCH'}</span>}
-    <div className="twin-label"><span>{twin.label}{making ? ` · ${making}` : showMesh ? ' · SAM 3D' : ''}</span><span className="twin-status">{text}</span></div>
+    <div className="twin-label"><span>{twin.label}{making ? ` · ${making}` : kept ? ` · ${kept}` : showMesh ? (sam.saved ? ' · saved' : ' · SAM 3D') : ''}</span><span className="twin-status">{text}</span></div>
     <div className="twin-tools">
       {sam.mesh && <button className="twin-tool" aria-pressed={showMesh} aria-label={showMesh ? 'Show the simple shapes' : 'Show the SAM 3D model'} title={showMesh ? `SAM 3D model (cached${sam.ms ? `, made in ${Math.round(sam.ms / 1000)}s` : ''}). Click for the simple shapes.` : 'Show the SAM 3D model'} onClick={() => setShapes(v => !v)}>{showMesh ? '◆' : '◇'}</button>}
       {(canMake && (!sam.mesh || big)) && <button className="twin-tool" aria-label={sam.mesh ? 'Remake the 3D model' : 'Make a 3D model'} title={`${sam.mesh ? 'Remake' : 'Make'} a real 3D model with SAM 3D. Sends the scanned camera picture to fal.ai.${sam.error ? ` Last try failed: ${sam.error}` : ''}`} onClick={make}>{sam.mesh ? '⟳' : '3D'}</button>}
+      {sam.mesh && drive === 'local' && sam.canKeep && <button className="twin-tool" aria-pressed={sam.saved} aria-label="Keep this model for the demo" title={sam.saved ? 'Saved for the demo: it loads from the app, no scan or AI server needed. Click to save this version again.' : 'Keep this model for the demo: saves it into the app (public/demo), so it loads instantly without scanning.'} onClick={() => { setKept('saving…'); void sam.keep(twin).then(ok => setKept(ok ? 'saved for the demo' : 'could not save')); }}>★</button>}
       <button className="twin-tool" aria-label={big ? 'Make it smaller' : 'Make it bigger'} aria-pressed={big} title={big ? 'Make it smaller' : 'Make it bigger'} onClick={() => setBig(b => !b)}>{big ? '⤡' : '⤢'}</button>
       {changed && drive === 'local' && <button className="twin-tool" aria-label="Put it back" title="Put it back" onClick={() => setResetToken(n => n + 1)}>↺</button>}
       <button className="twin-tool" aria-label="Close 3D view" onClick={onClose}>×</button>

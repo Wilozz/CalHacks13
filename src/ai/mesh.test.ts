@@ -2,7 +2,8 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { BUILTIN_MODELS, sanitizeModel } from './modelSpec';
 import { boxPrompt, decodeMesh, encodeMesh, meshKey, MESH_KEY, orient, readGlb, samYaw, simplify, type RawMesh } from './mesh';
-import { capCut, dropSpecks, fitToModel } from '../render/meshFit';
+import { capCut, dropSpecks, fitLanyard, fitToModel } from '../render/meshFit';
+import { componentsOf as comps2 } from '../remote/components';
 import { componentsOf } from '../remote/components';
 
 const near = (a: number, b: number, e = 1e-5) => assert.ok(Math.abs(a - b) < e, `${a} vs ${b}`);
@@ -116,4 +117,40 @@ test('specks around a scan are dropped', () => {
   const m: RawMesh = { positions: Float32Array.from([0, 0, 0, 1, 0, 0, 0, 1, 0, 1, 1, 0, 5, 5, 5, 5.1, 5, 5, 5, 5.1, 5]), colors: null, indices: Uint32Array.from([...Array.from({ length: 30 }, () => [0, 1, 2, 1, 3, 2]).flat(), 4, 5, 6]) };
   const kept = dropSpecks(m);
   assert.equal(kept.length, 60 * 3, 'the lone far triangle is gone');
+});
+
+test('a lanyard scanned clipped together is cut into the card (the wide part) and the clasp with its strap (the narrow part above)', () => {
+  const lanyard = sanitizeModel(BUILTIN_MODELS.lanyard)!;
+  const pos: number[] = [], idx: number[] = [], col: number[] = [];
+  const quad = (x0: number, x1: number, y0: number, y1: number, z: number, c: number[]) => {
+    const b = pos.length / 3; pos.push(x0, y0, z, x1, y0, z, x1, y1, z, x0, y1, z); idx.push(b, b + 1, b + 2, b, b + 2, b + 3); for (let i = 0; i < 4; i++) col.push(...c);
+  };
+  // a card 4 wide and 6 tall, then a strap 0.5 wide going up 4 more: in scan units, centred anywhere
+  for (let y = 0; y < 6; y += 0.1) for (let x = 0; x < 4; x += 0.5) quad(10 + x, 10.5 + x, 20 + y, 20.1 + y, 5, [240, 240, 240]);
+  for (let y = 6; y < 10; y += 0.1) quad(11.75, 12.25, 20 + y, 20.1 + y, 5, [40, 80, 200]);
+  const fit = fitLanyard({ positions: Float32Array.from(pos), colors: Uint8Array.from(col), indices: Uint32Array.from(idx) }, lanyard);
+  assert.ok(fit.kit, 'it has the clip points');
+  const card = fit.model.parts.find(p => !p.moving)!, clasp = comps2(fit.model)[0];
+  assert.equal(clasp.name, 'clasp');
+  // the card is the bottom 6/10 of the height, the clasp the narrow rest
+  const cardTop = card.position[1] + card.size[1] / 2, h = 1.0;
+  near(cardTop - (-0.5), 0.6 * h, 0.04);
+  assert.ok(clasp.hi[0] - clasp.lo[0] < card.size[0] / 3, 'the clasp is narrow');
+  assert.ok(fit.kit!.hole[1] < cardTop && fit.kit!.hole[1] > cardTop - 0.15, 'the hole is just under the top of the card');
+  assert.ok(fit.kit!.hook[1] < fit.kit!.attach[1], 'the claw hangs below the clasp');
+  assert.ok(fit.pieces[0] && fit.body.indices.length > 0);
+});
+
+test('a card scanned lying flat (as SAM 3D returns one) is stood up, clip on top, and fitted without falling over its own rounding', () => {
+  const lanyard = sanitizeModel(BUILTIN_MODELS.lanyard)!;
+  const pos: number[] = [], idx: number[] = [];
+  const quad = (x0: number, x1: number, z0: number, z1: number) => { const b = pos.length / 3; pos.push(x0, 0.013, z0, x1, 0.013, z0, x1, -0.0131, z1, x0, 0.0131, z1); idx.push(b, b + 1, b + 2, b, b + 2, b + 3); };
+  // flat in x-z: a card 0.63 wide and 0.9 long, and a narrow clip at its +z end; odd decimals, as in a real scan
+  for (let z = -0.4537; z < 0.4463; z += 0.0213) for (let x = -0.3141; x < 0.3159; x += 0.0517) quad(x, x + 0.0517, z, z + 0.0213);
+  for (let z = 0.4463; z < 0.5; z += 0.0041) quad(-0.06, 0.06, z, z + 0.0041);
+  const fit = fitLanyard({ positions: Float32Array.from(pos), colors: null, indices: Uint32Array.from(idx) }, lanyard);
+  const card = fit.model.parts.find(p => !p.moving)!, clasp = comps2(fit.model)[0];
+  assert.ok(card.size[1] > 0.8 && card.size[2] < 0.08, `the card stands, facing the viewer (h ${card.size[1].toFixed(2)}, d ${card.size[2].toFixed(2)})`);
+  assert.ok(clasp.center[1] > card.position[1] + card.size[1] / 2 - 0.02, 'the clip is on top');
+  assert.ok(fit.kit!.hole[1] > card.position[1] + card.size[1] / 2 - 0.1, 'the hole is just under the top edge');
 });

@@ -61,5 +61,7 @@ export const BUILTIN_MODELS = {
   knob: { pivot: [0, -0.18, 0], parts: [P('cylinder', [0.76, 0.14, 0.76], [0, -0.4, 0], C), P('cylinder', [0.58, 0.3, 0.58], [0, -0.18, 0], '#c8fff9', true, 'knob'), P('box', [0.18, 0.03, 0.05], [0.2, -0.02, 0], '#ffffff', true, 'knob')] },
   button: { pivot: [0, -0.22, 0], parts: [P('box', [0.8, 0.2, 0.8], [0, -0.4, 0], C), P('cylinder', [0.4, 0.16, 0.4], [0, -0.22, 0], '#c8fff9', true, 'button')] },
   switch: { pivot: [0, 0, 0.07], parts: [P('box', [0.55, 0.9, 0.1], [0, 0, -0.05], C), P('box', [0.1, 0.42, 0.1], [0, 0.2, 0.07], '#c8fff9', true, 'lever'), P('sphere', [0.2, 0.2, 0.2], [0, 0.42, 0.07], '#ffffff', true, 'lever')] },
+  // The hero demo: a card, with the clasp (and the strap above it) as the piece that clips on. Portrait, like a badge.
+  lanyard: { pivot: [0, 0, 0], parts: [P('box', [0.42, 0.6, 0.02], [0, -0.2, 0], '#e9eef3'), P('box', [0.07, 0.1, 0.04], [0, 0.27, 0], '#c9ced6', true, 'clasp'), P('box', [0.05, 0.18, 0.012], [0, 0.41, 0], '#3b6fd8', true, 'clasp')] },
   box: { pivot: [0, 0, 0], parts: [P('box', [0.95, 0.6, 0.7], [0, 0, 0], C), P('box', [0.85, 0.45, 0.55], [0, 0, 0.05], '#c8fff9', true, 'drawer'), P('box', [0.3, 0.06, 0.08], [0, 0.02, 0.36], '#ffffff', true, 'drawer')] },
 } satisfies Record<string, ModelSpec>;

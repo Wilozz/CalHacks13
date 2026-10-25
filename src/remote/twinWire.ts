@@ -45,6 +45,8 @@ export interface TwinPose {
   offset: [number, number, number]; rotation: [number, number, number, number]; grabbing: boolean; kind: 'none' | 'pinch' | 'grip';
   anchor: [number, number, number] | null; parts: PieceWire[]; target: number;
   second?: HoldWire | null;
+  /** a lanyard: clipped on, how far the claw is open (0..1), and whether the open claw is at the hole */
+  kit?: { joined: boolean; gate: number; near: boolean } | null;
 }
 export const REST_POSE: TwinPose = { offset: [0, 0, 0], rotation: [0, 0, 0, 1], grabbing: false, kind: 'none', anchor: null, parts: [], target: -2 };
 const MAX_PARTS = 4;
@@ -64,6 +66,7 @@ export const encodePose = (p: TwinPose): string => JSON.stringify({
   k: KINDS.indexOf(p.kind), h: p.anchor ? r3(p.anchor) : null, t: p.target,
   c: p.parts.slice(0, MAX_PARTS).map(x => [...r3(x.offset), ...r4(x.rotation)]),
   s: p.second ? [p.second.target, KINDS.indexOf(p.second.kind), p.second.anchor ? r3(p.second.anchor) : null] : null,
+  ...(p.kit ? { j: [p.kit.joined ? 1 : 0, Math.round(p.kit.gate * 100), p.kit.near ? 1 : 0] } : {}),
 });
 
 /** null = not a pose message or invalid. Values are clamped and rotations renormalized, never trusted. */
@@ -78,7 +81,8 @@ export function decodePose(text: string): TwinPose | null {
     Array.isArray(x) && x.length === 7 ? [{ offset: vec3(x.slice(0, 3))!, rotation: unitQuat(x.slice(3)) }] : []);
   const ok = (v: unknown) => (Number.isInteger(v) && (v as number) >= -2 && (v as number) < parts.length ? (v as number) : -2);
   const second: HoldWire | null = Array.isArray(m.s) && m.s.length === 3 ? { target: ok(m.s[0]), kind: KINDS[m.s[1]] ?? 'none', anchor: vec3(m.s[2]) } : null;
-  return { offset, rotation: unitQuat(m.q), grabbing: m.g === 1, kind: KINDS[m.k] ?? 'none', anchor: vec3(m.h), parts, target: ok(m.t), second };
+  const kit = Array.isArray(m.j) && m.j.length === 3 ? { joined: m.j[0] === 1, gate: Math.min(1, Math.max(0, Number(m.j[1]) / 100 || 0)), near: m.j[2] === 1 } : null;
+  return { offset, rotation: unitQuat(m.q), grabbing: m.g === 1, kind: KINDS[m.k] ?? 'none', anchor: vec3(m.h), parts, target: ok(m.t), second, ...(kit ? { kit } : {}) };
 }
 
 /** A finished sentence, shared so both screens' listening agents hear the whole conversation. Text only: audio never leaves the device except to the speech service. */

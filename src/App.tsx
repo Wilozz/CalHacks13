@@ -26,6 +26,8 @@ import { HandSlots } from './remote/handSlots';
 import { DemoPanel } from './render/DemoPanel';
 import { TwinBox } from './render/TwinBox';
 import { twinKindForLabel } from './render/motion';
+import { isLanyard } from './remote/kitRig';
+import { DEMO_BASE } from './render/useTwinMesh';
 import { decodePose, decodeSay, decodeTwin, encodePose, encodeSay, encodeTwin, REST_POSE, type TwinInfo, type TwinPose } from './remote/twinWire';
 const SLOTS = [0, 1] as const;
 type Facing = 'user' | 'environment';
@@ -330,11 +332,29 @@ export default function App({communitySession}:{communitySession?:{id:string;tok
   useEffect(() => {
     if (selectedId === prevSelected.current) return;
     prevSelected.current = selectedId;
-    const t: TwinInfo|null = selected ? { objectId: selected.objectId, label: selected.label, bbox: selected.bbox, feedAspect: scanAspect.current,
-      model: selected.model ?? sanitizeModel(BUILTIN_MODELS[twinKindForLabel(selected.label, selected.parentLabel)])! } : null;
+    // A lanyard is the demo's two-piece kit: it uses the kit's own model, and its box covers the card, clasp and strap
+    // together (Claude may list them separately), so a SAM 3D scan takes in the whole thing.
+    const lanyard = !!selected && isLanyard(`${selected.label} ${selected.parentLabel ?? ''}`);
+    const kitBox = (): [number,number,number,number] => { const bs = scene.objects.filter(o => isLanyard(`${o.label} ${o.parentLabel ?? ''}`)).map(o => o.bbox); return [Math.min(...bs.map(b => b[0])), Math.min(...bs.map(b => b[1])), Math.max(...bs.map(b => b[2])), Math.max(...bs.map(b => b[3]))]; };
+    const t: TwinInfo|null = selected ? { objectId: selected.objectId, label: lanyard ? 'lanyard' : selected.label, bbox: lanyard ? kitBox() : selected.bbox, feedAspect: scanAspect.current,
+      model: lanyard ? sanitizeModel(BUILTIN_MODELS.lanyard)! : selected.model ?? sanitizeModel(BUILTIN_MODELS[twinKindForLabel(selected.label, selected.parentLabel)])! } : null;
     setTwin(t); sendTwin(t);
   }, [selectedId, selected]);
   useEffect(() => { if (screen==='home' && !selectedId) setTwin(null); }, [screen]);
+  // Objects saved for the demo ship with the app (public/demo): open one without scanning. ?demo=lanyard opens it on load.
+  const [saved,setSaved] = useState<{key:string;label:string}[]>([]);
+  const openSaved = async (key:string) => {
+    try {
+      const m = await (await fetch(`${DEMO_BASE}${key}.json`)).json();
+      const t = decodeTwin(JSON.stringify({ ...m.twin, type:'twin' }));
+      if (t) { setSelectedId(null); prevSelected.current = null; setTwin(t); sendTwin(t); }
+    } catch { /* not saved after all */ }
+  };
+  useEffect(() => {
+    fetch(`${DEMO_BASE}index.json`).then(r => r.ok ? r.json() : []).then(l => setSaved(Array.isArray(l) ? l.filter(x => typeof x?.key==='string' && typeof x?.label==='string') : [])).catch(() => setSaved([]));
+    const want = new URLSearchParams(location.search).get('demo');
+    if (want && /^[a-z0-9-]{1,40}$/.test(want)) void openSaved(want);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
   const chooseObject = (id:string|null) => { setSelectedId(id); if (id) agent.current?.tracker.mention(id, 1, performance.now()); };
   const scanMine = () => { void scene.scan(video.current); };
   const scanFriend = () => { void scene.scan(call.friendVideo.current); };
@@ -407,7 +427,7 @@ export default function App({communitySession}:{communitySession?:{id:string;tok
         <HandQuickControls placement={placement} onPlacement={setPlacement} cameraOn={active} tracked={stats.tracked}/>
         <details className="more"><summary>Tune the hand <small>size, reach, mirroring, network test</small></summary><HandAdvanced enabled={handOn} onEnabled={setHandOn} placement={placement} onPlacement={setPlacement} remote={myHand} loop={loop}/></details>
         <details className="more"><summary>AI scan to 3D model <small>needs the AI server</small></summary>
-          <ScenePanel objects={scene.objects} selectedId={selectedId} onSelect={chooseObject} cameraOn={active} inCall={screen==='incall'} scanning={scene.scanning} error={scene.error} auto={scene.auto} onAuto={scene.setAuto} onScan={scanMine} onScanFriend={scanFriend} lastMs={scene.lastMs}/>
+          <ScenePanel objects={scene.objects} selectedId={selectedId} onSelect={chooseObject} cameraOn={active} inCall={screen==='incall'} scanning={scene.scanning} error={scene.error} auto={scene.auto} onAuto={scene.setAuto} onScan={scanMine} onScanFriend={scanFriend} lastMs={scene.lastMs} saved={saved} onOpenSaved={key => void openSaved(key)}/>
           <DemoPanel/>
         </details>
         <details className="more" onToggle={e => setLabOpen(e.currentTarget.open)}><summary>Hand tracking lab <small>3D skeleton, performance</small></summary>
