@@ -25,6 +25,12 @@ Remote help for physical things, from people who know how. Post what you're stuc
 
 <br />
 
+## How we use Convex
+Convex is the community backend: help requests and matching, accounts (Convex Auth), friends and direct messages, and saved 3D lessons in file storage.
+The Community feed, Messages, notifications and the Tutorials list are live `useQuery` subscriptions, so they update without a refresh.
+Scheduled mutations expire unanswered requests, and the `@convex-dev/presence` component shows who is online.
+Details, with the file behind each feature: [hackathon.md](hackathon.md).
+
 ## The problem
 
 Video calls are great for faces and terrible for things.
