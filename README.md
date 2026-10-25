@@ -1,8 +1,6 @@
 <div align="center">
 
-<img src="docs/design/source/assets/camera-lanyard.png" alt="A 3D copy of a lanyard, made from one camera frame" width="150" />
-
-# Handoff
+<img src="docs/logo.png" alt="Handoff" width="340" />
 
 ### Hand someone your problem, not your screen.
 
