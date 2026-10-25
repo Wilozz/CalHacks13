@@ -29,6 +29,7 @@ import { isLanyard } from './remote/kitRig';
 import { DEMO_BASE } from './render/useTwinMesh';
 import { decodePose, decodeSay, decodeTwin, encodePose, encodeSay, encodeTwin, REST_POSE, type TwinInfo, type TwinPose } from './remote/twinWire';
 import { captureFrame } from './useSceneScan';
+import { MATCH, useObjectFinder } from './useObjectFinder';
 import { ThrowLesson } from './replay/lesson';
 import { keepSharedReplay, saveReplay } from './replay/Tutorials';
 // The 3D copy changes hands: whoever holds it drives it, and throwing it gives it to the other screen.
@@ -406,8 +407,13 @@ export default function App({communitySession}:{communitySession?:{id:string;tok
     const want = new URLSearchParams(location.search).get('demo');
     if (want && /^[a-z0-9-]{1,40}$/.test(want)) void openSaved(want);
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
-  // The agent: in a call, until the lanyard is out, ask Claude (a small frame, one yes/no question) about once a second.
-  const looking = screen==='incall' && active && !twin;
+  // Finding the lanyard, in a call until it is out. On this device: every object boxed ~8 times a second, the most
+  // lanyard-like one picked at once (useObjectFinder). Alongside, Claude's check (a small frame, one yes/no, ~1/s) is
+  // the backup; what it finds is kept as a real picture, so next time the device finds it at once.
+  const looking = screen==='incall' && (phase==='loading' || active) && !twin; // the camera is on: no need to wait for hand tracking
+  const finder = useObjectFinder(video, looking, () => live.current.hands ?? [], bbox => { console.info('[find] on device'); void showLanyard(bbox); });
+  // Every object boxed on my camera while looking (tap one to say "that is the lanyard"); hand regions only when they match.
+  const seen = finder.boxes.filter(b => b.label!=='in hand' || b.sim>=MATCH);
   useEffect(() => {
     if (!looking) return;
     let live = true, timer = 0;
@@ -416,7 +422,7 @@ export default function App({communitySession}:{communitySession?:{id:string;tok
       const shot = captureFrame(video.current, 448, 0.6);
       if (shot) try {
         const r = await aiClient.findLanyard({ imageBase64: shot.imageBase64, mediaType: 'image/jpeg' });
-        if (live && r.found) { void showLanyard(r.bbox ?? undefined); return; }
+        if (live && r.found) { console.info('[find] by Claude'); if (r.bbox) finder.learn(r.bbox); void showLanyard(r.bbox ?? undefined); return; }
       } catch (e) { wait = 5000; console.warn('Lanyard check failed:', e); } // no AI server or key: try again later, quietly
       if (live) timer = window.setTimeout(look, wait);
     };
@@ -450,6 +456,9 @@ export default function App({communitySession}:{communitySession?:{id:string;tok
     <div className={`self ${selfFromCall?'from-call':''}`}>
       <div className={`camera-stage ${facing==='user'?'mirrored':''}`} style={{'--ar':live.current.aspect} as CSSProperties}>
         <video ref={video} autoPlay playsInline muted/><canvas ref={overlay} className={showOverlay?'':'hidden'}/>
+        {looking && <SceneOverlay objects={seen.map((b,i) => ({ objectId:String(i), label: b.sim>=MATCH ? 'lanyard' : b.label, bbox:b.bbox, affordances:[], confidence:b.score, seenAt:0 }))}
+          selectedId={seen.findIndex(b => b.sim>=MATCH) >= 0 ? String(seen.findIndex(b => b.sim>=MATCH)) : null} hoverId={null} aspect={live.current.aspect} mirrored={facing==='user'}
+          onSelect={id => { const b = seen[+id]; if (b) { finder.learn(b.bbox); void showLanyard(b.bbox); } }}/>}
         {screen==='home' && active && scannedFrom==='mine' && <SceneOverlay objects={scene.objects} selectedId={selectedId} hoverId={hoverId} aspect={live.current.aspect} mirrored={facing==='user'} onSelect={chooseObject}/>}
       </div>
       <video ref={call.selfVideo} className="self-video" autoPlay muted playsInline/>

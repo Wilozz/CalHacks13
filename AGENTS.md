@@ -29,6 +29,7 @@ Node 20.19+ or 22.12+.
 |---|---|
 | `src/App.tsx` | Camera lifecycle, front/rear switch, frame submission to the worker, UI |
 | `public/tracking.worker.js` | MediaPipe Hand Landmarker in a worker (plain JS, not bundled by Vite) |
+| `public/objects.worker.js`, `src/useObjectFinder.ts` | On-device object boxes + "looks like the stored lanyard" match that brings the lanyard up in a call |
 | `src/coordinates.ts` | `HandFrame` type and MediaPipe → Three.js coordinate transform, `BONES` |
 | `src/HandScene.tsx` | R3F scene: joints/bones, smoothing, tracking-loss hiding |
 | `src/device.ts` | `useMobileDevice` |
