@@ -131,8 +131,8 @@ button:not(:disabled):not(.play-audio):not(.scene-box):active{transform:scale(.9
 /* Messages & Friends. */
 .messages-layout{display:grid;grid-template-columns:minmax(240px,300px) minmax(0,1fr);gap:24px;align-items:start}
 .messages-layout aside{padding:0}
-.messages-layout aside>h2{margin:24px 0 8px;font-size:13px;font-weight:400;color:var(--label-3);text-transform:uppercase;letter-spacing:.02em}
-.messages-layout aside>h2:first-child{margin-top:0}
+.community-page .messages-layout aside>h2{margin:24px 0 8px;font-size:13px;font-weight:400;color:var(--label-3);text-transform:uppercase;letter-spacing:.02em}
+.community-page .messages-layout aside>h2:first-child{margin-top:0}
 .messages-layout aside>p{font-size:13px;color:var(--label-3)}
 .messages-layout .community-card{margin:8px 0;padding:14px}
 .messages-layout .community-card strong{font-size:15px}
