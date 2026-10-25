@@ -3,12 +3,14 @@ import {existsSync,readFileSync} from 'node:fs';
 const localUrl=/^http:\/\/(127\.0\.0\.1|localhost):/;
 const localBackend=localUrl.test(process.env.VITE_CONVEX_URL??'') || (existsSync('.env.local') && /^VITE_CONVEX_URL=http:\/\/(127\.0\.0\.1|localhost):/m.test(readFileSync('.env.local','utf8')));
 test.skip(!localBackend,'Lesson tests save to Convex and require the LOCAL backend (npm run convex).');
-const logs=(p:Page,name:string,out:string[])=>p.on('console',m=>{if(/\[lesson\]|Lesson not/.test(m.text()))console.log(`${name}: ${m.text()}`);});
+const logs=(p:Page,name:string,out:string[])=>p.on('console',m=>{if(/\[lesson\]|\[call\]|Lesson not/.test(m.text())){out.push(m.text());console.log(`${name}: ${m.text()}`);}});
+// Nothing pops up on screen any more: what happened is in the console.
+const said=(out:string[],text:string)=>expect.poll(()=>out.some(l=>l.includes(text)),{timeout:15_000}).toBe(true);
 // The fake camera shows no lanyard (and there is no AI server here), so it comes out from Hand tools → Saved for the demo.
 test('the lanyard is thrown to the helper and back, and the helper’s lesson lands in both people’s Tutorials',async({browser})=>{
  const a=await browser.newContext({permissions:['camera','microphone']}),b=await browser.newContext({permissions:['camera','microphone']});
- const learner=await a.newPage(),helper=await b.newPage(),seen:string[]=[];
- logs(learner,'learner',seen);logs(helper,'helper',seen);
+ const learner=await a.newPage(),helper=await b.newPage(),ls:string[]=[],hs:string[]=[];
+ logs(learner,'learner',ls);logs(helper,'helper',hs);
  await learner.goto('/');await helper.goto('/');
  await learner.getByRole('button',{name:'New call',exact:true}).click();
  await expect(learner.getByTestId('room-code')).toHaveText(/^[A-HJ-NP-Z2-9]{6}$/,{timeout:20_000});
@@ -24,13 +26,14 @@ test('the lanyard is thrown to the helper and back, and the helper’s lesson la
  for(const p of [learner,helper])await expect(p.getByRole('complementary',{name:'3D copy of lanyard'})).toBeVisible({timeout:10_000});
  await expect(helper.getByRole('button',{name:'Throw to your friend'})).toHaveCount(0); // only the holder can throw
  await learner.getByRole('button',{name:'Throw to your friend'}).click();
- await expect(helper.getByText('Your friend threw you the lanyard',{exact:true})).toBeVisible({timeout:5_000});
+ await said(hs,'Your friend threw you the lanyard');
  await expect(learner.getByRole('button',{name:'Throw to your friend'})).toHaveCount(0);
  await helper.waitForTimeout(3000); // the helper unclips and clips it (a lesson is at least 2 s)
  await helper.getByRole('button',{name:'Throw to your friend'}).click();
- await expect(learner.getByText('Your friend threw you the lanyard',{exact:true})).toBeVisible({timeout:5_000});
- await expect(helper.getByText('Lesson saved to Tutorials',{exact:true})).toBeVisible({timeout:15_000});
- await expect(learner.getByText('Your friend’s lesson was saved to Tutorials',{exact:true})).toBeVisible({timeout:15_000});
+ await said(ls,'Your friend threw you the lanyard');
+ await said(hs,'Lesson saved to Tutorials');
+ await said(ls,'Your friend’s lesson was saved to Tutorials');
+ for(const p of [learner,helper])await expect(p.locator('.throw-toast, .hand-hint, .scene-box')).toHaveCount(0); // no pills or boxes on screen
  // The call ends; the lesson is in the learner's Tutorials and plays.
  await learner.getByRole('button',{name:'End call'}).click();
  await learner.goto('/#tutorials');await learner.reload(); // the tab is read from the hash on load

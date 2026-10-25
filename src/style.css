@@ -297,3 +297,5 @@ button:disabled{opacity:.4;cursor:default}
 .twin-box.stage .twin-label span:first-child{max-width:none}
 .twin-box.stage .twin-badge{left:50%;top:calc(env(safe-area-inset-top) + 64px);transform:translateX(-50%)}
 .phone .twin-box.stage .twin-tools{top:calc(env(safe-area-inset-top) + 104px)}
+/* In a call: no status pill or PINCH/GRIP badge over the lanyard, just the lanyard and its tools. */
+.twin-box.stage .twin-label,.twin-box.stage .twin-badge{display:none}

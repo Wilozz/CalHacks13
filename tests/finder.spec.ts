@@ -31,8 +31,8 @@ test('the lanyard held up to the camera is found on the device and comes up on b
  await helper.getByRole('button',{name:'Join',exact:true}).click();
  await expect(learner.getByTestId('call-state')).toHaveText(/^\d\d:\d\d$/,{timeout:35_000});
  const t0=Date.now();
- await expect(learner.locator('.scene-box').first()).toBeVisible({timeout:10_000}); // every object gets a box
  for(const p of [learner,helper])await expect(p.locator('.twin-box.stage')).toBeVisible({timeout:10_000});
  console.log(`lanyard up ${Date.now()-t0} ms after the call connected`);
+ await expect(learner.locator('.scene-box, .throw-toast')).toHaveCount(0); // the boxes are found, not drawn
  await a.close();await b.close();
 });

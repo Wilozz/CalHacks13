@@ -16,7 +16,6 @@ import type { SceneObject } from './ai/types';
 import { VoiceAgent, type Heard } from './voice/agent';
 import type { FocusDecision } from './voice/referent';
 import { useVoice } from './voice/useVoice';
-import { VoiceBar } from './voice/VoiceBar';
 import { mapToFeed } from './remote/placement';
 import { HandAdvanced, HandQuickControls } from './remote/HandOverlayPanel';
 import { DEFAULT_PLACEMENT, type Placement } from './remote/placement';
@@ -29,7 +28,7 @@ import { isLanyard } from './remote/kitRig';
 import { DEMO_BASE } from './render/useTwinMesh';
 import { decodePose, decodeSay, decodeTwin, encodePose, encodeSay, encodeTwin, REST_POSE, type TwinInfo, type TwinPose } from './remote/twinWire';
 import { captureFrame } from './useSceneScan';
-import { MATCH, useObjectFinder } from './useObjectFinder';
+import { useObjectFinder } from './useObjectFinder';
 import { ThrowLesson } from './replay/lesson';
 import { keepSharedReplay, saveReplay } from './replay/Tutorials';
 // The 3D copy changes hands: whoever holds it drives it, and throwing it gives it to the other screen.
@@ -323,8 +322,8 @@ export default function App({communitySession}:{communitySession?:{id:string;tok
   // Who holds the copy: whoever brought it out, until they throw it. The holder drives it; the other screen shows their pose.
   const [holder,setHolder] = useState<'me'|'friend'>('me');
   const lastPose = useRef<TwinPose>(REST_POSE); // my latest pose of the copy, for the lesson
-  const [toasts,setToasts] = useState<{id:number;text:string}[]>([]);
-  const show = (text:string) => { const id = Math.random(); setToasts(t => [...t.slice(-2), {id,text}]); window.setTimeout(() => setToasts(t => t.filter(x => x.id!==id)), 2600); };
+  // No message pills on screen (clutter): what happened goes to the console, for debugging and the tests.
+  const show = (text:string) => console.info(`[call] ${text}`);
   // Lessons record themselves, silently: from catching the copy until you throw it back. Saved, then sent to your friend too.
   const lesson = useRef<ThrowLesson|null>(null);
   if (!lesson.current) lesson.current = new ThrowLesson(r => {
@@ -412,8 +411,6 @@ export default function App({communitySession}:{communitySession?:{id:string;tok
   // the backup; what it finds is kept as a real picture, so next time the device finds it at once.
   const looking = screen==='incall' && (phase==='loading' || active) && !twin; // the camera is on: no need to wait for hand tracking
   const finder = useObjectFinder(video, looking, () => live.current.hands ?? [], bbox => { console.info('[find] on device'); void showLanyard(bbox); });
-  // Every object boxed on my camera while looking (tap one to say "that is the lanyard"); hand regions only when they match.
-  const seen = finder.boxes.filter(b => b.label!=='in hand' || b.sim>=MATCH);
   useEffect(() => {
     if (!looking) return;
     let live = true, timer = 0;
@@ -456,9 +453,6 @@ export default function App({communitySession}:{communitySession?:{id:string;tok
     <div className={`self ${selfFromCall?'from-call':''}`}>
       <div className={`camera-stage ${facing==='user'?'mirrored':''}`} style={{'--ar':live.current.aspect} as CSSProperties}>
         <video ref={video} autoPlay playsInline muted/><canvas ref={overlay} className={showOverlay?'':'hidden'}/>
-        {looking && <SceneOverlay objects={seen.map((b,i) => ({ objectId:String(i), label: b.sim>=MATCH ? 'lanyard' : b.label, bbox:b.bbox, affordances:[], confidence:b.score, seenAt:0 }))}
-          selectedId={seen.findIndex(b => b.sim>=MATCH) >= 0 ? String(seen.findIndex(b => b.sim>=MATCH)) : null} hoverId={null} aspect={live.current.aspect} mirrored={facing==='user'}
-          onSelect={id => { const b = seen[+id]; if (b) { finder.learn(b.bbox); void showLanyard(b.bbox); } }}/>}
         {screen==='home' && active && scannedFrom==='mine' && <SceneOverlay objects={scene.objects} selectedId={selectedId} hoverId={hoverId} aspect={live.current.aspect} mirrored={facing==='user'} onSelect={chooseObject}/>}
       </div>
       <video ref={call.selfVideo} className="self-video" autoPlay muted playsInline/>
@@ -473,10 +467,7 @@ export default function App({communitySession}:{communitySession?:{id:string;tok
       </div>}
       {screen!=='home' && call.cameraOff && <p className="self-off">Camera off</p>}
     </div>
-    {screen!=='calling' && <VoiceBar state={voice.state} engine={voice.engine} partial={voice.partial} error={voice.error} heard={heard} objects={scene.objects} focus={focusInfo} topic={topic}
-      onToggle={() => voice.state==='listening' ? voice.stop() : voice.start()} onChoose={chooseObject} onAccept={voice.accept} onDecline={voice.decline}/>}
     {twin && (screen==='home' || screen==='incall') && <TwinBox twin={twin} mirror={screen==='home'} hand={holder==='me' ? myHand : peerHand} drive={holder==='me' ? 'local' : 'remote'} remotePose={remotePose} onPose={sendPose} placement={placement} posFlip={screen==='home' ? false : placement.flipX} onClose={closeTwin} onThrow={screen==='incall' ? throwTwin : undefined} stage={screen==='incall'} frame={holder==='me' && scene.objects.some(o => o.objectId===twin.objectId) ? scene.frame.current : null}/>}
-    {toasts.length > 0 && <div className="throw-toasts">{toasts.map(t => <p key={t.id} className="throw-toast" role="status">{t.text}</p>)}</div>}
     {screen==='home' && <section className="home-panel" aria-label="Start a call">
       <PageHeading compact eyebrow="Handoff LIVE" title={<>A hand.<br/><span className="gradient-text">From anywhere.</span></>} description="Show someone what to do with your hands."/>
       <button className="primary" onClick={() => begin()}><Icon name="video" size={20}/>New call</button>
@@ -497,7 +488,6 @@ export default function App({communitySession}:{communitySession?:{id:string;tok
       {call.hint && <p className="fine" role="status">{call.hint}</p>}
       {call.room && !call.relay && <p className="fine">No TURN relay on this server, so calls across networks may fail.</p>}
     </section>}
-    {screen==='incall' && !twin && !active && phase!=='loading' && <p className="hand-hint" role="status">Tap the hand button to turn on hand tracking</p>}
     {screen==='incall' && <div className="call-pill" role="status"><b data-testid="room-code">{call.room}</b><span data-testid="call-state">{call.status==='connected' ? clock : 'Reconnecting…'}</span>{call.route && <span>{call.route}</span>}</div>}
     {screen!=='home' && <div className="controls">
       <button className="round" disabled={!call.local} aria-pressed={call.muted} aria-label={call.muted?'Unmute microphone':'Mute microphone'} onClick={call.toggleMute}><Icon name={call.muted?'micOff':'mic'}/></button>
