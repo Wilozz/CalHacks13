@@ -10,4 +10,5 @@ public/vendor/
 test-results/
 playwright-report/
 .convex/
-.cache/
+# SAM 3D meshes in .cache/meshes are committed, so every machine and the hosted app have them; only half-written files are not.
+.cache/**/*.tmp
