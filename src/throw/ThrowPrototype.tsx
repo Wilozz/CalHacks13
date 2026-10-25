@@ -7,10 +7,12 @@ import { decodePoses, decodeToss, encodePoses, encodeToss, TOSS_OBJECTS, type Po
 import { TossScene, type TossApi, type TossStatus } from './TossScene';
 import { useTracker } from './useTracker';
 import { ThrowLesson } from '../replay/lesson';
-import { saveReplay } from '../replay/Tutorials';
+import { keepSharedReplay, saveReplay } from '../replay/Tutorials';
 
 // Bump when the throwing messages change, so two different builds say so instead of silently showing nothing.
 const VERSION = 2, HELLO = JSON.stringify({ type: 'throw-hello', v: VERSION });
+// The id of a lesson just saved, so the other person keeps the same recording (with these hands in it).
+const lessonId = (text: unknown) => { try { const m = typeof text === 'string' && text.length < 200 && JSON.parse(text); return m?.type === 'lesson' && typeof m.id === 'string' && m.id.length < 64 ? m.id as string : null; } catch { return null; } };
 const helloVersion = (text: unknown) => { try { const m = typeof text === 'string' && text.length < 100 && JSON.parse(text); return m?.type === 'throw-hello' ? Number(m.v) || 0 : null; } catch { return null; } };
 
 const article = (label: string) => `${/^[aeiou]/i.test(label) ? 'an' : 'a'} ${label.toLowerCase()}`;
@@ -38,7 +40,12 @@ export default function ThrowPrototype() {
   };
   // Lessons record themselves, silently: from catching an object someone threw you until you throw it back.
   const lesson = useRef<ThrowLesson | null>(null);
-  if (!lesson.current) lesson.current = new ThrowLesson(r => { saveReplay(r, `${r.label} lesson`).then(() => show('Lesson saved to Tutorials'), e => console.warn('Lesson not saved:', e)); });
+  const control = useRef<RTCDataChannel | null>(null);
+  control.current = call.controlChannel;
+  if (!lesson.current) lesson.current = new ThrowLesson(r => { saveReplay(r, `${r.label} lesson`).then(id => {
+    show('Lesson saved to Tutorials');
+    if (control.current?.readyState === 'open') control.current.send(JSON.stringify({ type: 'lesson', id }));
+  }, e => console.warn('Lesson not saved:', e)); });
   const caught = (t: Toss) => lesson.current!.caught(t.id, t.label, t.model, tracker.hand.current.aspect, performance.now());
   useEffect(() => () => lesson.current?.end(performance.now()), []);
   const screen = call.status === 'idle' ? 'home' : call.status === 'connected' || call.status === 'disconnected' ? 'incall' : 'calling';
@@ -51,6 +58,8 @@ export default function ThrowPrototype() {
     const onMessage = (e: MessageEvent) => {
       const v = helloVersion(e.data);
       if (v !== null) { clearTimeout(timer); setPeer(v === VERSION ? 'ok' : 'other'); return; }
+      const shared = lessonId(e.data);
+      if (shared) { keepSharedReplay(shared).then(() => show('Your friend’s lesson was saved to Tutorials'), err => console.warn('Lesson not kept:', err)); return; }
       const t = decodeToss(e.data); if (t) { api.current?.receive(t); if (t.give) { show(`Your friend tossed you ${article(t.label)}`); caught(t); } }
     };
     const onOpen = () => {

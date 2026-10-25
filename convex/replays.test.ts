@@ -27,6 +27,18 @@ describe('replays',()=>{
   expect(await t.query(api.replays.list,{ownerKey:owner})).toEqual([]);
   expect(await t.run(ctx=>ctx.storage.get(storageId))).toBeNull();
  });
+ it('shares a fresh replay with the other person in the call; the file stays until both delete it',async()=>{
+  const t=convexTest(schema,modules);presenceTest.register(t);
+  const storageId=await t.run(ctx=>ctx.storage.store(new Blob([log])));
+  const id=await t.action(api.replays.save,{storageId,name:'Hook it',ownerKey:owner});
+  const theirs=await t.mutation(api.replays.copy,{id,ownerKey:other});
+  expect(await t.mutation(api.replays.copy,{id,ownerKey:other})).toBe(theirs); // sent twice, kept once
+  expect((await t.query(api.replays.list,{ownerKey:other})).map(r=>r.name)).toEqual(['Hook it']);
+  await t.mutation(api.replays.remove,{id,ownerKey:owner});
+  expect((await t.query(api.replays.get,{id:theirs,ownerKey:other}))?.url).toBeTruthy();
+  await t.mutation(api.replays.remove,{id:theirs,ownerKey:other});
+  expect(await t.run(ctx=>ctx.storage.get(storageId))).toBeNull();
+ });
  it('refuses and deletes an upload that is not a replay',async()=>{
   const t=convexTest(schema,modules);presenceTest.register(t);
   const storageId=await t.run(ctx=>ctx.storage.store(new Blob(['{"v":1,"h":"nope"}'])));

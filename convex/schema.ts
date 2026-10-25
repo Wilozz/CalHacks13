@@ -15,5 +15,5 @@ export default defineSchema({
  sessions:defineTable({startedAt:v.optional(v.number()),conversationId:v.optional(v.id('conversations')),inviteStatus:v.optional(v.union(v.literal('pending'),v.literal('accepted'),v.literal('declined'))),inviter:v.optional(v.id('users')),requestId:v.id('requests'),requester:v.id('users'),helper:v.id('users'),roomCode:v.string(),status:v.union(v.literal('accepted'),v.literal('in_session'),v.literal('completed'),v.literal('expired')),updatedAt:v.number(),endedAt:v.optional(v.number()),disconnectedAt:v.optional(v.number())}).index('by_roomCode',['roomCode']).index('by_requester',['requester']).index('by_helper',['helper']),
  notifications:defineTable({userId:v.id('users'),requestId:v.id('requests'),message:v.string(),read:v.boolean()}).index('by_userId',['userId']),
  // Saved tutorials: the 3D event log is a file (src/replay/log.ts), owned by a random browser key, not an account.
- replays:defineTable({ownerKey:v.string(),name:v.string(),label:v.string(),durationMs:v.number(),logFile:v.id('_storage')}).index('by_ownerKey',['ownerKey']),
+ replays:defineTable({ownerKey:v.string(),name:v.string(),label:v.string(),durationMs:v.number(),logFile:v.id('_storage')}).index('by_ownerKey',['ownerKey']).index('by_logFile',['logFile']),
 });
