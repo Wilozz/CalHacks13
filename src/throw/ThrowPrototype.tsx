@@ -45,7 +45,7 @@ export default function ThrowPrototype() {
   if (!lesson.current) lesson.current = new ThrowLesson(r => { saveReplay(r, `${r.label} lesson`).then(id => {
     show('Lesson saved to Tutorials');
     if (control.current?.readyState === 'open') control.current.send(JSON.stringify({ type: 'lesson', id }));
-  }, e => console.warn('Lesson not saved:', e)); });
+  }, e => { console.warn('Lesson not saved:', e); show('Lesson could not be saved'); }); });
   const caught = (t: Toss) => lesson.current!.caught(t.id, t.label, t.model, tracker.hand.current.aspect, performance.now());
   useEffect(() => () => lesson.current?.end(performance.now()), []);
   const screen = call.status === 'idle' ? 'home' : call.status === 'connected' || call.status === 'disconnected' ? 'incall' : 'calling';
@@ -59,7 +59,7 @@ export default function ThrowPrototype() {
       const v = helloVersion(e.data);
       if (v !== null) { clearTimeout(timer); setPeer(v === VERSION ? 'ok' : 'other'); return; }
       const shared = lessonId(e.data);
-      if (shared) { keepSharedReplay(shared).then(() => show('Your friend’s lesson was saved to Tutorials'), err => console.warn('Lesson not kept:', err)); return; }
+      if (shared) { keepSharedReplay(shared).then(() => show('Your friend’s lesson was saved to Tutorials'), err => { console.warn('Lesson not kept:', err); show('Your friend’s lesson could not be saved here'); }); return; }
       const t = decodeToss(e.data); if (t) { api.current?.receive(t); if (t.give) { show(`Your friend tossed you ${article(t.label)}`); caught(t); } }
     };
     const onOpen = () => {

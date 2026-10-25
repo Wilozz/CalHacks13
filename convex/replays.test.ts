@@ -33,7 +33,7 @@ describe('replays',()=>{
   const id=await t.action(api.replays.save,{storageId,name:'Hook it',ownerKey:owner});
   const theirs=await t.mutation(api.replays.copy,{id,ownerKey:other});
   expect(await t.mutation(api.replays.copy,{id,ownerKey:other})).toBe(theirs); // sent twice, kept once
-  expect((await t.query(api.replays.list,{ownerKey:other})).map(r=>r.name)).toEqual(['Hook it']);
+  expect((await t.query(api.replays.list,{ownerKey:other})).map(r=>r.name)).toEqual(['Hook it (from your friend)']);
   await t.mutation(api.replays.remove,{id,ownerKey:owner});
   expect((await t.query(api.replays.get,{id:theirs,ownerKey:other}))?.url).toBeTruthy();
   await t.mutation(api.replays.remove,{id:theirs,ownerKey:other});

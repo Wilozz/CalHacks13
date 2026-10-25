@@ -23,7 +23,7 @@ export const copy=mutation({args:{id:v.id('replays'),ownerKey},handler:async(ctx
  const r=await ctx.db.get(id);
  if(!r||Date.now()-r._creationTime>SHARE_MS)throw new Error('Tutorial not found');
  const mine=(await ctx.db.query('replays').withIndex('by_logFile',q=>q.eq('logFile',r.logFile)).take(10)).find(x=>x.ownerKey===ownerKey);
- return mine?mine._id:await ctx.db.insert('replays',{ownerKey,name:r.name,label:r.label,durationMs:r.durationMs,logFile:r.logFile});
+ return mine?mine._id:await ctx.db.insert('replays',{ownerKey,name:`${r.name} (from your friend)`.slice(0,80),label:r.label,durationMs:r.durationMs,logFile:r.logFile});
 }});
 export const list=query({args:{ownerKey},handler:async(ctx,{ownerKey})=>{
  const rows=await ctx.db.query('replays').withIndex('by_ownerKey',q=>q.eq('ownerKey',ownerKey)).order('desc').take(100);
