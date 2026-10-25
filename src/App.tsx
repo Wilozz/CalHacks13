@@ -170,7 +170,7 @@ export default function App({communitySession}:{communitySession?:{id:string;tok
     };
     setPhase('loading'); setMessage('Requesting camera access…');
     try {
-      if(!window.isSecureContext || !navigator.mediaDevices?.getUserMedia) throw new Error('Open GHOST over trusted HTTPS on your phone. A laptop’s HTTP LAN address cannot access your camera. Localhost only works on the device serving the app.');
+      if(!window.isSecureContext || !navigator.mediaDevices?.getUserMedia) throw new Error('Open Handoff over trusted HTTPS on your phone. A laptop’s HTTP LAN address cannot access your camera. Localhost only works on the device serving the app.');
       stream=await navigator.mediaDevices.getUserMedia({audio:false,video:{facingMode:{ideal:requestedFacing},width:{ideal:640},height:{ideal:480},frameRate:{ideal:30,max:mobile?30:60}}});
       if(cancelled) { stream.getTracks().forEach(t=>t.stop()); return; }
       const track = stream.getVideoTracks()[0];
@@ -393,7 +393,7 @@ export default function App({communitySession}:{communitySession?:{id:string;tok
       onToggle={() => voice.state==='listening' ? voice.stop() : voice.start()} onChoose={chooseObject} onAccept={voice.accept} onDecline={voice.decline}/>}
     {twin && (screen==='home' || screen==='incall') && <TwinBox twin={twin} mirror={screen==='home'} hand={helperMode ? myHand : peerHand} drive={helperMode ? 'local' : 'remote'} remotePose={remotePose} onPose={sendPose} placement={placement} posFlip={screen==='home' ? false : placement.flipX} onClose={closeTwin} frame={helperMode && scene.objects.some(o => o.objectId===twin.objectId) ? scene.frame.current : null}/>}
     {screen==='home' && <section className="home-panel" aria-label="Start a call">
-      <PageHeading compact eyebrow="GHOST LIVE" title={<>A hand.<br/><span className="gradient-text">From anywhere.</span></>} description="Show someone what to do with your hands."/>
+      <PageHeading compact eyebrow="Handoff LIVE" title={<>A hand.<br/><span className="gradient-text">From anywhere.</span></>} description="Show someone what to do with your hands."/>
       <button className="primary" onClick={() => call.start()}><Icon name="video" size={20}/>New call</button>
       <form className="join" onSubmit={e => { e.preventDefault(); if(validCode) call.start(code); }}>
         <label htmlFor="room-input">Join with a code</label>

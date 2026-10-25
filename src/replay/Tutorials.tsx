@@ -31,6 +31,12 @@ export async function saveReplay(replay: Replay, name: string): Promise<Id<'repl
   return await convex.action(api.replays.save, { storageId, name, ownerKey: ownerKey() });
 }
 
+/** Adds a tutorial the other person in the call just saved (they sent its id) to this browser's Tutorials. */
+export async function keepSharedReplay(id: string): Promise<void> {
+  if (!convex) throw new Error('Saving needs the Convex backend (npm run convex).');
+  await convex.mutation(api.replays.copy, { id: id as Id<'replays'>, ownerKey: ownerKey() });
+}
+
 function OpenTutorial({ id, onDeleted }: { id: Id<'replays'>; onDeleted: () => void }) {
   const meta = useQuery(api.replays.get, { id, ownerKey: ownerKey() });
   const remove = useMutation(api.replays.remove);

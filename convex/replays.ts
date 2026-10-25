@@ -15,6 +15,16 @@ export const save=action({args:{storageId:v.id('_storage'),name:v.string(),owner
  return await ctx.runMutation(internal.replays.insert,{ownerKey,storageId,durationMs:replay.durationMs,label:replay.label,name:name.trim().slice(0,80)||`${replay.label} lesson`});
 }});
 export const insert=internalMutation({args:{ownerKey,storageId:v.id('_storage'),durationMs:v.number(),label:v.string(),name:v.string()},handler:async(ctx,{storageId,...rest})=>await ctx.db.insert('replays',{...rest,logFile:storageId})});
+// shortcut: anyone holding a fresh replay id can add it to their Tutorials; the id only travels over the call's own data channel. Use accounts if replays get shared wider.
+const SHARE_MS=10*60_000;
+/** The other person in the call keeps the same recording: a second row pointing at the same log file. */
+export const copy=mutation({args:{id:v.id('replays'),ownerKey},handler:async(ctx,{id,ownerKey}):Promise<Id<'replays'>>=>{
+ checkKey(ownerKey);
+ const r=await ctx.db.get(id);
+ if(!r||Date.now()-r._creationTime>SHARE_MS)throw new Error('Tutorial not found');
+ const mine=(await ctx.db.query('replays').withIndex('by_logFile',q=>q.eq('logFile',r.logFile)).take(10)).find(x=>x.ownerKey===ownerKey);
+ return mine?mine._id:await ctx.db.insert('replays',{ownerKey,name:`${r.name} (from your friend)`.slice(0,80),label:r.label,durationMs:r.durationMs,logFile:r.logFile});
+}});
 export const list=query({args:{ownerKey},handler:async(ctx,{ownerKey})=>{
  const rows=await ctx.db.query('replays').withIndex('by_ownerKey',q=>q.eq('ownerKey',ownerKey)).order('desc').take(100);
  return rows.map(({_id,_creationTime,name,label,durationMs})=>({_id,_creationTime,name,label,durationMs}));
@@ -32,6 +42,8 @@ export const rename=mutation({args:{id:v.id('replays'),name:v.string(),ownerKey}
 export const remove=mutation({args:{id:v.id('replays'),ownerKey},handler:async(ctx,{id,ownerKey})=>{
  const r=await ctx.db.get(id);
  if(!r||r.ownerKey!==ownerKey)throw new Error('Tutorial not found');
- await ctx.storage.delete(r.logFile);await ctx.db.delete(id);
+ await ctx.db.delete(id);
+ // Shared with the other person in the call: the file goes when its last owner deletes it.
+ if(!await ctx.db.query('replays').withIndex('by_logFile',q=>q.eq('logFile',r.logFile)).first())await ctx.storage.delete(r.logFile);
  return null;
 }});

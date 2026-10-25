@@ -38,7 +38,7 @@ export function useTracker(video: RefObject<HTMLVideoElement | null>, numHands: 
     };
     setPhase('loading'); setError('');
     try {
-      if (!window.isSecureContext || !navigator.mediaDevices?.getUserMedia) throw new Error('Open GHOST on localhost or trusted HTTPS to use the camera.');
+      if (!window.isSecureContext || !navigator.mediaDevices?.getUserMedia) throw new Error('Open Handoff on localhost or trusted HTTPS to use the camera.');
       stream = await navigator.mediaDevices.getUserMedia({ audio: false, video: { facingMode: 'user', width: { ideal: 640 }, height: { ideal: 480 }, frameRate: { ideal: 30, max: 30 } } });
       if (cancelled) { stream.getTracks().forEach(t => t.stop()); return; }
       const v = video.current;

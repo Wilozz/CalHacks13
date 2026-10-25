@@ -7,10 +7,12 @@ import { decodePoses, decodeToss, encodePoses, encodeToss, TOSS_OBJECTS, type Po
 import { TossScene, type TossApi, type TossStatus } from './TossScene';
 import { useTracker } from './useTracker';
 import { ThrowLesson } from '../replay/lesson';
-import { saveReplay } from '../replay/Tutorials';
+import { keepSharedReplay, saveReplay } from '../replay/Tutorials';
 
 // Bump when the throwing messages change, so two different builds say so instead of silently showing nothing.
 const VERSION = 2, HELLO = JSON.stringify({ type: 'throw-hello', v: VERSION });
+// The id of a lesson just saved, so the other person keeps the same recording (with these hands in it).
+const lessonId = (text: unknown) => { try { const m = typeof text === 'string' && text.length < 200 && JSON.parse(text); return m?.type === 'lesson' && typeof m.id === 'string' && m.id.length < 64 ? m.id as string : null; } catch { return null; } };
 const helloVersion = (text: unknown) => { try { const m = typeof text === 'string' && text.length < 100 && JSON.parse(text); return m?.type === 'throw-hello' ? Number(m.v) || 0 : null; } catch { return null; } };
 
 const article = (label: string) => `${/^[aeiou]/i.test(label) ? 'an' : 'a'} ${label.toLowerCase()}`;
@@ -38,8 +40,18 @@ export default function ThrowPrototype() {
   };
   // Lessons record themselves, silently: from catching an object someone threw you until you throw it back.
   const lesson = useRef<ThrowLesson | null>(null);
-  if (!lesson.current) lesson.current = new ThrowLesson(r => { saveReplay(r, `${r.label} lesson`).then(() => show('Lesson saved to Tutorials'), e => console.warn('Lesson not saved:', e)); });
-  const caught = (t: Toss) => lesson.current!.caught(t.id, t.label, t.model, tracker.hand.current.aspect, performance.now());
+  const control = useRef<RTCDataChannel | null>(null);
+  control.current = call.controlChannel;
+  if (!lesson.current) lesson.current = new ThrowLesson(r => {
+  // [lesson] logs: each step of saving and sharing, to find where a shared lesson goes missing (both people's consoles).
+  console.info(`[lesson] recorded ${r.label}: ${r.durationMs} ms, ${r.hands.filter(x => x.hands.length).length} frames with hands`);
+  saveReplay(r, `${r.label} lesson`).then(id => {
+    show('Lesson saved to Tutorials');
+    const open = control.current?.readyState === 'open';
+    console.info(`[lesson] saved ${id} on ${import.meta.env.VITE_CONVEX_URL}; ${open ? 'sent to friend' : 'call closed, not shared'}`);
+    if (open) control.current!.send(JSON.stringify({ type: 'lesson', id }));
+  }, e => { console.warn('Lesson not saved:', e); show('Lesson could not be saved'); }); });
+  const caught = (t: Toss) => (console.info(`[lesson] caught ${t.label}${lesson.current!.recording ? ' (already recording)' : ', recording'}`), lesson.current!.caught(t.id, t.label, t.model, tracker.hand.current.aspect, performance.now()));
   useEffect(() => () => lesson.current?.end(performance.now()), []);
   const screen = call.status === 'idle' ? 'home' : call.status === 'connected' || call.status === 'disconnected' ? 'incall' : 'calling';
   const tracking = tracker.phase === 'running' || tracker.phase === 'loading';
@@ -51,6 +63,8 @@ export default function ThrowPrototype() {
     const onMessage = (e: MessageEvent) => {
       const v = helloVersion(e.data);
       if (v !== null) { clearTimeout(timer); setPeer(v === VERSION ? 'ok' : 'other'); return; }
+      const shared = lessonId(e.data);
+      if (shared) { console.info(`[lesson] friend shared ${shared}; keeping it on ${import.meta.env.VITE_CONVEX_URL}`); keepSharedReplay(shared).then(() => { console.info('[lesson] kept friend’s lesson'); show('Your friend’s lesson was saved to Tutorials'); }, err => { console.warn('Lesson not kept:', err); show('Your friend’s lesson could not be saved here'); }); return; }
       const t = decodeToss(e.data); if (t) { api.current?.receive(t); if (t.give) { show(`Your friend tossed you ${article(t.label)}`); caught(t); } }
     };
     const onOpen = () => {
@@ -130,7 +144,7 @@ export default function ThrowPrototype() {
     </section>}
     {screen === 'incall' && <div className="call-pill throw-pill" role="status"><b>{call.room}</b><span data-testid="call-state">{call.status === 'connected' ? 'Reach through' : 'Reconnecting…'}</span></div>}
     {screen === 'incall' && (peer === 'missing' || peer === 'other') && <p className="banner error throw-warn" role="alert">
-      {peer === 'other' ? 'Your friend is on a different version of GHOST, so objects won’t show up for them. Both of you should reload the page.'
+      {peer === 'other' ? 'Your friend is on a different version of Handoff, so objects won’t show up for them. Both of you should reload the page.'
         : 'Your friend isn’t on the Throwing prototype screen, or has an old version, so they can’t see your objects. Ask them to open “Throwing prototype”, reload, and rejoin with your code.'}
     </p>}
     {call.playBlocked && <button className="pill-button throw-play" onClick={call.retryPlay}>Play friend’s audio and video</button>}

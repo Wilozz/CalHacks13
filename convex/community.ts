@@ -11,7 +11,7 @@ async function user(ctx:QueryCtx|MutationCtx){const id=await getAuthUserId(ctx);
 async function profile(ctx:QueryCtx|MutationCtx,id:Id<'users'>){return ctx.db.query('profiles').withIndex('by_userId',q=>q.eq('userId',id)).unique();}
 const text=(s:string,min:number,max:number,label:string)=>{s=s.trim();if(s.length<min||s.length>max)throw new Error(`${label} must be ${min}–${max} characters`);return s;};
 async function notify(ctx:MutationCtx,id:Id<'users'>,requestId:Id<'requests'>,message:string){await ctx.db.insert('notifications',{userId:id,requestId,message,read:false});}
-async function decorate(ctx:QueryCtx,r:Doc<'requests'>){const p=await profile(ctx,r.requester),h=r.helper?await profile(ctx,r.helper):null;const session=r.sessionId?await ctx.db.get(r.sessionId):null;const review=r.sessionId?await ctx.db.query('reviews').withIndex('by_sessionId',q=>q.eq('sessionId',r.sessionId!)).unique():null;return {...r,canReview:session?.status==='completed'&&session.startedAt!==undefined&&r.category!=='Friend call',reviewRating:review?.rating??null,conversationId:session?.conversationId??null,inviteStatus:session?.inviteStatus??null,requesterName:p?.displayName??'GHOST user',helperName:h?.displayName??null};}
+async function decorate(ctx:QueryCtx,r:Doc<'requests'>){const p=await profile(ctx,r.requester),h=r.helper?await profile(ctx,r.helper):null;const session=r.sessionId?await ctx.db.get(r.sessionId):null;const review=r.sessionId?await ctx.db.query('reviews').withIndex('by_sessionId',q=>q.eq('sessionId',r.sessionId!)).unique():null;return {...r,canReview:session?.status==='completed'&&session.startedAt!==undefined&&r.category!=='Friend call',reviewRating:review?.rating??null,conversationId:session?.conversationId??null,inviteStatus:session?.inviteStatus??null,requesterName:p?.displayName??'Handoff user',helperName:h?.displayName??null};}
 async function authorized(ctx:QueryCtx|MutationCtx,id:Id<'sessions'>){const uid=await user(ctx),s=await ctx.db.get(id);if(!s||(s.requester!==uid&&s.helper!==uid))throw new Error('Not a session participant');return {uid,s};}
 async function release(ctx:MutationCtx,s:Doc<'sessions'>,status:'completed'|'expired'){
  if(!active(s.status))return;
@@ -30,7 +30,7 @@ export const viewer=query({args:{},returns:v.any(),handler:async ctx=>{const uid
 export const ensureProfile=mutation({args:{},returns:v.id('profiles'),handler:async ctx=>{
  const uid=await user(ctx),p=await profile(ctx,uid);
  if(p){if(!p.username)await ctx.db.patch(p._id,{username:await defaultUsername(ctx,uid,p.displayName)});return p._id;}
- const u=await ctx.db.get(uid),displayName=u?.name?.slice(0,60)||'GHOST user';return ctx.db.insert('profiles',{userId:uid,displayName,username:await defaultUsername(ctx,uid,displayName),expertise:[],available:false});
+ const u=await ctx.db.get(uid),displayName=u?.name?.slice(0,60)||'Handoff user';return ctx.db.insert('profiles',{userId:uid,displayName,username:await defaultUsername(ctx,uid,displayName),expertise:[],available:false});
 }});
 export const saveProfile=mutation({args:{bio:v.optional(v.string()),displayName:v.string(),avatar:v.optional(v.string()),expertise:v.array(v.string()),available:v.boolean()},returns:v.null(),handler:async(ctx,a)=>{
  const p=await profile(ctx,await user(ctx));if(!p)throw new Error('Create a profile first');if(a.expertise.length>8)throw new Error('Use at most 8 expertise tags');
@@ -40,7 +40,7 @@ export const saveProfile=mutation({args:{bio:v.optional(v.string()),displayName:
 export const feed=query({args:{},returns:v.any(),handler:async ctx=>{
  // Public feed deliberately excludes private requests and session/room assignments.
  const rows=await ctx.db.query('requests').withIndex('by_status_and_recipient',q=>q.eq('status','pending').eq('recipient',undefined)).order('desc').take(100);
- return Promise.all(rows.filter(r=>!r.recipient).map(async r=>({requestId:r._id,title:r.title,description:r.description,category:r.category,status:r.status,requester:r.requester,requesterAvatar:(await profile(ctx,r.requester))?.avatar??null,requesterName:(await profile(ctx,r.requester))?.displayName??'GHOST user',createdAt:r._creationTime})));
+ return Promise.all(rows.filter(r=>!r.recipient).map(async r=>({requestId:r._id,title:r.title,description:r.description,category:r.category,status:r.status,requester:r.requester,requesterAvatar:(await profile(ctx,r.requester))?.avatar??null,requesterName:(await profile(ctx,r.requester))?.displayName??'Handoff user',createdAt:r._creationTime})));
 }});
 export const helpers=query({args:{},returns:v.any(),handler:async ctx=>{
  await user(ctx);const online=await presence.listRoom(ctx,'community',true,100);const list=await Promise.all(online.map(o=>profile(ctx,o.userId as Id<'users'>)));
