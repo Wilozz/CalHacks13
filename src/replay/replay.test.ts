@@ -1,11 +1,12 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import type { HandFrame } from '../coordinates';
-import { TOSS_OBJECTS } from '../throw/toss';
+import { BUILTIN_MODELS, sanitizeModel } from '../ai/modelSpec';
+import { REST_POSE } from '../remote/twinWire';
 import { decodeReplay, encodeReplay, indexAt, MAX_REPLAY_MS, Recorder, type ObjPose, type Replay } from './log';
 import { ThrowLesson } from './lesson';
 
-const { label, model } = TOSS_OBJECTS.mug;
+const label = 'Bottle', model = sanitizeModel(BUILTIN_MODELS.bottle)!;
 const meta = { label, model, aspect: 4 / 3 };
 const hand = (x: number): HandFrame => ({ timestamp: 0, handedness: 'Right', inferenceMs: 0,
   landmarks: Array.from({ length: 21 }, (_, i) => ({ x, y: 0.5 + i * 0.01, z: -0.02 })), worldLandmarks: [] });
@@ -21,7 +22,7 @@ test('the recorder keeps hand updates, skips repeated "no hand" and unchanged po
   assert.equal(r.finish(1070).hands.length, 2); // finishing early cuts what came after
   const back = decodeReplay(encodeReplay(rec))!;
   assert.ok(back);
-  assert.equal(back.label, 'Mug'); assert.equal(back.durationMs, 150); assert.equal(back.model.parts.length, model.parts.length);
+  assert.equal(back.label, 'Bottle'); assert.equal(back.durationMs, 150); assert.equal(back.model.parts.length, model.parts.length);
   assert.deepEqual(back.hands.map(h => h.hands.length), [1, 2, 0]);
   assert.ok(Math.abs(back.hands[1].hands[1].landmarks[0].x - 0.6) < 1e-3);
   assert.equal(back.poses[1].pose!.u, 0.55); assert.equal(back.poses[2].pose, null);
@@ -58,4 +59,22 @@ test('a lesson runs from catching an object to throwing that same object back', 
   assert.equal(got.length, 1);
   lesson.caught('m1', label, model, 4 / 3, 7000); run(7000, 10000, []); lesson.end(10000); // the call ends while holding it
   assert.equal(got.length, 2);
+});
+
+test('a lesson from the call keeps the lanyard copy and its pose (clip state included), and survives the file round trip', () => {
+  const twin = { objectId: 'lanyard', label: 'lanyard', model: sanitizeModel(BUILTIN_MODELS.lanyard)!, bbox: [0.3, 0.2, 0.7, 0.85] as [number, number, number, number], feedAspect: 4 / 3 };
+  const got: Replay[] = [];
+  const lesson = new ThrowLesson(r => got.push(r));
+  lesson.caught('lanyard', 'lanyard', twin.model, 4 / 3, 0, twin);
+  const open = { ...REST_POSE, grabbing: true, kind: 'pinch' as const, target: 0, parts: [{ offset: [0, 0.2, 0] as [number, number, number], rotation: [0, 0, 0, 1] as [number, number, number, number] }], kit: { joined: false, gate: 1, near: false } };
+  for (let t = 0; t < 3000; t += 33) lesson.tick(t, [hand(0.5)], t, [], t < 1500 ? REST_POSE : open);
+  lesson.thrown('lanyard', 3000);
+  assert.equal(got.length, 1);
+  assert.deepEqual(got[0].twinPoses.map(p => p.t), [0, 1518]); // only changes are kept
+  const back = decodeReplay(encodeReplay(got[0]))!;
+  assert.equal(back.twin?.label, 'lanyard'); assert.equal(back.twin?.model.parts.length, twin.model.parts.length);
+  assert.deepEqual(back.twinPoses[1].pose.kit, { joined: false, gate: 1, near: false });
+  assert.equal(back.twinPoses[1].pose.parts[0].offset[1], 0.2);
+  const bad = JSON.parse(encodeReplay(got[0])); bad.tp = [[0, 'not a pose']];
+  assert.equal(decodeReplay(JSON.stringify(bad)), null);
 });

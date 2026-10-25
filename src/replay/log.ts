@@ -2,6 +2,7 @@ import type { HandFrame } from '../coordinates';
 import { sanitizeModel } from '../ai/modelSpec';
 import type { ModelSpec } from '../ai/types';
 import { decodeHand, encodeHand } from '../remote/handWire';
+import { decodePose, decodeTwin, encodePose, encodeTwin, type TwinInfo, type TwinPose } from '../remote/twinWire';
 
 /** Where the object was on the recorder's raw camera image: u, v (origin top-left), h its height as a fraction of the image height, q its rotation (three.js camera axes). */
 export interface ObjPose { u: number; v: number; h: number; q: [number, number, number, number] }
@@ -14,6 +15,9 @@ export interface Replay {
   label: string; model: ModelSpec; aspect: number; durationMs: number;
   hands: { t: number; hands: HandFrame[] }[];
   poses: { t: number; pose: ObjPose | null }[];
+  /** A lesson from the call: the 3D copy that was handed over (the lanyard) and its pose as the catcher moved it, clip state included. */
+  twin?: TwinInfo;
+  twinPoses: { t: number; pose: TwinPose }[];
 }
 
 export const MAX_REPLAY_MS = 5 * 60_000;
@@ -26,20 +30,24 @@ export class Recorder {
   private hands: Replay['hands'] = [];
   private poses: Replay['poses'] = [];
   private lastHandsEmpty = false;
+  private twinPoses: Replay['twinPoses'] = [];
   private lastPose = '';
+  private lastTwin = '';
   private t = 0;
-  constructor(private readonly start: number, private readonly meta: Pick<Replay, 'label' | 'model' | 'aspect'>) {}
-  get full() { return this.t >= MAX_REPLAY_MS || this.hands.length >= MAX_EVENTS || this.poses.length >= MAX_EVENTS; }
-  frame(now: number, hands: HandFrame[] | undefined, pose: ObjPose | null) {
+  constructor(private readonly start: number, private readonly meta: Pick<Replay, 'label' | 'model' | 'aspect' | 'twin'>) {}
+  get full() { return this.t >= MAX_REPLAY_MS || this.hands.length >= MAX_EVENTS || this.poses.length >= MAX_EVENTS || this.twinPoses.length >= MAX_EVENTS; }
+  frame(now: number, hands: HandFrame[] | undefined, pose: ObjPose | null, twinPose?: TwinPose | null) {
     if (this.full) return;
     this.t = Math.max(0, Math.round(now - this.start));
     if (hands && !(hands.length === 0 && this.lastHandsEmpty)) { this.hands.push({ t: this.t, hands: hands.slice(0, MAX_HANDS) }); this.lastHandsEmpty = hands.length === 0; }
     const key = JSON.stringify(pose && poseWire(pose));
     if (key !== this.lastPose) { this.lastPose = key; this.poses.push({ t: this.t, pose: pose && poseOf(poseWire(pose)) }); }
+    const tw = twinPose ? encodePose(twinPose) : '';
+    if (tw && tw !== this.lastTwin) { this.lastTwin = tw; this.twinPoses.push({ t: this.t, pose: decodePose(tw)! }); }
   }
   finish(end: number): Replay {
     const durationMs = Math.min(MAX_REPLAY_MS, Math.max(0, Math.round(end - this.start)));
-    return { ...this.meta, durationMs, hands: this.hands.filter(x => x.t <= durationMs), poses: this.poses.filter(x => x.t <= durationMs) };
+    return { ...this.meta, durationMs, hands: this.hands.filter(x => x.t <= durationMs), poses: this.poses.filter(x => x.t <= durationMs), twinPoses: this.twinPoses.filter(x => x.t <= durationMs) };
   }
 }
 
@@ -58,9 +66,10 @@ const b64 = (buf: ArrayBuffer) => btoa(String.fromCharCode(...new Uint8Array(buf
 const unb64 = (s: string) => Uint8Array.from(atob(s), c => c.charCodeAt(0)).buffer;
 
 export const encodeReplay = (r: Replay): string => JSON.stringify({
-  v: 2, label: r.label, model: r.model, aspect: r.aspect, durationMs: r.durationMs,
+  v: 3, label: r.label, model: r.model, aspect: r.aspect, durationMs: r.durationMs,
   h: r.hands.map((x, i) => [x.t, x.hands.map(f => b64(encodeHand(i & 0xffff, x.t, f)))]),
   p: r.poses.map(x => [x.t, x.pose && poseWire(x.pose)]),
+  ...(r.twin ? { tw: { ...JSON.parse(encodeTwin(r.twin)), type: undefined }, tp: r.twinPoses.map(x => [x.t, encodePose(x.pose)]) } : {}),
 });
 
 /** null = not a valid replay. Every field is checked and clamped: the model like a Claude scan, hands with the call's own decoder. */
@@ -68,7 +77,7 @@ export function decodeReplay(text: string): Replay | null {
   if (typeof text !== 'string' || text.length > MAX_REPLAY_BYTES) return null;
   let m: any;
   try { m = JSON.parse(text); } catch { return null; }
-  if (!m || m.v !== 2 || !Array.isArray(m.h) || !Array.isArray(m.p) || m.h.length > MAX_EVENTS || m.p.length > MAX_EVENTS) return null;
+  if (!m || (m.v !== 2 && m.v !== 3) || !Array.isArray(m.h) || !Array.isArray(m.p) || m.h.length > MAX_EVENTS || m.p.length > MAX_EVENTS) return null;
   const model = sanitizeModel(m.model), aspect = num(m.aspect, 0.3, 4), durationMs = typeof m.durationMs === 'number' && m.durationMs >= 0 && m.durationMs <= MAX_REPLAY_MS ? m.durationMs : null;
   if (!model || aspect === null || durationMs === null || typeof m.label !== 'string') return null;
   const time = (t: unknown) => typeof t === 'number' && Number.isFinite(t) && t >= 0 && t <= durationMs;
@@ -90,8 +99,19 @@ export function decodeReplay(text: string): Replay | null {
     if (e[1] !== null && !pose) return null;
     poses.push({ t: e[0], pose });
   }
-  hands.sort((a, b) => a.t - b.t); poses.sort((a, b) => a.t - b.t);
-  return { label: m.label.slice(0, 60) || 'Object', model, aspect, durationMs, hands, poses };
+  let twin: TwinInfo | undefined; const twinPoses: Replay['twinPoses'] = [];
+  if (m.tw !== undefined) {
+    const t = m.tw && typeof m.tw === 'object' ? decodeTwin(JSON.stringify({ ...m.tw, type: 'twin' })) : null;
+    if (!t || !Array.isArray(m.tp) || m.tp.length > MAX_EVENTS) return null;
+    twin = t;
+    for (const e of m.tp) {
+      const pose = Array.isArray(e) && time(e[0]) && typeof e[1] === 'string' ? decodePose(e[1]) : null;
+      if (!pose) return null;
+      twinPoses.push({ t: e[0], pose });
+    }
+  }
+  hands.sort((a, b) => a.t - b.t); poses.sort((a, b) => a.t - b.t); twinPoses.sort((a, b) => a.t - b.t);
+  return { label: m.label.slice(0, 60) || 'Object', model, aspect, durationMs, hands, poses, ...(twin ? { twin } : {}), twinPoses };
 }
 
 /** Index of the last event at or before t, or -1. Events are sorted by t. */

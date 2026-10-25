@@ -1,5 +1,6 @@
 import type { HandFrame } from '../coordinates';
 import type { ModelSpec } from '../ai/types';
+import type { TwinPose } from '../remote/twinWire';
 import { Recorder, type ObjPose, type Replay } from './log';
 
 export const MIN_LESSON_MS = 2000;
@@ -15,17 +16,17 @@ export class ThrowLesson {
   constructor(private readonly onLesson: (r: Replay) => void) {}
   get recording() { return this.cur?.id ?? null; }
   /** An object was thrown to you. One lesson at a time: catching a second object while recording is part of the first. */
-  caught(id: string, label: string, model: ModelSpec, aspect: number, now: number) {
+  caught(id: string, label: string, model: ModelSpec, aspect: number, now: number, twin?: Replay['twin']) {
     if (this.cur) return;
-    this.cur = { id, rec: new Recorder(now, { label, model, aspect }) }; this.lastAt = -1;
+    this.cur = { id, rec: new Recorder(now, { label, model, aspect, twin }) }; this.lastAt = -1;
   }
-  /** Every pose tick (~30 Hz): your hands (at = when the tracker produced them) and where your objects are. */
-  tick(now: number, hands: HandFrame[], at: number, poses: ({ id: string } & ObjPose)[]) {
+  /** Every pose tick (~30 Hz): your hands (at = when the tracker produced them), where your objects are, and the 3D copy's pose. */
+  tick(now: number, hands: HandFrame[], at: number, poses: ({ id: string } & ObjPose)[], twinPose?: TwinPose | null) {
     const c = this.cur; if (!c) return;
     const fresh = hands.length > 0 && now - at < 350;
     const update = fresh ? (at !== this.lastAt ? hands : undefined) : [];
     if (fresh) this.lastAt = at;
-    c.rec.frame(now, update, poses.find(p => p.id === c.id) ?? null);
+    c.rec.frame(now, update, poses.find(p => p.id === c.id) ?? null, twinPose);
     if (c.rec.full) this.end(now);
   }
   /** You threw an object: if it is the one you caught, the lesson is over. */

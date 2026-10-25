@@ -9,7 +9,6 @@ import { OneEuro } from '../remote/oneEuro';
 import { pinchCloseness } from '../remote/pinch';
 import { depthScale, type P3, type Placement } from '../remote/placement';
 import { palmQuat, qAngle, QI, type Q } from '../remote/quat';
-import type { RemoteHandState } from '../remote/remoteHand';
 import { CLAW, isLanyard, KitRig, lanyardProfile, seatOffset, type KitState } from '../remote/kitRig';
 import { TwinRig, type Hold, type Rig, type Target } from '../remote/twinRig';
 import type { MoveInput } from '../remote/twinMove';
@@ -48,12 +47,16 @@ export interface BoxStatus {
   kitJust: boolean;
 }
 
+/** Where the hands come from: the live tracker or the friend's stream (RemoteHandState), or a replay. */
+export interface HandSource { current(now: number, slot: 0 | 1): HandFrame | null }
 interface SceneProps {
-  mirror: boolean; twin: TwinInfo; hand: MutableRefObject<RemoteHandState>; placement: MutableRefObject<Placement>; posFlip: boolean;
+  mirror: boolean; twin: TwinInfo; hand: MutableRefObject<HandSource>; placement: MutableRefObject<Placement>; posFlip: boolean;
   drive: 'local' | 'remote'; remotePose: MutableRefObject<TwinPose>; onPose: (p: TwinPose) => void;
   status: MutableRefObject<BoxStatus>; resetToken: number;
   /** the SAM 3D mesh, cut into the same pieces as the model; null = draw the model's shapes */
   mesh: FittedMesh | null;
+  /** a flick upward while holding it: throw it to the friend */
+  onThrow?: () => void;
 }
 
 const toLinear = (c: number) => { const v = c / 255; return v <= 0.04045 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4; };
@@ -155,6 +158,9 @@ const MOVED = 0.05, TURNED = 0.08;
 // and vanishes keeps its last real reading this long before the hold ends.
 const HOLD_GRACE_MS = 350;
 const IDLE: Hold = { target: null, hover: null, grabbing: false, kind: 'none', anchor: null };
+// A throw: the holding hand's fingertip moving up the camera image this fast (image heights per second, smoothed).
+// Lifting the clasp off the card is much slower than this.
+const FLICK = 2.2;
 
 /** A smoothed position and orientation, so pieces glide to their pose instead of snapping. */
 const view = () => ({ pos: new THREE.Vector3(), quat: new THREE.Quaternion(), wantPos: new THREE.Vector3(), wantQuat: new THREE.Quaternion() });
@@ -168,7 +174,7 @@ const view = () => ({ pos: new THREE.Vector3(), quat: new THREE.Quaternion(), wa
  * A grab only starts when it is deliberate (see GrabGate), so waving a hand about does nothing.
  * When the other person is the helper, this only displays the pose they send.
  */
-export function TwinScene({ mirror, twin, hand, placement, posFlip, drive, remotePose, onPose, status, resetToken, mesh }: SceneProps) {
+export function TwinScene({ mirror, twin, hand, placement, posFlip, drive, remotePose, onPose, status, resetToken, mesh, onThrow }: SceneProps) {
   // With a scanned mesh, the hands work on the mesh's own shape (see fitToModel), so they land on what you see.
   const model = mesh?.model ?? twin.model;
   // A lanyard is two pieces that clip together (KitRig); anything else is a whole with parts (TwinRig).
@@ -192,6 +198,7 @@ export function TwinScene({ mirror, twin, hand, placement, posFlip, drive, remot
     pos: SLOTS.map(() => Array.from({ length: 21 }, () => new THREE.Vector3())), fresh: [false, false], a: new THREE.Vector3(), b: new THREE.Vector3(), up: new THREE.Vector3(0, 1, 0),
     sent: REST_POSE, sentAt: 0, holding: [false, false], firm: [null, null] as (null | { tip: P3; twist: number; palm: Q | null; depth: number })[],
     last: [null, null] as (MoveInput | null)[], lastAt: [0, 0],
+    flick: SLOTS.map(() => ({ y: 0, t: 0, vy: 0 })), thrown: false,
   });
   const mats = useMemo(() => SLOTS.map(sl => ({ joint: new THREE.MeshBasicMaterial({ color: HAND_COLORS[sl].joint, transparent: true }), bone: new THREE.MeshBasicMaterial({ color: HAND_COLORS[sl].bone, transparent: true }), tip: new THREE.MeshBasicMaterial({ color: '#ffffff' }), ring: new THREE.MeshBasicMaterial({ color: CYAN, transparent: true, side: THREE.DoubleSide }) })), []);
   const geoms = useMemo(() => model.parts.map(p => shapeGeometry(p.shape)), [model]);
@@ -251,6 +258,14 @@ export function TwinScene({ mirror, twin, hand, placement, posFlip, drive, remot
       const m = rig.step(inputs);
       v.holding = [m.holds[0].grabbing, m.holds[1].grabbing];
       root = m.root; parts = m.parts; holds = m.holds;
+      SLOTS.forEach(sl => {
+        const f = frames[sl], fl = v.flick[sl];
+        if (!f || !m.holds[sl].grabbing) { fl.t = 0; fl.vy = 0; return; }
+        const y = f.landmarks[8].y;
+        if (fl.t && now > fl.t) fl.vy = 0.6 * fl.vy + 0.4 * ((y - fl.y) * 1000) / (now - fl.t);
+        fl.y = y; fl.t = now;
+        if (fl.vy < -FLICK && onThrow && !v.thrown) { v.thrown = true; onThrow(); }
+      });
       SLOTS.forEach(sl => { const f = frames[sl], fr = froms[sl]; if (f && fr) handPts[sl] = place(f, m.holds[sl].grabbing && m.holds[sl].anchor ? m.holds[sl].anchor! : undefined, fr); });
       // Tell the other screen where everything is, but not more than ~15 times a second.
       if (rig instanceof KitRig) kit.current = { ...rig.kit };
@@ -414,11 +429,13 @@ function Lookat() {
  * `mirror` flips the picture like a selfie view: alone, you watch yourself in a mirror, so the copy and your hands
  * must move the way your mirrored video does (move left, the hand goes left).
  */
-export function TwinBox({ twin, hand, placement, posFlip, mirror = false, drive, remotePose, onPose, onClose, frame }: {
-  twin: TwinInfo; hand: MutableRefObject<RemoteHandState>; placement: Placement; posFlip: boolean; mirror?: boolean;
+export function TwinBox({ twin, hand, placement, posFlip, mirror = false, drive, remotePose, onPose, onClose, frame, onThrow }: {
+  twin: TwinInfo; hand: MutableRefObject<HandSource>; placement: Placement; posFlip: boolean; mirror?: boolean;
   drive: 'local' | 'remote'; remotePose: MutableRefObject<TwinPose>; onPose: (p: TwinPose) => void; onClose: () => void;
   /** the scanned picture this object was found in, if it is ours: lets this screen ask SAM 3D for a real model */
   frame?: ScanFrame | null;
+  /** you hold it in a call: throw it to your friend (a button, or flick it up) */
+  onThrow?: () => void;
 }) {
   const pl = useRef(placement);
   useEffect(() => { pl.current = placement; }, [placement]);
@@ -468,7 +485,7 @@ export function TwinBox({ twin, hand, placement, posFlip, mirror = false, drive,
       <Lookat />
       <ambientLight intensity={1.2} />
       <directionalLight position={[2, 3, 4]} intensity={2} />
-      <TwinScene key={twin.objectId} mirror={mirror} twin={twin} hand={hand} placement={pl} posFlip={posFlip} drive={drive} remotePose={remotePose} onPose={onPose} status={status} resetToken={resetToken} mesh={showMesh ? sam.mesh : null} />
+      <TwinScene key={`${twin.objectId}:${drive}`} onThrow={drive === 'local' ? onThrow : undefined} mirror={mirror} twin={twin} hand={hand} placement={pl} posFlip={posFlip} drive={drive} remotePose={remotePose} onPose={onPose} status={status} resetToken={resetToken} mesh={showMesh ? sam.mesh : null} />
     </Canvas>
     {holding && <span className={`twin-badge ${ui.kind}`}>{both ? '2 HANDS' : ui.kind === 'grip' ? 'GRIP' : 'PINCH'}</span>}
     <div className="twin-label"><span>{twin.label}{making ? ` · ${making}` : kept ? ` · ${kept}` : showMesh ? (sam.saved ? ' · saved' : ' · SAM 3D') : ''}</span><span className="twin-status">{text}</span></div>
@@ -478,6 +495,7 @@ export function TwinBox({ twin, hand, placement, posFlip, mirror = false, drive,
       {sam.mesh && drive === 'local' && sam.canKeep && <button className="twin-tool" aria-pressed={sam.saved} aria-label="Keep this model for the demo" title={sam.saved ? 'Saved for the demo: it loads from the app, no scan or AI server needed. Click to save this version again.' : 'Keep this model for the demo: saves it into the app (public/demo), so it loads instantly without scanning.'} onClick={() => { setKept('saving…'); void sam.keep(twin).then(ok => setKept(ok ? 'saved for the demo' : 'could not save')); }}>★</button>}
       <button className="twin-tool" aria-label={big ? 'Make it smaller' : 'Make it bigger'} aria-pressed={big} title={big ? 'Make it smaller' : 'Make it bigger'} onClick={() => setBig(b => !b)}>{big ? '⤡' : '⤢'}</button>
       {changed && drive === 'local' && <button className="twin-tool" aria-label="Put it back" title="Put it back" onClick={() => setResetToken(n => n + 1)}>↺</button>}
+      {onThrow && drive === 'local' && <button className="twin-tool twin-throw" aria-label="Throw to your friend" title="Throw it to your friend (or flick it up)" onClick={onThrow}>Throw</button>}
       <button className="twin-tool" aria-label="Close 3D view" onClick={onClose}>×</button>
     </div>
   </aside>;

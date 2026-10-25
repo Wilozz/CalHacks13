@@ -4,7 +4,7 @@ import { useCall } from './CallPanel';
 import { normalizeRoomCode, ROOM_PATTERN } from './callSignaling';
 import { Icon } from './icons';
 import { useMobileDevice } from './device';
-import { HandScene, type LiveData } from './HandScene';
+import type { LiveData } from './HandScene';
 import { BONES, type HandFrame } from './coordinates';
 import { BUILTIN_MODELS, sanitizeModel } from './ai/modelSpec';
 import { isPointingPose } from './ai/handHistory';
@@ -18,7 +18,6 @@ import type { FocusDecision } from './voice/referent';
 import { useVoice } from './voice/useVoice';
 import { VoiceBar } from './voice/VoiceBar';
 import { mapToFeed } from './remote/placement';
-import { HandOverlay } from './remote/HandOverlay';
 import { HandAdvanced, HandQuickControls } from './remote/HandOverlayPanel';
 import { DEFAULT_PLACEMENT, type Placement } from './remote/placement';
 import { LoopbackChannel, RemoteHandState, RtcHandChannel } from './remote/remoteHand';
@@ -29,6 +28,16 @@ import { twinKindForLabel } from './render/motion';
 import { isLanyard } from './remote/kitRig';
 import { DEMO_BASE } from './render/useTwinMesh';
 import { decodePose, decodeSay, decodeTwin, encodePose, encodeSay, encodeTwin, REST_POSE, type TwinInfo, type TwinPose } from './remote/twinWire';
+import { frameSignature, signatureDistance } from './useSceneScan';
+import { ThrowLesson } from './replay/lesson';
+import { keepSharedReplay, saveReplay } from './replay/Tutorials';
+// The 3D copy changes hands: whoever holds it drives it, and throwing it gives it to the other screen.
+const THROW = JSON.stringify({ type: 'twin-throw' });
+// The id of a lesson just saved, so the other person keeps the same recording (with these hands in it).
+const lessonId = (text: string) => { try { const m = text.length < 200 && JSON.parse(text); return m?.type === 'lesson' && typeof m.id === 'string' && m.id.length < 64 ? m.id as string : null; } catch { return null; } };
+// In a call, the agent looks at your camera for the lanyard every few seconds until it is out (see README "The call").
+const LOOK_MS = 4000;
+const lanyardIn = (objects: SceneObject[]) => objects.find(o => isLanyard(`${o.label} ${o.parentLabel ?? ''}`));
 const SLOTS = [0, 1] as const;
 type Facing = 'user' | 'environment';
 type Phase = 'idle' | 'loading' | 'running' | 'error';
@@ -55,7 +64,7 @@ export default function App({communitySession}:{communitySession?:{id:string;tok
   const [moreOpen,setMoreOpen] = useState(false);
   const [code,setCode] = useState('');
   const call = useCall(() => video.current?.srcObject instanceof MediaStream ? video.current.srcObject : null);
-  useEffect(()=>{if(communitySession)call.start(undefined,communitySession);},[communitySession]);
+  useEffect(()=>{if(communitySession)void start().then(()=>call.start(undefined,communitySession));},[communitySession]); // eslint-disable-line react-hooks/exhaustive-deps
   const handOnRef = useRef(true);
   const slots = useRef(new HandSlots());       // keeps each of the two hands in its own slot
   const slotSent = useRef([false, false]);     // whether a hand in that slot is currently being sent
@@ -213,6 +222,7 @@ export default function App({communitySession}:{communitySession?:{id:string;tok
           const frame = (both[0] ?? both[1] ?? data.frame) as HandFrame;
           if(document.hidden) return;
           live.current.frame=frame; live.current.hands=both; live.current.receivedAt=performance.now();
+          lesson.current?.tick(performance.now(), both.filter((h): h is HandFrame => !!h), performance.now(), [], lastPose.current);
           if(handOnRef.current) SLOTS.forEach(sl => { const h = both[sl]; if (h || slotSent.current[sl]) { loop.current?.send(h, sl); rtc.current?.send(h, sl); slotSent.current[sl] = !!h; } });
           const canvas=overlay.current, ctx=canvas.getContext('2d');
           ctx?.clearRect(0,0,canvas.width,canvas.height);
@@ -261,7 +271,7 @@ export default function App({communitySession}:{communitySession?:{id:string;tok
 
   if (!agent.current) agent.current = new VoiceAgent({
     client: aiClient, now: () => performance.now(), getObjects: () => objectsRef.current,
-    onFocus: d => { setFocusInfo(d); if (d.objectId) setSelectedId(d.objectId); },
+    onFocus: d => { setFocusInfo(d); if (d.objectId && objectsRef.current.some(o => o.objectId===d.objectId && isLanyard(`${o.label} ${o.parentLabel ?? ''}`))) setSelectedId(d.objectId); },
     onTopic: setTopic, onHeard: setHeard,
   });
   useEffect(() => () => agent.current?.dispose(), []);
@@ -308,13 +318,32 @@ export default function App({communitySession}:{communitySession?:{id:string;tok
   // The helper's guidance lives in a small box: a 3D copy of the object with their hand on it. Both screens show it.
   const [twin,setTwin] = useState<TwinInfo|null>(null);
   const twinRef = useRef<TwinInfo|null>(null); twinRef.current = twin;
+  // Who holds the copy: whoever brought it out, until they throw it. The holder drives it; the other screen shows their pose.
+  const [holder,setHolder] = useState<'me'|'friend'>('me');
+  const lastPose = useRef<TwinPose>(REST_POSE); // my latest pose of the copy, for the lesson
+  const [toasts,setToasts] = useState<{id:number;text:string}[]>([]);
+  const show = (text:string) => { const id = Math.random(); setToasts(t => [...t.slice(-2), {id,text}]); window.setTimeout(() => setToasts(t => t.filter(x => x.id!==id)), 2600); };
+  // Lessons record themselves, silently: from catching the copy until you throw it back. Saved, then sent to your friend too.
+  const lesson = useRef<ThrowLesson|null>(null);
+  if (!lesson.current) lesson.current = new ThrowLesson(r => {
+    // [lesson] logs: each step of saving and sharing, to find where a shared lesson goes missing (both people's consoles).
+    console.info(`[lesson] recorded ${r.label}: ${r.durationMs} ms, ${r.hands.filter(x => x.hands.length).length} frames with hands, ${r.twinPoses.length} poses`);
+    saveReplay(r, `${r.label} lesson`).then(id => {
+      show('Lesson saved to Tutorials');
+      const dc = controlRef.current, open = dc?.readyState==='open';
+      console.info(`[lesson] saved ${id} on ${import.meta.env.VITE_CONVEX_URL}; ${open ? 'sent to friend' : 'call closed, not shared'}`);
+      if (open) dc!.send(JSON.stringify({ type:'lesson', id }));
+    }, e => { console.warn('Lesson not saved:', e); show('Lesson could not be saved'); });
+  });
+  const lessonRef = lesson.current;
+  useEffect(() => () => lessonRef.end(performance.now()), [lessonRef]);
   const controlRef = useRef<RTCDataChannel|null>(null);
   const remotePose = useRef<TwinPose>(REST_POSE); // where the helper has moved the copy
   const scanAspect = useRef(4/3);
   const [scannedFrom,setScannedFrom] = useState<'mine'|'friend'>('mine'); // outlines only make sense over the camera that was scanned
   const prevSelected = useRef<string|null>(null);
   sayRef.current = text => { const dc = controlRef.current; if (dc?.readyState==='open') dc.send(encodeSay(text)); };
-  const sendPose = (p:TwinPose) => { const dc = controlRef.current; if (dc?.readyState==='open') dc.send(encodePose(p)); };
+  const sendPose = (p:TwinPose) => { lastPose.current = p; const dc = controlRef.current; if (dc?.readyState==='open') dc.send(encodePose(p)); };
   const sendTwin = (t:TwinInfo|null) => { const dc = controlRef.current; if (dc?.readyState==='open') dc.send(encodeTwin(t)); };
   useEffect(() => {
     const dc = call.controlChannel; controlRef.current = dc;
@@ -323,7 +352,14 @@ export default function App({communitySession}:{communitySession?:{id:string;tok
       if (typeof e.data !== 'string') return;
       const said = decodeSay(e.data); if (said) { agent.current?.hear('friend', said); return; }
       const pose = decodePose(e.data); if (pose) { remotePose.current = pose; return; }
-      const t = decodeTwin(e.data); if (t !== undefined) { remotePose.current = REST_POSE; setTwin(t); }
+      if (e.data===THROW) { const t = twinRef.current; if (!t) return;
+        // Caught: it is mine to handle now, and the lesson starts.
+        console.info(`[lesson] caught ${t.label}, recording`);
+        setHolder('me'); show(`Your friend threw you the ${t.label}`);
+        lesson.current!.caught(t.objectId, t.label, t.model, live.current.aspect, performance.now(), t); return; }
+      const shared = lessonId(e.data);
+      if (shared) { console.info(`[lesson] friend shared ${shared}; keeping it on ${import.meta.env.VITE_CONVEX_URL}`); keepSharedReplay(shared).then(() => { console.info('[lesson] kept friend’s lesson'); show('Your friend’s lesson was saved to Tutorials'); }, err => { console.warn('Lesson not kept:', err); show('Your friend’s lesson could not be saved here'); }); return; }
+      const t = decodeTwin(e.data); if (t !== undefined) { remotePose.current = REST_POSE; setTwin(t); setHolder('friend'); if (!t) lesson.current!.end(performance.now()); }
     };
     const onOpen = () => { if (twinRef.current) dc.send(encodeTwin(twinRef.current)); };
     dc.addEventListener('open', onOpen);
@@ -338,7 +374,7 @@ export default function App({communitySession}:{communitySession?:{id:string;tok
     const kitBox = (): [number,number,number,number] => { const bs = scene.objects.filter(o => isLanyard(`${o.label} ${o.parentLabel ?? ''}`)).map(o => o.bbox); return [Math.min(...bs.map(b => b[0])), Math.min(...bs.map(b => b[1])), Math.max(...bs.map(b => b[2])), Math.max(...bs.map(b => b[3]))]; };
     const t: TwinInfo|null = selected ? { objectId: selected.objectId, label: lanyard ? 'lanyard' : selected.label, bbox: lanyard ? kitBox() : selected.bbox, feedAspect: scanAspect.current,
       model: lanyard ? sanitizeModel(BUILTIN_MODELS.lanyard)! : selected.model ?? sanitizeModel(BUILTIN_MODELS[twinKindForLabel(selected.label, selected.parentLabel)])! } : null;
-    setTwin(t); sendTwin(t);
+    setTwin(t); sendTwin(t); setHolder('me');
   }, [selectedId, selected]);
   useEffect(() => { if (screen==='home' && !selectedId) setTwin(null); }, [screen]);
   // Objects saved for the demo ship with the app (public/demo): open one without scanning. ?demo=lanyard opens it on load.
@@ -347,18 +383,51 @@ export default function App({communitySession}:{communitySession?:{id:string;tok
     try {
       const m = await (await fetch(`${DEMO_BASE}${key}.json`)).json();
       const t = decodeTwin(JSON.stringify({ ...m.twin, type:'twin' }));
-      if (t) { setSelectedId(null); prevSelected.current = null; setTwin(t); sendTwin(t); }
+      if (t) { setSelectedId(null); prevSelected.current = null; setTwin(t); sendTwin(t); setHolder('me'); return true; }
     } catch { /* not saved after all */ }
+    return false;
+  };
+  // The lanyard without waiting for the agent: the saved model, or the built-in one.
+  const showLanyard = async () => {
+    if (await openSaved('lanyard')) return;
+    const t: TwinInfo = { objectId: 'lanyard', label: 'lanyard', bbox: [0.3,0.2,0.7,0.85], feedAspect: live.current.aspect, model: sanitizeModel(BUILTIN_MODELS.lanyard)! };
+    setSelectedId(null); prevSelected.current = null; setTwin(t); sendTwin(t); setHolder('me');
+  };
+  const throwTwin = () => {
+    const t = twinRef.current, dc = controlRef.current;
+    if (!t || dc?.readyState!=='open') return;
+    dc.send(THROW); remotePose.current = lastPose.current; setHolder('friend'); show(`Threw the ${t.label} to your friend`);
+    lesson.current!.thrown(t.objectId, performance.now());
   };
   useEffect(() => {
     fetch(`${DEMO_BASE}index.json`).then(r => r.ok ? r.json() : []).then(l => setSaved(Array.isArray(l) ? l.filter(x => typeof x?.key==='string' && typeof x?.label==='string') : [])).catch(() => setSaved([]));
     const want = new URLSearchParams(location.search).get('demo');
     if (want && /^[a-z0-9-]{1,40}$/.test(want)) void openSaved(want);
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  // The agent: in a call, until the lanyard is out, look at my camera every few seconds (only when the view has changed).
+  const lookSig = useRef<Uint8Array|null>(null);
+  const scanRef = useRef(scene); scanRef.current = scene;
+  const looking = screen==='incall' && active && !twin;
+  useEffect(() => {
+    if (!looking) return;
+    lookSig.current = null;
+    const id = window.setInterval(() => {
+      const sc = scanRef.current, v = video.current;
+      if (sc.scanning || !v) return;
+      const sig = frameSignature(v); if (!sig) return;
+      if (lookSig.current && signatureDistance(sig, lookSig.current) < 0.02) return; // same view as the last look: it is still not there
+      lookSig.current = sig; void sc.scan(v);
+    }, LOOK_MS);
+    return () => clearInterval(id);
+  }, [looking]);
+  useEffect(() => { const l = looking && lanyardIn(scene.objects); if (l) setSelectedId(l.objectId); }, [scene.objects, looking]);
+  useEffect(() => { if (screen==='home') { lesson.current!.end(performance.now()); setHolder('me'); } }, [screen]);
+  // Tracking starts with the call: the hands are how you hold the lanyard, and the call reuses this camera.
+  async function begin(room?:string) { if (phase!=='running' && phase!=='loading') await start(); call.start(room); }
   const chooseObject = (id:string|null) => { setSelectedId(id); if (id) agent.current?.tracker.mention(id, 1, performance.now()); };
   const scanMine = () => { void scene.scan(video.current); };
   const scanFriend = () => { void scene.scan(call.friendVideo.current); };
-  const closeTwin = () => { setTwin(null); setSelectedId(null); sendTwin(null); };
+  const closeTwin = () => { setTwin(null); setSelectedId(null); sendTwin(null); setHolder('me'); lesson.current!.end(performance.now()); };
   // App re-renders every 250 ms for stats, which also ticks this clock.
   const elapsed = call.connectedAt ? Math.floor((Date.now()-call.connectedAt)/1000) : 0;
   const clock = `${String(Math.floor(elapsed/60)).padStart(2,'0')}:${String(elapsed%60).padStart(2,'0')}`;
@@ -367,19 +436,17 @@ export default function App({communitySession}:{communitySession?:{id:string;tok
   return <main className={`app ${mobile?'phone':'mac'} ${screen} ${guided && !twin && screen==='incall' ? 'guided' : ''}`}>
     <div className="remote">
       <video ref={call.friendVideo} className="friend-video" autoPlay playsInline/>
-      {screen==='incall' && handOn && active && <HandOverlay cover remote={myHand} placement={placement} aspect={friendAspect} onPin={pin => setPlacement(p => ({...p,pin}))}/>}
       {screen==='incall' && !call.remote && <p className="remote-wait">Waiting for video…</p>}
       {call.playBlocked && <button className="pill-button play-audio" onClick={call.retryPlay}>Play friend’s audio and video</button>}
     </div>
     <div className={`self ${selfFromCall?'from-call':''}`}>
       <div className={`camera-stage ${facing==='user'?'mirrored':''}`} style={{'--ar':live.current.aspect} as CSSProperties}>
         <video ref={video} autoPlay playsInline muted/><canvas ref={overlay} className={showOverlay?'':'hidden'}/>
-        {active && scannedFrom==='mine' && <SceneOverlay objects={scene.objects} selectedId={selectedId} hoverId={hoverId} aspect={live.current.aspect} mirrored={facing==='user'} onSelect={chooseObject}/>}
+        {screen==='home' && active && scannedFrom==='mine' && <SceneOverlay objects={scene.objects} selectedId={selectedId} hoverId={hoverId} aspect={live.current.aspect} mirrored={facing==='user'} onSelect={chooseObject}/>}
       </div>
       <video ref={call.selfVideo} className="self-video" autoPlay muted playsInline/>
-      {!twin && ((screen==='home' && active && handOn) || screen==='incall') && <HandOverlay cover mirrored={screen==='incall' && (selfFromCall || facing==='user')} remote={screen==='home' ? myHand : peerHand} placement={placement} aspect={active ? live.current.aspect : 4/3} onPin={pin => setPlacement(p => ({...p,pin}))}/>}
       {screen==='home' && !active && <div className="camera-empty">
-        <p role={phase==='error'?'alert':'status'}>{phase==='idle' ? 'Turn on your camera to see your hand tracked.' : message}</p>
+        <p role={phase==='error'?'alert':'status'}>{phase==='idle' ? 'Your camera and hand tracking turn on when the call starts.' : message}</p>
         {phase!=='loading' && <button className="pill-button" onClick={() => void start()}>{phase==='error'?'Try again':'Turn on camera'}</button>}
       </div>}
       {screen==='home' && active && <span className="self-label">{stats.tracked ? 'Hand tracked' : 'Looking for your hand'}</span>}
@@ -391,11 +458,12 @@ export default function App({communitySession}:{communitySession?:{id:string;tok
     </div>
     {screen!=='calling' && <VoiceBar state={voice.state} engine={voice.engine} partial={voice.partial} error={voice.error} heard={heard} objects={scene.objects} focus={focusInfo} topic={topic}
       onToggle={() => voice.state==='listening' ? voice.stop() : voice.start()} onChoose={chooseObject} onAccept={voice.accept} onDecline={voice.decline}/>}
-    {twin && (screen==='home' || screen==='incall') && <TwinBox twin={twin} mirror={screen==='home'} hand={helperMode ? myHand : peerHand} drive={helperMode ? 'local' : 'remote'} remotePose={remotePose} onPose={sendPose} placement={placement} posFlip={screen==='home' ? false : placement.flipX} onClose={closeTwin} frame={helperMode && scene.objects.some(o => o.objectId===twin.objectId) ? scene.frame.current : null}/>}
+    {twin && (screen==='home' || screen==='incall') && <TwinBox twin={twin} mirror={screen==='home'} hand={holder==='me' ? myHand : peerHand} drive={holder==='me' ? 'local' : 'remote'} remotePose={remotePose} onPose={sendPose} placement={placement} posFlip={screen==='home' ? false : placement.flipX} onClose={closeTwin} onThrow={screen==='incall' ? throwTwin : undefined} frame={holder==='me' && scene.objects.some(o => o.objectId===twin.objectId) ? scene.frame.current : null}/>}
+    {toasts.length > 0 && <div className="throw-toasts">{toasts.map(t => <p key={t.id} className="throw-toast" role="status">{t.text}</p>)}</div>}
     {screen==='home' && <section className="home-panel" aria-label="Start a call">
       <PageHeading compact eyebrow="Handoff LIVE" title={<>A hand.<br/><span className="gradient-text">From anywhere.</span></>} description="Show someone what to do with your hands."/>
-      <button className="primary" onClick={() => call.start()}><Icon name="video" size={20}/>New call</button>
-      <form className="join" onSubmit={e => { e.preventDefault(); if(validCode) call.start(code); }}>
+      <button className="primary" onClick={() => void begin()}><Icon name="video" size={20}/>New call</button>
+      <form className="join" onSubmit={e => { e.preventDefault(); if(validCode) void begin(code); }}>
         <label htmlFor="room-input">Join with a code</label>
         <div><input id="room-input" value={code} onChange={e => setCode(normalizeRoomCode(e.target.value).slice(0,6))} placeholder="ABC234" maxLength={8} spellCheck={false} autoCapitalize="characters" autoComplete="off" enterKeyHint="go"/><button type="submit" disabled={!validCode}>Join</button></div>
       </form>
@@ -412,7 +480,11 @@ export default function App({communitySession}:{communitySession?:{id:string;tok
       {call.hint && <p className="fine" role="status">{call.hint}</p>}
       {call.room && !call.relay && <p className="fine">No TURN relay on this server, so calls across networks may fail.</p>}
     </section>}
-    {screen==='incall' && !active && <p className="hand-hint" role="status">{phase==='loading' ? 'Starting hand tracking…' : 'Tap the hand button to show your hand to your friend.'}</p>}
+    {screen==='incall' && !twin && <div className="hand-hint look-hint" role="status">
+      <span>{!active ? (phase==='loading' ? 'Starting hand tracking…' : 'Tap the hand button to turn on hand tracking') : scene.scanning ? 'Looking for the lanyard…' : 'Hold the lanyard up to your camera'}</span>
+      <button className="pill-button" onClick={() => void showLanyard()}>Show lanyard</button>
+    </div>}
+    {screen==='incall' && twin && <p className="hand-hint" role="status">{holder==='me' ? 'You have it. Grab it with your hand, then throw it to your friend' : 'Your friend has it'}</p>}
     {screen==='incall' && <div className="call-pill" role="status"><b data-testid="room-code">{call.room}</b><span data-testid="call-state">{call.status==='connected' ? clock : 'Reconnecting…'}</span>{call.route && <span>{call.route}</span>}</div>}
     {screen!=='home' && <div className="controls">
       <button className="round" disabled={!call.local} aria-pressed={call.muted} aria-label={call.muted?'Unmute microphone':'Mute microphone'} onClick={call.toggleMute}><Icon name={call.muted?'micOff':'mic'}/></button>
@@ -429,12 +501,6 @@ export default function App({communitySession}:{communitySession?:{id:string;tok
         <details className="more"><summary>AI scan to 3D model <small>needs the AI server</small></summary>
           <ScenePanel objects={scene.objects} selectedId={selectedId} onSelect={chooseObject} cameraOn={active} inCall={screen==='incall'} scanning={scene.scanning} error={scene.error} auto={scene.auto} onAuto={scene.setAuto} onScan={scanMine} onScanFriend={scanFriend} lastMs={scene.lastMs} saved={saved} onOpenSaved={key => void openSaved(key)}/>
           <DemoPanel/>
-        </details>
-        <details className="more" onToggle={e => setLabOpen(e.currentTarget.open)}><summary>Hand tracking lab <small>3D skeleton, performance</small></summary>
-          <div className="panel-footer lab-toggle"><label><input type="checkbox" checked={showOverlay} onChange={e => setLandmarks(e.target.checked)}/> Draw landmark dots on the camera view</label><span>21 POINTS</span></div>
-          <div className="scene-stage stage">{labOpen && <HandScene live={live} mobile={mobile} running={active && pageVisible}/>}{!stats.tracked && <div className="scene-wait"><p>{active?'Waiting for your hand':'Turn on the camera first'}</p></div>}<div className="scene-label">{stats.tracked?`${stats.hand.toUpperCase()} HAND / ${stats.world?'WORLD':'IMAGE'} LANDMARKS`:'NO SIGNAL'}</div></div>
-          <section className="metrics" aria-label="Performance metrics"><div><span>RENDER RATE</span><strong>{active?stats.fps:'—'}<small> FPS</small></strong></div><div><span>PIPELINE LATENCY</span><strong>{active?stats.latency:'—'}<small> ms</small></strong></div><div><span>MODEL INFERENCE</span><strong>{active?stats.inference:'—'}<small> ms</small></strong></div><div><span>STATUS</span><strong className="status-text" aria-live="polite">{stats.tracked?'Hand detected':active?'Searching…':'Standby'}</strong></div></section>
-          <p className="fine lab-note">Monocular depth is an estimate. Occlusion and fast movement can reduce accuracy.</p>
         </details>
       </aside>
     </div>}

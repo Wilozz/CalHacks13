@@ -1,0 +1,73 @@
+{
+ "key": "lanyard",
+ "label": "lanyard",
+ "version": 1792888556206,
+ "savedAt": 1792891598981,
+ "twin": {
+  "objectId": "saved-lanyard",
+  "label": "lanyard",
+  "model": {
+   "parts": [
+    {
+     "shape": "box",
+     "size": [
+      0.42,
+      0.6,
+      0.02
+     ],
+     "position": [
+      0,
+      -0.2,
+      0
+     ],
+     "color": "#e9eef3",
+     "moving": false
+    },
+    {
+     "shape": "box",
+     "size": [
+      0.07,
+      0.1,
+      0.04
+     ],
+     "position": [
+      0,
+      0.27,
+      0
+     ],
+     "color": "#c9ced6",
+     "moving": true,
+     "name": "clasp"
+    },
+    {
+     "shape": "box",
+     "size": [
+      0.05,
+      0.18,
+      0.02
+     ],
+     "position": [
+      0,
+      0.41,
+      0
+     ],
+     "color": "#3b6fd8",
+     "moving": true,
+     "name": "clasp"
+    }
+   ],
+   "pivot": [
+    0,
+    0,
+    0
+   ]
+  },
+  "bbox": [
+   0.3,
+   0.2,
+   0.7,
+   0.85
+  ],
+  "feedAspect": 1.3333333333333333
+ }
+}

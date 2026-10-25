@@ -4,11 +4,11 @@ import {convexTest} from 'convex-test';
 import presenceTest from '@convex-dev/presence/test';
 import schema from './schema';
 import {api} from './_generated/api';
-import {TOSS_OBJECTS} from '../src/throw/toss';
+import {BUILTIN_MODELS,sanitizeModel} from '../src/ai/modelSpec';
 import {encodeReplay,Recorder} from '../src/replay/log';
 const modules=import.meta.glob('./**/*.ts');
 const owner='a'.repeat(32),other='b'.repeat(32);
-const log=encodeReplay(new Recorder(0,{...TOSS_OBJECTS.mug,aspect:4/3}).finish(2500));
+const log=encodeReplay(new Recorder(0,{label:'Mug',model:sanitizeModel(BUILTIN_MODELS.bottle)!,aspect:4/3}).finish(2500));
 describe('replays',()=>{
  it('saves a valid log, lists it live for its owner only, and deletes it with its file',async()=>{
   const t=convexTest(schema,modules);presenceTest.register(t);

@@ -4,6 +4,10 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { BONES } from '../coordinates';
 import { PartMesh } from '../render/DemoScene';
+import { IDLE_STATUS, TwinScene, type BoxStatus, type HandSource } from '../render/TwinBox';
+import { useTwinMesh } from '../render/useTwinMesh';
+import { DEFAULT_PLACEMENT } from '../remote/placement';
+import { REST_POSE, type TwinInfo, type TwinPose } from '../remote/twinWire';
 import { indexAt, type Replay } from './log';
 
 interface Clock { t: number; playing: boolean; speed: number }
@@ -62,6 +66,22 @@ function Scene({ replay, clock }: { replay: Replay; clock: MutableRefObject<Cloc
   </>;
 }
 
+/**
+ * A lesson from the call: the same 3D copy as the live box (the lanyard, its claw and strap), driven by the recorded pose,
+ * with the catcher's recorded hands on it, exactly as the other screen showed them.
+ */
+function TwinReplay({ replay, twin, clock }: { replay: Replay; twin: TwinInfo; clock: MutableRefObject<Clock> }) {
+  const pose = useRef<TwinPose>(REST_POSE), status = useRef<BoxStatus>(IDLE_STATUS), placement = useRef(DEFAULT_PLACEMENT);
+  const hands = useRef<HandSource>({ current: (_now, slot) => replay.hands[indexAt(replay.hands, clock.current.t)]?.hands[slot] ?? null });
+  const sam = useTwinMesh(twin.label, twin.model);
+  useFrame((_, dt) => {
+    const c = clock.current;
+    if (c.playing) { c.t += dt * 1000 * c.speed; if (c.t >= replay.durationMs) { c.t = replay.durationMs; c.playing = false; } }
+    pose.current = replay.twinPoses[indexAt(replay.twinPoses, c.t)]?.pose ?? REST_POSE;
+  });
+  return <TwinScene mirror={false} twin={twin} hand={hands} placement={placement} posFlip={DEFAULT_PLACEMENT.flipX} drive="remote" remotePose={pose} onPose={() => {}} status={status} resetToken={0} mesh={sam.mesh} />;
+}
+
 /** A recorded lesson: the object and the hands that handled it, from any angle, as often as you like. No video. */
 export function ReplayPlayer({ replay }: { replay: Replay }) {
   const clock = useRef<Clock>({ t: 0, playing: true, speed: 1 });
@@ -75,11 +95,11 @@ export function ReplayPlayer({ replay }: { replay: Replay }) {
   const toggle = () => set(clock.current.playing ? { playing: false } : { playing: true, t: clock.current.t >= replay.durationMs ? 0 : clock.current.t });
   return <div className="replay-player">
     <div className="replay-stage">
-      <Canvas dpr={[1, 2]} camera={{ position: [0, 0.3, 6], fov: 40 }} gl={{ antialias: true, alpha: true }} onCreated={({ gl }) => gl.setClearColor(0x000000, 0)}>
+      <Canvas dpr={[1, 2]} camera={{ position: replay.twin ? [0.5, 0.4, 3.4] : [0, 0.3, 6], fov: 40 }} gl={{ antialias: true, alpha: true }} onCreated={({ gl }) => gl.setClearColor(0x000000, 0)}>
         <Orbit />
         <ambientLight intensity={1.2} />
         <directionalLight position={[2, 3, 4]} intensity={2} />
-        <Scene replay={replay} clock={clock} />
+        {replay.twin ? <TwinReplay replay={replay} twin={replay.twin} clock={clock} /> : <Scene replay={replay} clock={clock} />}
       </Canvas>
       <span className="replay-hint">Drag to look around</span>
     </div>
